@@ -1426,7 +1426,7 @@
     return nextWorkingDay(dayOfMonth(d.getFullYear(), d.getMonth() + 4, 15));
   }
 
-  const SOCIETES = ['EURL', 'SARL', 'SAS', 'SASU', 'SA', 'SNC', 'SCI', 'SCM', 'SMC', 'SELARL', 'SELAS', 'EARL', 'GAEC'];
+  const SOCIETES = ['EURL', 'SARL', 'SAS', 'SASU', 'SA', 'SNC', 'SC', 'SCI', 'SCM', 'SMC', 'SCCV', 'SCP', 'SPFPL', 'SELARL', 'SELAS', 'SELAFA', 'SELCA', 'EARL', 'GAEC'];
   const IS_PAR_DEFAUT = ['SAS', 'SASU', 'SA', 'SELAS', 'SARL', 'SELARL'];
   const formeOf = (c) => (c.forme || '').toUpperCase();
 
@@ -1652,12 +1652,17 @@
     const byName = h.match(/^(janv|fevr|mars|avr|mai|juin|juil|aout|sept|oct|nov|dec)[a-z]*$/);
     if (byName) return 'mois:' + (['janv', 'fevr', 'mars', 'avr', 'mai', 'juin', 'juil', 'aout', 'sept', 'oct', 'nov', 'dec'].indexOf(byName[1]) + 1);
     const rules = [
+      [/^m$/, 'responsable'],
+      [/^cs$/, 'collaborateur'],
+      [/^cj$/, 'superviseur'],
+      [/^(date\s*(de\s*)?)?cloture/, 'cloture'],
       [/^(n|no|num|numero)\s*(de\s*)?dossier|^code|^ref/, 'code'],
       [/siren|siret/, 'siren'],
       [/mail/, 'email'],
       [/jour.*tva|tva.*jour|date.*tva|limite.*tva/, 'jourTva'],
       [/tva/, 'regimeTva'],
-      [/^is\s*\/?\s*ir|cloture|exercice/, 'cloture'],
+      [/^i[rs]\s*\/?\s*i[rs]$/, 'regimeFiscal'],
+      [/cloture|exercice/, 'cloture'],
       [/fiscal/, 'regimeFiscal'],
       [/statut|forme/, 'forme'],
       [/collab/, 'collaborateur'],
@@ -1681,7 +1686,7 @@
     if (/^t$|trimest/.test(r)) return 'Réel normal (trimestriel)';
     if (/ca\s*12|simplif|^rsi$|^rs$/.test(r)) return 'Réel simplifié';
     if (/franch|^fb$/.test(r)) return 'Franchise en base';
-    if (/non assuj|exoner|^na$|^exo$/.test(r)) return 'Non assujetti';
+    if (/non assuj|exoner|^n\/?a$|^exo$/.test(r)) return 'Non assujetti';
     return v;
   }
 
@@ -1719,8 +1724,11 @@
     const header = rows[imp.headerRow] || [];
     const width = rows.reduce((w, r) => Math.max(w, r.length), 0);
     const used = new Set();
+    const sample = (i) => rows.slice(imp.headerRow + 1, imp.headerRow + 30).map((r) => (r[i] ? r[i].text : '')).filter(Boolean);
     imp.mapping = Array.from({ length: width }, (_, i) => {
-      const f = guessField((header[i] || {}).text || '', used);
+      let f = guessField((header[i] || {}).text || '', used);
+      // Une colonne « IS/IR » remplie de dates est une date de clôture.
+      if (f === 'regimeFiscal' && sample(i).some((v) => /^\d{4}-\d{2}-\d{2}$/.test(v))) f = used.has('cloture') ? '' : 'cloture';
       if (f) used.add(f);
       return f;
     });
@@ -1750,7 +1758,7 @@
       }
       const v = {
         nom,
-        code: get('code').toUpperCase(),
+        code: /^0+$/.test(get('code')) ? '' : get('code').toUpperCase(),
         forme: get('forme') ? normForme(get('forme')) : '',
         siren: get('siren').replace(/\s+/g, ''),
         regimeTva: normRegimeTva(get('regimeTva')),

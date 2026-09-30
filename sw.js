@@ -3,7 +3,7 @@
  * Il ne manipule jamais les données des dossiers (stockées chiffrées dans IndexedDB)
  * et n'effectue aucune requête vers un autre domaine.
  */
-const VERSION = '5';
+const VERSION = '6';
 const CACHE = 'suivi-dossiers-v' + VERSION;
 const ASSETS = [
   './',
