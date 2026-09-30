@@ -3,7 +3,8 @@
  * Il ne manipule jamais les données des dossiers (stockées chiffrées dans IndexedDB)
  * et n'effectue aucune requête vers un autre domaine.
  */
-const VERSION = '6';
+// À garder identique aux ?v= de index.html et à ASSET_VERSION dans js/app.js.
+const VERSION = '7';
 const CACHE = 'suivi-dossiers-v' + VERSION;
 const ASSETS = [
   './',
@@ -12,6 +13,7 @@ const ASSETS = [
   'js/vault.js?v=' + VERSION,
   'js/sheet-reader.js?v=' + VERSION,
   'js/xlsx-writer.js?v=' + VERSION,
+  'js/fec-worker.js?v=' + VERSION,
   'js/app.js?v=' + VERSION,
   'manifest.webmanifest',
   'icons/icon.svg',

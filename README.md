@@ -27,6 +27,11 @@ Elle a été conçue pour respecter le **secret professionnel** et la **déontol
 - **Rappels dans votre agenda** : export `.ics` (Outlook, Google Agenda, iPhone) avec rappel à 9 h, les N° de dossier seuls remplaçant les noms par défaut.
 - **Filtre « Mes dossiers »** sur le tableau de bord, pour chaque collaborateur.
 - **Sauvegarde automatique** (ordinateur, Chrome ou Edge) : la sauvegarde chiffrée est écrite dans le fichier de votre choix après chaque modification.
+- **Analyse de FEC**, faite localement dans un processus isolé : le FEC n'est ni envoyé ni conservé, et 300 000 lignes sont traitées en quelques secondes. Elle comprend :
+  - les **contrôles de conformité** de l'article A47 A-1 du LPF : colonnes, zones obligatoires, dates, montants, équilibre des écritures et de la balance, numérotation, dates hors exercice… ;
+  - les **points de révision** : caisse créditrice, comptes d'attente, clients créditeurs, fournisseurs débiteurs, compte courant d'associé débiteur, doublons, écritures du dimanche ou d'un jour férié, loi de Benford ;
+  - les **chiffres** : SIG, bilan simplifié, balance, graphiques mensuels du CA, des charges et de la trésorerie, journaux, principaux tiers. Le tout s'exporte en Excel.
+- **Pièces à demander** (depuis le FEC, pour une situation ou un bilan) : relevés manquants, factures récurrentes absentes, paiements sans facture, opérations en 471, immobilisations, paie, check-list de clôture et questions au client. Un clic prépare le mail et crée une mission dont chaque étape est une pièce ; la relance ne liste que ce qui manque encore.
 - **Aide intégrée** dans l'application.
 - **Sauvegarde chiffrée** exportable, pour se prémunir d'une perte de l'appareil et **transférer les données entre PC et téléphone**. Export CSV possible (non chiffré, avec avertissement).
 - **Hors ligne** et installable comme une application (PWA), en mode clair ou sombre selon l'appareil.
@@ -95,7 +100,8 @@ index.html            page unique + politique de sécurité (CSP)
 css/styles.css        interface responsive (PC / mobile, clair / sombre)
 js/vault.js           coffre chiffré : WebCrypto (PBKDF2 + AES-GCM) et IndexedDB
 js/sheet-reader.js    lecture locale des fichiers .xlsx (zip + XML) et .csv, sans dépendance
-js/xlsx-writer.js     écriture locale de fichiers .xlsx (export de la grille), sans dépendance
+js/xlsx-writer.js     écriture locale de fichiers .xlsx (exports), sans dépendance
+js/fec-worker.js      analyse du FEC dans un Web Worker (contrôles, balance, SIG, pièces manquantes)
 js/app.js             application (dossiers, missions, tableau de bord, paramètres)
 sw.js                 service worker (fonctionnement hors ligne)
 manifest.webmanifest  installation comme application

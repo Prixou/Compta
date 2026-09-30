@@ -111,6 +111,7 @@
     calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
     mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
     help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17h.01"/>',
+    chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
     grid: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16M15 4v16"/>',
   };
 
@@ -542,6 +543,7 @@
             <a href="#/dossiers" data-nav="dossiers">${icon('folder')}<span>Dossiers</span></a>
             <a href="#/missions" data-nav="missions">${icon('list')}<span>Missions</span></a>
             <a href="#/grille" data-nav="grille">${icon('grid')}<span>Suivi mensuel</span></a>
+            <a href="#/fec" data-nav="fec">${icon('chart')}<span>Analyse FEC</span></a>
             <a href="#/parametres" data-nav="parametres">${icon('gear')}<span>Paramètres</span></a>
           </nav>
           <div class="side-actions">
@@ -568,6 +570,7 @@
     mf: { q: '', statut: 'ouvertes', resp: '', periode: 'toutes', type: '' },
     grille: { annee: new Date().getFullYear(), type: 'tva', resp: '', regime: '' },
     imp: null,
+    fec: null,
   };
 
   function route() {
@@ -583,6 +586,7 @@
       case 'missions': main.innerHTML = viewMissions(); renderMissionList(); break;
       case 'grille': main.innerHTML = viewGrille(); scrollGrilleToMonth(); break;
       case 'aide': main.innerHTML = viewAide(); break;
+      case 'fec': main.innerHTML = viewFec(); break;
       case 'parametres': main.innerHTML = viewSettings(); break;
       default: main.innerHTML = viewDashboard();
     }
@@ -851,6 +855,13 @@
               ${field('Dernière identification / revue', c.kycDate ? fmtDate(c.kycDate) : '')}
             </dl>
           </section>
+          ${c.fec && c.fec.length ? `<section class="card"><h2>Analyses FEC</h2>
+            <ul class="fec-hist">${c.fec.slice().reverse().map((x) => `<li>
+              <div><strong>${x.closing ? 'Clôture ' + fmtDate(x.closing) : esc(x.fileName)}</strong> <span class="muted small">analysé le ${fmtDate(x.date.slice(0, 10))}</span></div>
+              <div class="small">${x.errors ? `<span class="lvl lvl-error"><b aria-hidden="true">✕</b>${x.errors} anomalie(s)</span>` : '<span class="lvl lvl-ok"><b aria-hidden="true">✓</b>Aucune anomalie</span>'} ${x.warnings ? `<span class="lvl lvl-warn"><b aria-hidden="true">!</b>${x.warnings} à vérifier</span>` : ''}</div>
+              <div class="muted small">CA ${eur(x.kpi.ca, 0)} € · Résultat ${eur(x.kpi.resultat, 0)} € · EBE ${eur(x.kpi.ebe, 0)} € · Trésorerie ${eur(x.kpi.tresorerie, 0)} €</div>
+            </li>`).join('')}</ul>
+            <a class="btn small" href="#/fec">Nouvelle analyse</a></section>` : ''}
           ${c.notes ? `<section class="card"><h2>Notes</h2><div class="notes">${discret ? hidden : esc(c.notes)}</div></section>` : ''}
           <section class="card">
             <h2>Gestion du dossier</h2>
@@ -1226,6 +1237,7 @@
 
   // Étapes non cochées qui correspondent à des documents attendus du client.
   function piecesManquantes(m) {
+    if (m.demandePieces) return m.etapes.filter((e) => !e.done).map((e) => e.label);
     const periode = m.exercice ? ` de la période ${m.exercice}` : '';
     return m.etapes
       .filter((e) => !e.done && PIECE_RE.test(e.label))
@@ -1252,6 +1264,8 @@
     const signature = s.signature || [s.utilisateur, s.cabinet].filter(Boolean).join('\n');
     const titres = missions.map((m) => `« ${m.titre} »`).join(', ');
     const nextDue = missions.map((m) => m.echeance).filter(Boolean).sort()[0];
+    const demande = missions.find((m) => m.demandePieces);
+    if (demande) return buildPiecesMessage(c, demande, modele, salut, signature);
     const pieces = [];
     missions.forEach((m) => piecesManquantes(m).forEach((p) => {
       const line = missions.length > 1 ? `${p} (${m.titre})` : p;
@@ -1295,6 +1309,26 @@
         ...ending];
     }
     return { subject, body: body.join('\n') };
+  }
+
+  // Message d'une demande de pièces issue du FEC : éléments non encore reçus, groupés par catégorie.
+  function buildPiecesMessage(c, m, modele, salut, signature) {
+    const objet = `${m.demandePieces.mode === 'bilan' ? 'votre bilan' : 'votre situation'} au ${fmtDate(m.demandePieces.arrete)}`;
+    const groups = {};
+    m.etapes.filter((e) => !e.done).forEach((e) => (groups[e.cat || 'Autres'] = groups[e.cat || 'Autres'] || []).push(e.label));
+    const list = Object.entries(groups).map(([cat, l]) => `${cat} :\n${l.map((x) => `- ${x}`).join('\n')}`).join('\n\n');
+    const limit = m.echeance && m.echeance > todayStr() ? fmtDate(m.echeance) : null;
+    const last = lastRelance(m);
+    const body = modele === 'relance'
+      ? [salut, '', `Sauf erreur de notre part, il nous manque encore les éléments suivants${last ? `, demandés le ${fmtDate(last.slice(0, 10))},` : ''} pour établir ${objet} :`, '', list, '',
+        'Merci de nous les transmettre dans les meilleurs délais afin que nous puissions finaliser nos travaux.', '', 'Cordialement,', signature]
+      : [salut, '', `Afin d'établir ${objet}, nous avons besoin des éléments suivants :`, '', list, '',
+        limit ? `Nous vous remercions de nous les transmettre avant le ${limit}. Vous pouvez nous les envoyer au fur et à mesure.` : 'Nous vous remercions de nous les transmettre dès que possible.',
+        '', 'Pour les questions, une réponse rapide par retour de mail nous suffit.', '', 'Nous restons à votre disposition.', '', 'Cordialement,', signature];
+    return {
+      subject: `${c.nom} — ${modele === 'relance' ? 'relance : ' : ''}pièces nécessaires pour ${objet}`,
+      body: body.join('\n'),
+    };
   }
 
   function openMessage(clientId, missionId) {
@@ -1952,6 +1986,720 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Analyse de FEC
+  // ---------------------------------------------------------------------------
+
+  const ASSET_VERSION = '7';
+  let fecWorker = null;
+
+  const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
+  const eurK = (n) => {
+    const a = Math.abs(n);
+    if (a >= 1e6) return (n / 1e6).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' M€';
+    if (a >= 1e3) return (n / 1e3).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' k€';
+    return eur(n, 0) + ' €';
+  };
+  const LEVEL = {
+    ok: { icon: '✓', label: 'Conforme' },
+    info: { icon: 'i', label: 'Information' },
+    warn: { icon: '!', label: 'À vérifier' },
+    error: { icon: '✕', label: 'Anomalie' },
+  };
+
+  // Libellé « problème » de chaque contrôle, utilisé pour les étapes de la mission de revue.
+  const FEC_FAIL = {
+    nom: 'Nom de fichier non conforme', sep: 'Séparateur non conforme', cols: 'Colonnes non conformes',
+    equil: 'Écritures déséquilibrées', balance: 'Balance générale déséquilibrée', nbcol: 'Lignes au nombre de zones incorrect',
+    oblig: 'Zones obligatoires non renseignées', date: 'Dates invalides', datefmt: 'Dates hors format AAAAMMJJ',
+    montant: 'Montants non numériques', numdate: 'Écritures portant plusieurs dates', apresclo: 'Écritures postérieures à la clôture',
+    avantex: "Écritures antérieures au début de l'exercice", chrono: 'Numérotation non chronologique', compte: 'Numéros de compte non conformes',
+    classe: 'Comptes hors classes 1 à 7', libcompte: 'Libellés de compte multiples', aux: 'Comptes auxiliaires incomplets',
+    lettrage: 'Lettrage incomplet', devise: 'Devise incomplète', negatif: 'Montants négatifs', debcred: 'Lignes au débit et au crédit',
+  };
+
+  function fecCounts(r) {
+    const all = r.checks.concat(r.alerts);
+    return { errors: all.filter((c) => c.level === 'error').length, warnings: all.filter((c) => c.level === 'warn').length };
+  }
+
+  function startFec(file) {
+    if (!file) return;
+    if (fecWorker) fecWorker.terminate();
+    ui.fec = { status: 'loading', pct: 0, fileName: file.name, section: 'synthese', q: '', classe: '' };
+    refresh();
+    file.arrayBuffer().then((buffer) => {
+      fecWorker = new Worker('js/fec-worker.js?v=' + ASSET_VERSION);
+      fecWorker.onmessage = (e) => {
+        const m = e.data;
+        if (!ui.fec) return;
+        if (m.type === 'progress') {
+          ui.fec.pct = m.pct;
+          const bar = $('.fec-progress span');
+          if (bar) bar.style.width = m.pct + '%';
+          const label = $('.fec-progress-label');
+          if (label) label.textContent = `Analyse en cours… ${m.pct} %`;
+          return;
+        }
+        fecWorker.terminate();
+        fecWorker = null;
+        if (m.type === 'error') Object.assign(ui.fec, { status: 'error', message: m.message });
+        else {
+          const siren = m.result.meta.siren;
+          const match = siren && data.clients.find((c) => (c.siren || '').replace(/\s/g, '').slice(0, 9) === siren);
+          Object.assign(ui.fec, { status: 'done', result: m.result, clientId: match ? match.id : '' });
+        }
+        if (location.hash === '#/fec') refresh();
+        else toast(m.type === 'error' ? 'Analyse du FEC impossible.' : 'Analyse du FEC terminée.');
+      };
+      fecWorker.onerror = (err) => {
+        Object.assign(ui.fec, { status: 'error', message: err.message || 'Erreur pendant l\'analyse.' });
+        refresh();
+      };
+      fecWorker.postMessage({ buffer, fileName: file.name }, [buffer]);
+    }, (err) => {
+      Object.assign(ui.fec, { status: 'error', message: err.message });
+      refresh();
+    });
+  }
+
+  // ---------- Graphiques (SVG) ----------
+
+  function niceMax(v) {
+    if (v <= 0) return 1;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    const n = v / p;
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p;
+  }
+
+  const moisLabel = (ym) => MOIS_COURTS[Number(ym.slice(5, 7)) - 1] + (ym.slice(5, 7) === '01' ? ' ' + ym.slice(2, 4) : '');
+
+  function roundedBar(x, y0, y1, w) {
+    // Barre arrondie (4 px) côté valeur, ancrée sur la ligne de base.
+    const top = Math.min(y0, y1), h = Math.abs(y1 - y0);
+    if (h < 0.5) return '';
+    const r = Math.min(4, w / 2, h);
+    if (y1 < y0) return `M${x},${y0}V${top + r}Q${x},${top} ${x + r},${top}H${x + w - r}Q${x + w},${top} ${x + w},${top + r}V${y0}Z`;
+    return `M${x},${y0}V${y1 - r}Q${x},${y1} ${x + r},${y1}H${x + w - r}Q${x + w},${y1} ${x + w},${y1 - r}V${y0}Z`;
+  }
+
+  function axisY(ticks, y, W, left, fmtFn) {
+    return ticks.map((t) => `<line class="viz-grid" x1="${left}" x2="${W}" y1="${y(t)}" y2="${y(t)}"/><text class="viz-axis" x="${left - 6}" y="${y(t) + 4}" text-anchor="end">${esc(fmtFn(t))}</text>`).join('');
+  }
+
+  // Barres groupées (même unité, un seul axe).
+  function barChart(rows, series, opts) {
+    const W = 720, H = 230, left = 58, right = 8, top = 10, bottom = 26;
+    const vals = rows.flatMap((r) => series.map((s) => r[s.key]));
+    const max = niceMax(Math.max(0, ...vals));
+    const min = Math.min(0, ...vals) < 0 ? -niceMax(-Math.min(...vals)) : 0;
+    const y = (v) => top + ((max - v) / (max - min)) * (H - top - bottom);
+    const ticks = [min, min / 2, 0, max / 2, max].filter((v, i, a) => a.indexOf(v) === i && (v >= 0 || min < 0));
+    const gw = (W - left - right) / rows.length;
+    const bw = Math.max(3, Math.min(18, (gw - 8 - 2 * (series.length - 1)) / series.length));
+    const every = rows.length > 14 ? 2 : 1;
+    const marks = rows.map((r, i) => {
+      const x0 = left + i * gw + (gw - (bw * series.length + 2 * (series.length - 1))) / 2;
+      const bars = series.map((s, k) => `<path d="${roundedBar(x0 + k * (bw + 2), y(0), y(r[s.key]), bw)}" fill="var(${s.color})"/>`).join('');
+      const tip = `${opts.tipTitle(r)}\n` + series.map((s) => `${s.label} : ${eur(r[s.key])} €`).join('\n');
+      return `${bars}<rect class="viz-hit" x="${left + i * gw}" y="${top}" width="${gw}" height="${H - top - bottom}" data-tip="${esc(tip)}" tabindex="0"/>
+        ${i % every === 0 ? `<text class="viz-axis" x="${left + i * gw + gw / 2}" y="${H - 8}" text-anchor="middle">${esc(opts.xLabel(r))}</text>` : ''}`;
+    }).join('');
+    return `<div class="viz-scroll"><svg class="viz" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.aria)}">${axisY(ticks, y, W - right, left, eurK)}<line class="viz-base" x1="${left}" x2="${W - right}" y1="${y(0)}" y2="${y(0)}"/>${marks}</svg></div>`;
+  }
+
+  function lineChart(rows, key, opts) {
+    const W = 720, H = 200, left = 58, right = 8, top = 12, bottom = 26;
+    const vals = rows.map((r) => r[key]);
+    const max = Math.max(0, ...vals) > 0 ? niceMax(Math.max(...vals)) : 0;
+    const min = Math.min(0, ...vals) < 0 ? -niceMax(-Math.min(...vals)) : 0;
+    const span = max - min || 1;
+    const y = (v) => top + ((max - v) / span) * (H - top - bottom);
+    const gw = (W - left - right) / rows.length;
+    const x = (i) => left + i * gw + gw / 2;
+    const ticks = [min, (min + max) / 2, max].concat(min < 0 && max > 0 ? [0] : []).filter((v, i, a) => a.indexOf(v) === i);
+    const every = rows.length > 14 ? 2 : 1;
+    const path = rows.map((r, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(r[key]).toFixed(1)}`).join('');
+    return `<div class="viz-scroll"><svg class="viz" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.aria)}">${axisY(ticks, y, W - right, left, eurK)}
+      <line class="viz-base" x1="${left}" x2="${W - right}" y1="${y(0)}" y2="${y(0)}"/>
+      <path d="${path}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round"/>
+      ${rows.map((r, i) => `<circle cx="${x(i)}" cy="${y(r[key])}" r="4" fill="var(--series-1)" stroke="var(--surface)" stroke-width="2"/>
+        <rect class="viz-hit" x="${left + i * gw}" y="${top}" width="${gw}" height="${H - top - bottom}" data-tip="${esc(`${opts.tipTitle(r)}\n${opts.label} : ${eur(r[key])} €`)}" tabindex="0"/>
+        ${i % every === 0 ? `<text class="viz-axis" x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(opts.xLabel(r))}</text>` : ''}`).join('')}
+      ${rows.length ? `<text class="viz-label" x="${x(rows.length - 1) - 6}" y="${y(rows[rows.length - 1][key]) - 10}" text-anchor="end">${esc(eurK(rows[rows.length - 1][key]))}</text>` : ''}
+    </svg></div>`;
+  }
+
+  function benfordChart(b) {
+    const W = 720, H = 200, left = 44, right = 8, top = 10, bottom = 26;
+    const max = niceMax(Math.max(...b.rows.map((r) => Math.max(r.observe, r.attendu))));
+    const y = (v) => top + ((max - v) / max) * (H - top - bottom);
+    const gw = (W - left - right) / 9;
+    const pct = (v) => (v * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' %';
+    return `<div class="viz-scroll"><svg class="viz" viewBox="0 0 ${W} ${H}" role="img" aria-label="Répartition des premiers chiffres comparée à la loi de Benford">
+      ${axisY([0, max / 2, max], y, W - right, left, pct)}<line class="viz-base" x1="${left}" x2="${W - right}" y1="${y(0)}" y2="${y(0)}"/>
+      ${b.rows.map((r, i) => {
+        const x0 = left + i * gw;
+        return `<path d="${roundedBar(x0 + gw / 2 - 11, y(0), y(r.observe), 22)}" fill="var(--series-1)"/>
+          <line x1="${x0 + gw / 2 - 16}" x2="${x0 + gw / 2 + 16}" y1="${y(r.attendu)}" y2="${y(r.attendu)}" stroke="var(--text)" stroke-width="2" stroke-linecap="round"/>
+          <rect class="viz-hit" x="${x0}" y="${top}" width="${gw}" height="${H - top - bottom}" tabindex="0" data-tip="${esc(`Premier chiffre ${r.chiffre}\nObservé : ${pct(r.observe)} (${r.n.toLocaleString('fr-FR')})\nAttendu : ${pct(r.attendu)}`)}"/>
+          <text class="viz-axis" x="${x0 + gw / 2}" y="${H - 8}" text-anchor="middle">${r.chiffre}</text>`;
+      }).join('')}
+    </svg></div>`;
+  }
+
+  const legend = (items) => `<div class="viz-legend">${items.map(([color, label, line]) => `<span><i class="${line ? 'key-line' : 'key-box'} key${color.replace('--', '-')}"></i>${esc(label)}</span>`).join('')}</div>`;
+
+  // ---------- Écran ----------
+
+  function levelBadge(level) {
+    const l = LEVEL[level] || LEVEL.info;
+    return `<span class="lvl lvl-${level}" title="${l.label}"><b aria-hidden="true">${l.icon}</b>${l.label}</span>`;
+  }
+
+  function checkList(items, showOk) {
+    const list = showOk ? items : items.filter((c) => c.level !== 'ok');
+    if (!list.length) return '<p class="muted">Aucun point relevé.</p>';
+    const order = { error: 0, warn: 1, info: 2, ok: 3 };
+    return `<ul class="fec-checks">${list.slice().sort((a, b) => order[a.level] - order[b.level]).map((c) => `
+      <li class="fec-check">
+        ${c.examples && c.examples.length ? '<details><summary>' : '<div class="fec-check-row">'}
+          ${levelBadge(c.level)}
+          <span class="fec-check-text"><span><strong>${esc(c.label)}</strong>${c.count && c.level !== 'ok' && c.count > 1 ? ` <span class="count">${c.count.toLocaleString('fr-FR')}</span>` : ''}</span>${c.detail ? `<span class="muted small">${esc(c.detail)}</span>` : ''}</span>
+        ${c.examples && c.examples.length ? `</summary><ul class="fec-ex">${c.examples.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></details>` : '</div>'}
+      </li>`).join('')}</ul>`;
+  }
+
+  function viewFec() {
+    const f = ui.fec;
+    const head = `<div class="page-head"><h1>Analyse FEC</h1>
+      <div class="head-actions">${f && f.status === 'done' ? `<button class="btn" data-action="fec-export">Exporter en Excel</button>` : ''}
+        <button class="btn primary" data-action="fec-pick">${f ? 'Analyser un autre FEC' : 'Choisir un FEC'}</button></div></div>`;
+    if (!f) {
+      return `${head}
+        <div class="fec-drop card" data-action="fec-pick" role="button" tabindex="0">
+          ${icon('chart', 'fec-drop-ico')}
+          <p><strong>Déposez un fichier FEC ici</strong> ou cliquez pour le choisir</p>
+          <p class="muted small">Fichier .txt ou .csv au format de l'article A47 A-1 du LPF (tabulation ou « | », UTF-8 ou ISO-8859-15), y compris BNC / BA.</p>
+        </div>
+        <div class="grid2">
+          <section class="card"><h2>Ce que l'analyse vérifie</h2><ul class="bullets">
+            <li><strong>Conformité du fichier</strong> : nom, séparateur, 18 colonnes, zones obligatoires, dates, montants, équilibre de chaque écriture et de la balance, numérotation, dates hors exercice…</li>
+            <li><strong>Points de révision</strong> : caisse créditrice, comptes d'attente, clients créditeurs, fournisseurs débiteurs, compte courant d'associé débiteur, doublons, écritures du dimanche ou d'un jour férié, loi de Benford.</li>
+            <li><strong>Chiffres</strong> : soldes intermédiaires de gestion, bilan simplifié, balance générale, CA et charges par mois, trésorerie, journaux, principaux clients et fournisseurs.</li>
+          </ul></section>
+          <section class="card"><h2>${icon('shield')} Confidentialité</h2>
+            <p>Le FEC est analysé <strong>sur cet appareil uniquement</strong>, dans un processus isolé : il n'est ni envoyé, ni conservé. Seule la synthèse (chiffres clés et nombre d'anomalies) peut être enregistrée, chiffrée, dans le dossier si vous le demandez.</p>
+            <p class="muted small">Les analyses sont indicatives et ne remplacent pas le contrôle du fichier par l'outil officiel Test Compta Demat de la DGFiP.</p>
+          </section>
+        </div>`;
+    }
+    if (f.status === 'loading') {
+      return `${head}<section class="card fec-loading"><p><strong>${esc(f.fileName)}</strong></p>
+        <div class="fec-progress"><span data-w="${f.pct}"></span></div><p class="muted fec-progress-label">Analyse en cours… ${f.pct} %</p>
+        <p class="muted small">Le fichier est lu sur cet appareil. Pour un gros FEC, cela peut prendre quelques secondes.</p></section>`;
+    }
+    if (f.status === 'error') {
+      return `${head}<div class="banner warn"><span><strong>${esc(f.fileName)}</strong> : ${esc(f.message)}</span></div>`;
+    }
+    const r = f.result;
+    const m = r.meta;
+    const { errors, warnings } = fecCounts(r);
+    const dmy = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
+    const clients = data.clients.filter((c) => !c.archive).sort((a, b) => clientLabel(a).localeCompare(clientLabel(b), 'fr'));
+    const nbPieces = r.pieces ? computePieces(r, piecesState().mode, piecesState().arrete).length : 0;
+    const tabs = { synthese: 'Synthèse', pieces: `Pièces à demander${nbPieces ? ` (${nbPieces})` : ''}`, conformite: `Conformité${errors ? ` (${errors})` : ''}`, sig: 'SIG et bilan', balance: 'Balance', details: 'Détails' };
+    let body = '';
+
+    if (f.section === 'synthese') {
+      const k = r.kpi;
+      const tile = (label, value, cls) => `<div class="kpi ${cls || ''}"><strong>${value}</strong><span>${label}</span></div>`;
+      body = `
+        ${nbPieces ? `<div class="banner info"><span><strong>${nbPieces} pièce(s) ou information(s)</strong> à demander au client pour ${piecesState().mode === 'bilan' ? 'le bilan' : 'la situation'} au ${fmtDate(piecesState().arrete)}.</span><button class="btn small" data-action="fec-tab" data-tab="pieces">Voir la liste</button></div>` : ''}
+        <div class="kpis fec-kpis">
+          ${tile('Anomalies', errors, errors ? 'kpi-late' : '')}
+          ${tile('Points à vérifier', warnings, warnings ? 'kpi-wait' : '')}
+          ${tile('Chiffre d\'affaires', eurK(k.ca))}
+          ${tile('Résultat', eurK(k.resultat), k.resultat < 0 ? 'kpi-late' : '')}
+          ${tile('EBE', eurK(k.ebe))}
+          ${tile('Trésorerie', eurK(k.tresorerie), k.tresorerie < 0 ? 'kpi-late' : '')}
+        </div>
+        ${r.monthly.length ? `
+        <section class="card"><h2>Chiffre d'affaires et charges par mois</h2>
+          ${legend([['--series-1', 'Chiffre d\'affaires (70)'], ['--series-2', 'Charges (classe 6)']])}
+          ${barChart(r.monthly, [{ key: 'ca', label: 'Chiffre d\'affaires', color: '--series-1' }, { key: 'charges', label: 'Charges', color: '--series-2' }], { aria: 'Chiffre d\'affaires et charges par mois', xLabel: (x) => moisLabel(x.mois), tipTitle: (x) => moisLabel(x.mois).replace(/ \d+$/, '') + ' ' + x.mois.slice(0, 4) })}
+        </section>
+        <section class="card"><h2>Trésorerie en fin de mois <span class="muted small">(comptes 51 à 53, à-nouveaux compris)</span></h2>
+          ${lineChart(r.monthly, 'tresorerie', { aria: 'Trésorerie en fin de mois', label: 'Trésorerie', xLabel: (x) => moisLabel(x.mois), tipTitle: (x) => 'Fin ' + moisLabel(x.mois).replace(/ \d+$/, '').toLowerCase() + ' ' + x.mois.slice(0, 4) })}
+          <details class="viz-table"><summary>Voir les données mensuelles</summary>
+            <div class="grid-wrap"><table class="dtable num"><thead><tr><th>Mois</th><th>CA</th><th>Charges</th><th>TVA collectée</th><th>TVA déductible</th><th>Trésorerie</th></tr></thead>
+            <tbody>${r.monthly.map((x) => `<tr><td>${x.mois.slice(5)}/${x.mois.slice(0, 4)}</td><td>${eur(x.ca)}</td><td>${eur(x.charges)}</td><td>${eur(x.tvaCollectee)}</td><td>${eur(x.tvaDeductible)}</td><td>${eur(x.tresorerie)}</td></tr>`).join('')}</tbody></table></div>
+          </details>
+        </section>` : ''}
+        <section class="card"><h2>Points de révision <span class="count">${r.alerts.length}</span></h2>${checkList(r.alerts, true)}</section>
+        ${errors ? `<section class="card"><h2>Anomalies de conformité du fichier</h2>${checkList(r.checks.filter((c) => c.level === 'error'))}<button class="btn small" data-action="fec-tab" data-tab="conformite">Voir tous les contrôles</button></section>` : ''}`;
+    } else if (f.section === 'pieces') {
+      body = viewPieces();
+    } else if (f.section === 'conformite') {
+      body = `<section class="card"><h2>Contrôles de conformité du fichier</h2>
+        <p class="muted small">Référence : article A47 A-1 du livre des procédures fiscales. Cliquez sur un contrôle pour voir des exemples de lignes concernées.</p>
+        ${checkList(r.checks, true)}</section>`;
+    } else if (f.section === 'sig') {
+      const row = (label, v, strong) => `<tr class="${strong ? 'strong' : ''}"><td>${esc(label)}</td><td>${eur(v)}</td></tr>`;
+      body = `<div class="grid2">
+        <section class="card"><h2>Soldes intermédiaires de gestion</h2>
+          <table class="dtable num sig"><tbody>${r.sig.map((s) => row(s.label, s.value, s.strong)).join('')}</tbody></table>
+          <p class="muted small">Calculés à partir des comptes de classes 6 et 7 du FEC (hors écritures de clôture).</p></section>
+        <section class="card"><h2>Bilan simplifié</h2>
+          <table class="dtable num sig"><thead><tr><th>Actif</th><th></th></tr></thead><tbody>${r.bilan.actif.map(([l, v]) => row(l, v)).join('')}${row('Total actif', r.bilan.totalActif, true)}</tbody></table>
+          <table class="dtable num sig"><thead><tr><th>Passif</th><th></th></tr></thead><tbody>${r.bilan.passif.map(([l, v]) => row(l, v)).join('')}${row('Total passif', r.bilan.totalPassif, true)}</tbody></table>
+          <p class="muted small">${m.hasAN ? 'À-nouveaux inclus.' : '<strong>Sans à-nouveaux</strong> : les postes de bilan sont incomplets.'} Classement selon le sens du solde de chaque compte.</p></section>
+      </div>`;
+    } else if (f.section === 'balance') {
+      const q = norm(f.q);
+      const list = r.balance.filter((b) => (!f.classe || b.compte[0] === f.classe) && (!q || norm(b.compte + ' ' + b.lib).includes(q)));
+      const tot = list.reduce((t, b) => ({ d: t.d + b.d, c: t.c + b.c }), { d: 0, c: 0 });
+      body = `<section class="card">
+        <div class="filters">
+          <input type="search" placeholder="Compte ou libellé…" data-fec="q" value="${esc(f.q)}" spellcheck="false" autocomplete="off">
+          <select data-fec="classe" aria-label="Classe">${options({ '': 'Toutes les classes', 1: '1 — Capitaux', 2: '2 — Immobilisations', 3: '3 — Stocks', 4: '4 — Tiers', 5: '5 — Financiers', 6: '6 — Charges', 7: '7 — Produits' }, f.classe)}</select>
+        </div>
+        <div class="grid-wrap"><table class="dtable num balance"><thead><tr><th>Compte</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Solde</th></tr></thead>
+          <tbody>${list.slice(0, 600).map((b) => `<tr><td>${esc(b.compte)}</td><td>${esc(b.lib)}</td><td>${eur(b.d)}</td><td>${eur(b.c)}</td><td class="${b.s < 0 ? 'cred' : ''}">${eur(Math.abs(b.s))} ${b.s < 0 ? 'C' : b.s > 0 ? 'D' : ''}</td></tr>`).join('')}</tbody>
+          <tfoot><tr><th colspan="2">Total (${list.length} comptes)</th><th>${eur(tot.d)}</th><th>${eur(tot.c)}</th><th>${eur(Math.abs(tot.d - tot.c))} ${tot.d - tot.c < 0 ? 'C' : tot.d - tot.c > 0 ? 'D' : ''}</th></tr></tfoot></table></div>
+        ${list.length > 600 ? `<p class="muted small">600 premiers comptes affichés : affinez la recherche ou exportez en Excel.</p>` : ''}
+      </section>`;
+    } else {
+      const tiersTable = (list, col) => `<div class="grid-wrap"><table class="dtable num"><thead><tr><th>Compte</th><th>Nom</th><th>${col}</th><th>Solde</th></tr></thead><tbody>${list.map((t) => `<tr><td>${esc(t.num)}</td><td>${esc(t.lib)}</td><td>${eur(col === 'Facturé (débit)' ? t.d : t.c)}</td><td class="${t.s < 0 ? 'cred' : ''}">${eur(Math.abs(t.s))} ${t.s < 0 ? 'C' : t.s > 0 ? 'D' : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Aucun</td></tr>'}</tbody></table></div>`;
+      body = `
+        <div class="grid2">
+          <section class="card"><h2>Principaux clients (411)</h2>${tiersTable(r.tiers.clients, 'Facturé (débit)')}</section>
+          <section class="card"><h2>Principaux fournisseurs (401)</h2>${tiersTable(r.tiers.fournisseurs, 'Facturé (crédit)')}</section>
+        </div>
+        <section class="card"><h2>Journaux</h2><div class="grid-wrap"><table class="dtable num"><thead><tr><th>Code</th><th>Libellé</th><th>Écritures</th><th>Lignes</th><th>Débit</th><th>Crédit</th></tr></thead>
+          <tbody>${r.journals.map((j) => `<tr><td>${esc(j.code)}</td><td>${esc(j.lib)}</td><td>${j.entries.toLocaleString('fr-FR')}</td><td>${j.lines.toLocaleString('fr-FR')}</td><td>${eur(j.d)}</td><td>${eur(j.c)}</td></tr>`).join('')}</tbody></table></div></section>
+        <section class="card"><h2>Loi de Benford <span class="muted small">(${r.benford.n.toLocaleString('fr-FR')} montants ≥ 10 €)</span></h2>
+          ${r.benford.level === 'n/a' ? '<p class="muted">Pas assez de montants pour un test significatif (500 minimum).</p>' : `
+          ${legend([['--series-1', 'Fréquence observée'], ['--text', 'Fréquence attendue (Benford)', true]])}
+          ${benfordChart(r.benford)}
+          <p>Écart absolu moyen : <strong>${r.benford.mad.toFixed(4)}</strong> — ${levelBadge(r.benford.level === 'conforme' || r.benford.level === 'acceptable' ? 'ok' : 'info')} ${esc(r.benford.level)} <span class="muted small">(seuils de Nigrini : 0,006 / 0,012 / 0,015)</span></p>`}
+        </section>`;
+    }
+
+    return `${head}
+      <section class="card fec-meta">
+        <div class="fec-meta-grid">
+          <div><div class="muted small">Fichier</div><strong class="fec-file">${esc(m.fileName)}</strong></div>
+          <div><div class="muted small">SIREN · clôture</div>${esc(m.siren || '—')} · ${dmy(m.closing)}</div>
+          <div><div class="muted small">Période des écritures</div>${dmy(m.minDate)} → ${dmy(m.maxDate)}</div>
+          <div><div class="muted small">Volume</div>${m.lines.toLocaleString('fr-FR')} lignes · ${m.entries.toLocaleString('fr-FR')} écritures · ${m.accounts.toLocaleString('fr-FR')} comptes</div>
+        </div>
+        <div class="fec-link">
+          <label>Dossier<select data-fec="client">${options(Object.fromEntries(clients.map((c) => [c.id, `${c.code ? c.code + ' — ' : ''}${clientLabel(c)}`])), f.clientId, '— Rattacher à un dossier —')}</select></label>
+          <button class="btn" data-action="fec-save"${f.clientId ? '' : ' disabled'}>Enregistrer la synthèse</button>
+          <button class="btn" data-action="fec-mission"${f.clientId && (errors || warnings) ? '' : ' disabled'}>Créer une mission de revue</button>
+        </div>
+      </section>
+      <div class="seg fec-tabs" role="tablist">${Object.entries(tabs).map(([k, l]) => `<button role="tab" aria-selected="${k === f.section}" class="${k === f.section ? 'on' : ''}" data-action="fec-tab" data-tab="${k}">${esc(l)}</button>`).join('')}</div>
+      ${body}`;
+  }
+
+  // ---------- Pièces à demander au client ----------
+
+  const PIECES_CATS = {
+    banque: 'Relevés bancaires',
+    achats: 'Factures fournisseurs',
+    justif: 'Justificatifs de dépenses payées directement',
+    ventes: 'Ventes et encaissements',
+    attente: 'Opérations à identifier',
+    immo: 'Immobilisations',
+    social: 'Social',
+    associe: "Compte courant d'associé",
+    caisse: 'Caisse',
+    cloture: 'Documents de clôture',
+    questions: 'Questions',
+  };
+
+  const ymOf = (iso) => iso.slice(0, 7);
+  function monthsBetween(a, b) {
+    const out = [];
+    if (!a || !b || a > b) return out;
+    let [y, m] = a.split('-').map(Number);
+    const [y2, m2] = b.split('-').map(Number);
+    while (y < y2 || (y === y2 && m <= m2)) {
+      out.push(`${y}-${pad(m)}`);
+      m++;
+      if (m > 12) { m = 1; y++; }
+    }
+    return out;
+  }
+
+  // « janvier 2025 », « de mars à mai 2025 », « de novembre 2024 à janvier 2025 ».
+  function fmtMonths(list) {
+    const label = (ym, withYear) => MOIS_LONGS[Number(ym.slice(5, 7)) - 1] + (withYear ? ' ' + ym.slice(0, 4) : '');
+    const sorted = list.slice().sort();
+    const ranges = [];
+    sorted.forEach((ym) => {
+      const last = ranges[ranges.length - 1];
+      if (last && monthsBetween(last[1], ym).length === 2) last[1] = ym;
+      else ranges.push([ym, ym]);
+    });
+    const de = (w) => (/^[aeiou]/.test(w) ? `d'${w}` : `de ${w}`);
+    return ranges.map(([a, b]) => {
+      if (a === b) return label(a, true);
+      const first = label(a, a.slice(0, 4) !== b.slice(0, 4));
+      if (monthsBetween(a, b).length === 2) return `${first} et ${label(b, true)}`;
+      return `${de(first)} à ${label(b, true)}`;
+    }).join(', ');
+  }
+
+  function median(values) {
+    const v = values.slice().sort((a, b) => a - b);
+    return v.length ? v[Math.floor(v.length / 2)] : 0;
+  }
+
+  function defaultArrete(r, mode) {
+    const m = r.meta;
+    if (mode === 'bilan' && m.closing) return m.closing;
+    const last = (r.pieces && r.pieces.maxOp) || m.maxDate;
+    if (!last || last === '0000') return todayStr();
+    const eom = endOfMonth(last);
+    // Situation : fin du dernier mois complet saisi.
+    return daysUntilFrom(last, eom) <= 5 ? eom : addDays(`${last.slice(0, 7)}-01`, -1);
+  }
+
+  function daysUntilFrom(a, b) {
+    return Math.round((parseYmd(b) - parseYmd(a)) / 86400000);
+  }
+
+  function computePieces(r, mode, arrete) {
+    const p = r.pieces;
+    const items = [];
+    const push = (cat, id, text) => items.push({ cat, id: `${cat}:${id}`, text });
+    const endYm = ymOf(arrete);
+    const startYm = ymOf(r.meta.start && r.meta.start <= arrete ? r.meta.start : p.minOp || arrete);
+    const period = monthsBetween(startYm, endYm);
+    const d = (iso) => fmtDate(iso);
+    const bilan = mode === 'bilan';
+
+    // Relevés bancaires
+    p.banks.forEach((b) => {
+      const closed = Math.abs(b.solde) < 0.01 && b.last < addDays(arrete, -60);
+      const expected = monthsBetween(ymOf(b.first) > startYm ? ymOf(b.first) : startYm, closed ? ymOf(b.last) : endYm);
+      const missing = expected.filter((ym) => !b.months[ym]);
+      if (missing.length) push('banque', b.compte, `Relevés du compte ${b.lib || b.compte} (${b.compte}) : ${fmtMonths(missing)}`);
+      else if (!closed && b.last < addDays(arrete, -10)) push('banque', b.compte + ':fin', `Relevés du compte ${b.lib || b.compte} (${b.compte}) du ${d(addDays(b.last, 1))} au ${d(arrete)}`);
+      if (bilan && !closed) push('banque', b.compte + ':solde', `Relevé du compte ${b.lib || b.compte} au ${d(arrete)} (ou attestation de solde bancaire)`);
+    });
+
+    // Factures fournisseurs récurrentes manquantes
+    p.suppliers.forEach((s) => {
+      const months = Object.keys(s.months).filter((ym) => ym <= endYm).sort();
+      if (months.length < 3) return;
+      const window = monthsBetween(months[0], endYm);
+      if (months.length / window.length < 0.6) return;
+      const missing = window.filter((ym) => !s.months[ym]);
+      if (!missing.length) return;
+      push('achats', s.num, `Factures ${s.lib} : ${fmtMonths(missing)} (habituellement ${eur(median(months.map((ym) => s.months[ym])), 0)} € par mois)`);
+    });
+
+    // Tiers : fournisseurs débiteurs, clients créditeurs
+    p.tiers.forEach((t) => {
+      if (t.racine === '401' && t.s > 0) push('achats', 'deb:' + t.num, `Facture ${t.lib} correspondant au paiement de ${eur(t.s)} € (compte fournisseur débiteur : payé mais non facturé)`);
+      if (t.racine === '411' && t.s < 0) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} : règlement de ${eur(-t.s)} € reçu sans facture correspondante`);
+    });
+
+    // Dépenses payées directement (banque ou caisse → charge, sans compte fournisseur)
+    p.direct.filter((g) => g.first <= arrete).forEach((g, i) => {
+      const months = Object.keys(g.months).filter((ym) => ym <= endYm);
+      const when = g.count === 1 ? `du ${d(g.first)}` : `: ${g.count} paiements (${fmtMonths(months)})`;
+      const label = g.label.replace(/\S*\d\S*/g, '').replace(/\s+/g, ' ').trim() || g.label;
+      push('justif', `${g.compte}:${i}`, `Factures « ${label.slice(0, 45)} » ${when}, total ${eur(g.total)} € — ${g.clib}`);
+    });
+
+    // Opérations en compte d'attente
+    p.attente.filter((l) => l.date <= arrete && !l.lettre && Math.abs(l.soldeCompte) >= 0.01).forEach((l, i) => {
+      push('attente', `${l.compte}:${i}`, `Justificatif de l'opération « ${l.lib} » du ${d(l.date)} : ${l.c > 0 ? 'encaissement' : 'paiement'} de ${eur(l.c || l.d)} €`);
+    });
+
+    // Immobilisations acquises
+    p.immo.filter((l) => l.date <= arrete).forEach((l, i) => {
+      push('immo', `${l.compte}:${i}`, `Facture d'acquisition « ${l.lib} » du ${d(l.date)} (${eur(l.montant)} €, ${l.clib})`);
+    });
+
+    // Paie
+    const payMonths = Object.keys(p.payroll).filter((ym) => ym <= endYm).sort();
+    if (payMonths.length >= 3) {
+      const missing = monthsBetween(payMonths[0], endYm).filter((ym) => !p.payroll[ym]);
+      if (missing.length) push('social', 'paie', `Bulletins et journal de paie : ${fmtMonths(missing)}`);
+    }
+
+    // Compte courant d'associé
+    const cca = p.cca.filter((l) => l.date <= arrete);
+    if (cca.length) {
+      const out = cca.reduce((t, l) => t + l.d, 0), inn = cca.reduce((t, l) => t + l.c, 0);
+      push('associe', 'mvts', `Justificatifs des ${cca.length} mouvement(s) du compte courant d'associé (retraits ${eur(out)} €, apports ${eur(inn)} €)`);
+    }
+
+    // Caisse
+    if (r.alerts.some((a) => a.label === 'Caisse créditrice')) push('caisse', 'neg', 'Brouillard de caisse et justificatifs des dépenses en espèces (la caisse devient négative à certaines dates)');
+
+    if (bilan) {
+      const f = p.flags;
+      push('cloture', 'fnp', `Factures fournisseurs reçues après le ${d(arrete)} mais concernant l'exercice (factures non parvenues)`);
+      push('cloture', 'fae', `Prestations réalisées ou marchandises livrées avant le ${d(arrete)} et non encore facturées`);
+      if (f.stock) push('cloture', 'stock', `Inventaire des stocks et en-cours valorisé au ${d(arrete)}`);
+      if (f.emprunt) push('cloture', 'emprunt', `Tableaux d'amortissement des emprunts (capital restant dû au ${d(arrete)})`);
+      if (f.leasing) push('cloture', 'leasing', 'Contrats de crédit-bail ou de location financière en cours');
+      if (f.salaires) push('cloture', 'cp', `Journal de paie annuel et état des congés payés acquis non pris au ${d(arrete)}`);
+      if (f.caisse) push('cloture', 'caisse', `Procès-verbal de caisse (espèces en caisse au ${d(arrete)})`);
+      if (f.cca) push('cloture', 'cca', "Relevé du compte courant d'associé et convention de compte courant éventuelle");
+      if (f.vehicules) push('cloture', 'vehicules', 'Cartes grises des véhicules de la société');
+      if (f.assurance) push('cloture', 'assurance', "Échéanciers des contrats d'assurance (charges constatées d'avance)");
+      if (f.taxes) push('cloture', 'taxes', "Avis d'imposition de CFE et de taxe foncière de l'année");
+      push('cloture', 'litiges', 'Litiges, contentieux ou événements importants à signaler (provisions éventuelles)');
+
+      // Questions sur les créances et dettes anciennes
+      const limit = addDays(arrete, -90);
+      p.tiers.filter((t) => t.racine === '411' && t.s >= 50 && (t.lastC || t.lastD || '0') < limit).sort((a, b) => b.s - a.s).slice(0, 15).forEach((t) => {
+        push('questions', 'cli:' + t.num, `Créance ${t.lib} de ${eur(t.s)} € sans règlement depuis ${t.lastC ? 'le ' + d(t.lastC) : 'le début de l\'exercice'} : toujours recouvrable ?`);
+      });
+      p.tiers.filter((t) => t.racine === '401' && t.s <= -50 && (t.lastD || t.lastC || '0') < limit).sort((a, b) => a.s - b.s).slice(0, 15).forEach((t) => {
+        push('questions', 'four:' + t.num, `Dette ${t.lib} de ${eur(-t.s)} € non réglée depuis ${t.lastD ? 'le ' + d(t.lastD) : 'le début de l\'exercice'} : toujours due (litige, avoir attendu) ?`);
+      });
+    }
+    return items;
+  }
+
+  function piecesState() {
+    const f = ui.fec;
+    if (!f.pieces) f.pieces = { mode: 'bilan', arrete: defaultArrete(f.result, 'bilan'), excluded: new Set() };
+    return f.pieces;
+  }
+
+  function selectedPieces() {
+    const st = piecesState();
+    return computePieces(ui.fec.result, st.mode, st.arrete).filter((i) => !st.excluded.has(i.id));
+  }
+
+  function piecesText(items) {
+    const groups = {};
+    items.forEach((i) => (groups[i.cat] = groups[i.cat] || []).push(i.text));
+    return Object.keys(PIECES_CATS).filter((k) => groups[k]).map((k) => `${PIECES_CATS[k]} :\n${groups[k].map((t) => `- ${t}`).join('\n')}`).join('\n\n');
+  }
+
+  function viewPieces() {
+    const f = ui.fec;
+    const st = piecesState();
+    const items = computePieces(f.result, st.mode, st.arrete);
+    const kept = items.filter((i) => !st.excluded.has(i.id));
+    const c = clientById(f.clientId);
+    const groups = {};
+    items.forEach((i) => (groups[i.cat] = groups[i.cat] || []).push(i));
+    return `
+      <section class="card">
+        <h2>Pièces à demander au client</h2>
+        <p class="muted small">Liste établie à partir des écritures : relevés manquants, factures récurrentes absentes, paiements sans facture, opérations à identifier… Décochez ce qui ne s'applique pas, puis créez la demande.</p>
+        <div class="filters pieces-opts">
+          <div class="seg" role="group" aria-label="Travail à préparer">
+            <button class="${st.mode === 'situation' ? 'on' : ''}" data-action="pieces-mode" data-mode="situation">Situation</button>
+            <button class="${st.mode === 'bilan' ? 'on' : ''}" data-action="pieces-mode" data-mode="bilan">Bilan</button>
+          </div>
+          <label class="inline-label">Arrêté au <input type="date" data-pieces="arrete" value="${esc(st.arrete)}"></label>
+          <span class="muted small">${kept.length} élément(s) retenu(s) sur ${items.length}</span>
+        </div>
+        ${items.length ? Object.keys(PIECES_CATS).filter((k) => groups[k]).map((k) => `
+          <div class="pieces-group">
+            <h3>${esc(PIECES_CATS[k])} <span class="count">${groups[k].length}</span></h3>
+            ${groups[k].map((i) => `<label class="check piece"><input type="checkbox" data-piece="${esc(i.id)}"${st.excluded.has(i.id) ? '' : ' checked'}><span>${esc(i.text)}</span></label>`).join('')}
+          </div>`).join('') : '<p class="muted">Aucun élément manquant détecté pour cette période. 👍</p>'}
+        <div class="pieces-actions">
+          <button class="btn primary" data-action="pieces-demande"${c && kept.length ? '' : ' disabled'}>${icon('mail')}Créer la demande et préparer le mail</button>
+          <button class="btn" data-action="pieces-copy"${kept.length ? '' : ' disabled'}>Copier la liste</button>
+          <button class="btn" data-action="pieces-xlsx"${kept.length ? '' : ' disabled'}>Liste Excel pour le client</button>
+        </div>
+        ${c ? '' : '<p class="muted small">Rattachez l\'analyse à un dossier (en haut de page) pour créer la demande : une mission dont chaque étape est une pièce, avec relance automatique de ce qui manque encore.</p>'}
+      </section>`;
+  }
+
+  function createPiecesRequest() {
+    const f = ui.fec;
+    const c = clientById(f.clientId);
+    const st = piecesState();
+    const items = selectedPieces();
+    if (!c || !items.length) return;
+    const label = `${st.mode === 'bilan' ? 'bilan' : 'situation'} au ${fmtDate(st.arrete)}`;
+    const titre = `Demande de pièces — ${label}`;
+    const stamp = nowIso();
+    let m = data.missions.find((x) => x.clientId === c.id && x.titre === titre && isOpen(x));
+    const steps = items.map((i) => ({ id: uid(), label: i.text, cat: PIECES_CATS[i.cat], done: false, doneAt: null }));
+    if (m) {
+      m.etapes = m.etapes.concat(steps.filter((e) => !m.etapes.some((x) => x.label === e.label)));
+      m.updatedAt = stamp;
+    } else {
+      m = {
+        id: uid(), clientId: c.id, type: 'libre', titre, exercice: st.arrete.slice(0, 4), echeance: addDays(todayStr(), 10),
+        statut: 'a_faire', priorite: 'normale', responsable: c.responsable || c.collaborateur || data.settings.utilisateur,
+        recurrence: 'aucune', notes: `Liste établie à partir du FEC ${f.result.meta.fileName} le ${fmtDate(todayStr())}. Cochez chaque pièce à sa réception.`,
+        suiteCreee: false, termineLe: null, createdAt: stamp, updatedAt: stamp, etapes: steps,
+        demandePieces: { mode: st.mode, arrete: st.arrete },
+      };
+      data.missions.push(m);
+      log(c.id, `Demande de pièces préparée (${label}) : ${steps.length} élément(s).`, true);
+    }
+    persist();
+    openMessage(c.id, m.id);
+  }
+
+  function exportPiecesXlsx() {
+    const f = ui.fec;
+    const st = piecesState();
+    const items = selectedPieces();
+    const c = clientById(f.clientId);
+    const t = (v, s) => ({ v, s: s === undefined ? 2 : s });
+    const rows = [[{ v: `Pièces à fournir — ${st.mode === 'bilan' ? 'bilan' : 'situation'} au ${fmtDate(st.arrete)}${c ? ' — ' + c.nom : ''}`, s: 10 }], [],
+      [t('Catégorie', 1), t('Élément demandé', 1), t('Fourni', 1), t('Commentaire', 1)]]
+      .concat(items.map((i) => [t(PIECES_CATS[i.cat]), t(i.text), t(''), t('')]));
+    const blob = XlsxWriter.build({ sheets: [{ name: 'Pièces à fournir', rows, widths: [30, 110, 10, 40], freeze: { row: 3 }, filter: { row: 3 } }] });
+    download(`pieces-a-fournir-${st.arrete}.xlsx`, blob, blob.type);
+  }
+
+  function fecExport() {
+    const r = ui.fec.result;
+    const m = r.meta;
+    const t = (v, s) => ({ v, s: s === undefined ? 2 : s });
+    const n = (v, s) => ({ v: Number(v) || 0, s: s || 8 });
+    const title = (v) => [{ v, s: 10 }];
+    const synth = [title(`Analyse FEC — ${m.fileName}`), [], [t('SIREN', 1), t(m.siren || '')], [t('Clôture', 1), t(m.closing ? m.closing.split('-').reverse().join('/') : '')],
+      [t('Lignes', 1), n(m.lines, 2)], [t('Écritures', 1), n(m.entries, 2)], [t('Total débit', 1), n(m.totalD)], [t('Total crédit', 1), n(m.totalC)], [],
+      title('Soldes intermédiaires de gestion'), ...r.sig.map((s) => [t(s.label, s.strong ? 1 : 2), n(s.value, s.strong ? 9 : 8)]), [],
+      title('Bilan simplifié'), [t('Actif', 1), t('', 1)], ...r.bilan.actif.map(([l, v]) => [t(l), n(v)]), [t('Total actif', 1), n(r.bilan.totalActif, 9)],
+      [t('Passif', 1), t('', 1)], ...r.bilan.passif.map(([l, v]) => [t(l), n(v)]), [t('Total passif', 1), n(r.bilan.totalPassif, 9)]];
+    const lvl = (l) => (LEVEL[l] || LEVEL.info).label;
+    const controls = [[t('Type', 1), t('Statut', 1), t('Contrôle', 1), t('Nombre', 1), t('Détail', 1), t('Exemples', 1)]]
+      .concat(r.checks.map((c) => [t('Conformité'), t(lvl(c.level)), t(c.label), n(c.count, 2), t(c.detail), t(c.examples.join('\n'))]))
+      .concat(r.alerts.map((c) => [t('Révision'), t(lvl(c.level)), t(c.label), t(''), t(c.detail), t(c.examples.join('\n'))]));
+    const balance = [[t('Compte', 1), t('Libellé', 1), t('Débit', 1), t('Crédit', 1), t('Solde débiteur', 1), t('Solde créditeur', 1)]]
+      .concat(r.balance.map((b) => [t(b.compte), t(b.lib), n(b.d), n(b.c), n(b.s > 0 ? b.s : 0), n(b.s < 0 ? -b.s : 0)]));
+    const monthly = [[t('Mois', 1), t('Chiffre d\'affaires', 1), t('Produits', 1), t('Charges', 1), t('TVA collectée', 1), t('TVA déductible', 1), t('Trésorerie fin de mois', 1)]]
+      .concat(r.monthly.map((x) => [t(`${x.mois.slice(5)}/${x.mois.slice(0, 4)}`), n(x.ca), n(x.produits), n(x.charges), n(x.tvaCollectee), n(x.tvaDeductible), n(x.tresorerie)]));
+    const journals = [[t('Code', 1), t('Libellé', 1), t('Écritures', 1), t('Lignes', 1), t('Débit', 1), t('Crédit', 1)]]
+      .concat(r.journals.map((j) => [t(j.code), t(j.lib), n(j.entries, 2), n(j.lines, 2), n(j.d), n(j.c)]));
+    const blob = XlsxWriter.build({
+      sheets: [
+        { name: 'Synthèse', rows: synth, widths: [44, 18], filter: false },
+        { name: 'Contrôles', rows: controls, widths: [12, 13, 52, 10, 60, 90], freeze: { row: 1 } },
+        { name: 'Balance', rows: balance, widths: [12, 40, 16, 16, 16, 16], freeze: { row: 1 } },
+        { name: 'Mensuel', rows: monthly, widths: [10, 18, 16, 16, 16, 16, 22], freeze: { row: 1 } },
+        { name: 'Journaux', rows: journals, widths: [10, 30, 12, 12, 16, 16], freeze: { row: 1 } },
+      ],
+    });
+    download(`analyse-${(m.fileName || 'fec').replace(/\.[^.]+$/, '')}.xlsx`, blob, blob.type);
+  }
+
+  function fecSave() {
+    const f = ui.fec;
+    const c = clientById(f.clientId);
+    if (!c) return;
+    const r = f.result;
+    const { errors, warnings } = fecCounts(r);
+    c.fec = (c.fec || []).filter((x) => x.fileName !== r.meta.fileName).concat({
+      id: uid(), date: nowIso(), fileName: r.meta.fileName, closing: r.meta.closing, lines: r.meta.lines, entries: r.meta.entries,
+      errors, warnings, kpi: r.kpi, points: r.alerts.filter((a) => a.level !== 'ok').map((a) => a.label),
+    });
+    log(c.id, `Analyse FEC ${r.meta.closing ? 'au ' + r.meta.closing.split('-').reverse().join('/') : r.meta.fileName} : ${errors} anomalie(s), ${warnings} point(s) à vérifier.`, true);
+    persist();
+    toast('Synthèse enregistrée dans le dossier (le FEC lui-même n\'est pas conservé).');
+  }
+
+  function fecMission() {
+    const f = ui.fec;
+    const c = clientById(f.clientId);
+    if (!c) return;
+    const r = f.result;
+    const year = r.meta.closing ? r.meta.closing.slice(0, 4) : (r.meta.maxDate || '').slice(0, 4);
+    const items = r.checks.concat(r.alerts).filter((x) => x.level === 'error' || x.level === 'warn')
+      .sort((a, b) => (a.level === 'error' ? 0 : 1) - (b.level === 'error' ? 0 : 1))
+      .map((x) => `${FEC_FAIL[x.id] || x.label}${x.count ? ` (${x.count})` : ''}`);
+    const titre = `Revue FEC ${year}`;
+    const existing = data.missions.find((m) => m.clientId === c.id && m.titre === titre && isOpen(m));
+    const stamp = nowIso();
+    const etapes = items.map((label) => ({ id: uid(), label, done: false, doneAt: null }));
+    if (existing) {
+      existing.etapes = existing.etapes.concat(etapes.filter((e) => !existing.etapes.some((x) => x.label === e.label)));
+      existing.updatedAt = stamp;
+    } else {
+      data.missions.push({
+        id: uid(), clientId: c.id, type: 'libre', titre, exercice: year, echeance: addDays(todayStr(), 14), statut: 'a_faire', priorite: items.length && r.checks.concat(r.alerts).some((x) => x.level === 'error') ? 'haute' : 'normale',
+        responsable: c.responsable || c.collaborateur || data.settings.utilisateur, recurrence: 'aucune', notes: `Points relevés par l'analyse du fichier ${r.meta.fileName} le ${fmtDate(todayStr())}.`,
+        suiteCreee: false, termineLe: null, createdAt: stamp, updatedAt: stamp, etapes,
+      });
+      log(c.id, `Mission « ${titre} » créée depuis l'analyse du FEC (${items.length} point(s)).`, true);
+    }
+    persist();
+    toast(`${existing ? 'Mission mise à jour' : 'Mission créée'} : ${items.length} point(s) à traiter, dans le dossier ${clientLabel(c)}.`);
+  }
+
+  // Info-bulles des graphiques (texte uniquement, jamais de HTML).
+  function showTip(el) {
+    let tip = $('#viz-tip');
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.id = 'viz-tip';
+      tip.setAttribute('role', 'tooltip');
+      document.body.appendChild(tip);
+    }
+    tip.textContent = '';
+    el.dataset.tip.split('\n').forEach((line, i) => {
+      const row = document.createElement('div');
+      if (i === 0) row.className = 'tip-title';
+      else {
+        const [label, value] = line.split(' : ');
+        const v = document.createElement('strong');
+        v.textContent = value || '';
+        row.appendChild(v);
+        row.appendChild(document.createTextNode(' ' + label));
+        tip.appendChild(row);
+        return;
+      }
+      row.textContent = line;
+      tip.appendChild(row);
+    });
+    const box = el.getBoundingClientRect();
+    tip.style.display = 'block';
+    const w = tip.offsetWidth;
+    tip.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, box.left + box.width / 2 - w / 2)) + 'px';
+    tip.style.top = Math.max(8, box.top + window.scrollY - tip.offsetHeight - 6) + 'px';
+    el.classList.add('hover');
+  }
+
+  function hideTip(el) {
+    const tip = $('#viz-tip');
+    if (tip) tip.style.display = 'none';
+    if (el) el.classList.remove('hover');
+  }
+
+  document.addEventListener('pointerover', (e) => { const el = e.target.closest && e.target.closest('[data-tip]'); if (el) showTip(el); });
+  document.addEventListener('pointerout', (e) => { const el = e.target.closest && e.target.closest('[data-tip]'); if (el) hideTip(el); });
+  document.addEventListener('focusin', (e) => { if (e.target.dataset && e.target.dataset.tip) showTip(e.target); });
+  document.addEventListener('focusout', (e) => { if (e.target.dataset && e.target.dataset.tip) hideTip(e.target); });
+
+  // Glisser-déposer d'un FEC sur la page d'analyse.
+  document.addEventListener('dragover', (e) => {
+    if (data && location.hash === '#/fec') {
+      e.preventDefault();
+      const zone = $('.fec-drop');
+      if (zone) zone.classList.add('over');
+    }
+  });
+  document.addEventListener('dragleave', () => { const zone = $('.fec-drop'); if (zone) zone.classList.remove('over'); });
+  document.addEventListener('drop', (e) => {
+    if (data && location.hash === '#/fec') {
+      e.preventDefault();
+      if (e.dataTransfer.files[0]) startFec(e.dataTransfer.files[0]);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
   // Sauvegarde automatique dans un fichier (Chrome / Edge sur ordinateur)
   // ---------------------------------------------------------------------------
 
@@ -2179,6 +2927,14 @@
         <li>La liste des documents reprend les étapes non cochées de la mission (« Pièces reçues », « Relevés bancaires reçus »…).</li>
         <li>« Copier le message » ou « Ouvrir dans ma messagerie » : l'envoi est noté dans le journal du dossier et la mission passe « en attente du client ».</li>
         <li>Sans réponse après le délai choisi dans les paramètres (7 jours par défaut), la mission apparaît dans <strong>À relancer</strong>.</li>
+      </ul>`)}
+      ${item('Analyse FEC', `<ul>
+        <li>Menu <strong>Analyse FEC</strong> : déposez le fichier des écritures comptables (.txt) d'un dossier. Il est analysé sur l'appareil, sans envoi ni conservation.</li>
+        <li><strong>Conformité</strong> : les contrôles de l'article A47 A-1 du LPF (colonnes, dates, équilibre, numérotation…), avec des exemples de lignes en cause.</li>
+        <li><strong>Points de révision</strong> : caisse créditrice, comptes d'attente, clients créditeurs, fournisseurs débiteurs, compte courant d'associé débiteur, doublons, dimanches et jours fériés, loi de Benford.</li>
+        <li>SIG, bilan simplifié, balance, graphiques mensuels, journaux et tiers ; export Excel complet.</li>
+        <li><strong>Pièces à demander</strong> : choisissez « Situation » ou « Bilan » et la date d'arrêté ; l'application liste les relevés bancaires manquants, les factures récurrentes absentes, les paiements sans facture, les opérations à identifier (471), les acquisitions d'immobilisations, les mois de paie manquants et, pour un bilan, les documents de clôture et les questions sur les créances et dettes anciennes. « Créer la demande » prépare le mail et une mission dont chaque étape est une pièce : cochez-les à réception, la relance ne reprendra que ce qui manque.</li>
+        <li>Rattachez l'analyse au dossier (reconnu par son SIREN) pour en garder la synthèse, et créez en un clic une <strong>mission de revue</strong> dont les étapes sont les points relevés.</li>
       </ul>`)}
       ${item('Rappels dans votre agenda', `<p>Paramètres → <strong>Échéances dans mon agenda</strong> : téléchargez un fichier .ics et ouvrez-le avec votre agenda pour être prévenu même application fermée. Par défaut, seuls les numéros de dossier apparaissent dans l'agenda.</p>`)}
       ${item('PC et téléphone', `<p>Chaque appareil possède son propre coffre chiffré ; il n'y a volontairement aucun serveur. Pour retrouver vos données sur un autre appareil : exportez une sauvegarde chiffrée, puis <strong>Restaurer une sauvegarde</strong> sur l'autre appareil avec le même mot de passe. La sauvegarde automatique placée dans un dossier synchronisé du cabinet facilite ce transfert.</p>`)}
@@ -2454,6 +3210,9 @@
     clearTimeout(autoBackupTimer);
     autoBackupHandle = null;
     ui.autoBackup = null;
+    if (fecWorker) fecWorker.terminate();
+    fecWorker = null;
+    ui.fec = null;
     data = null;
     closeModal();
     const ask = $('#ask');
@@ -2640,6 +3399,29 @@
       if (again) again.focus({ preventScroll: true });
     },
     'export-grille': () => exportGrille(),
+    'fec-pick': async () => startFec(await pickFile('.txt,.csv,.tsv,text/plain', true)),
+    'fec-tab': (el) => {
+      ui.fec.section = el.dataset.tab;
+      refresh();
+    },
+    'fec-export': async () => {
+      const ok = await ask({ title: 'Export Excel non chiffré', message: "Le fichier contient la balance et l'analyse du dossier, <strong>non chiffrées</strong>. Enregistrez-le sur un support sécurisé et supprimez-le après usage.", okLabel: 'Exporter' });
+      if (ok) fecExport();
+    },
+    'fec-save': () => fecSave(),
+    'pieces-mode': (el) => {
+      const st = piecesState();
+      st.mode = el.dataset.mode;
+      st.arrete = defaultArrete(ui.fec.result, st.mode);
+      refresh();
+    },
+    'pieces-demande': () => createPiecesRequest(),
+    'pieces-copy': async () => {
+      const text = piecesText(selectedPieces());
+      try { await navigator.clipboard.writeText(text); toast('Liste copiée.'); } catch (e) { toast('Copie impossible sur ce navigateur.', true); }
+    },
+    'pieces-xlsx': () => exportPiecesXlsx(),
+    'fec-mission': () => fecMission(),
     'open-ics': () => icsForm(),
     'autobackup-choose': () => chooseAutoBackup(),
     'autobackup-resume': () => resumeAutoBackup(),
@@ -2723,6 +3505,18 @@
     } else if (t.dataset.msg === 'mission' && ui.msg) {
       t.checked ? ui.msg.selected.add(t.value) : ui.msg.selected.delete(t.value);
       renderMessage();
+    } else if (t.dataset.piece && ui.fec) {
+      const st = piecesState();
+      t.checked ? st.excluded.delete(t.dataset.piece) : st.excluded.add(t.dataset.piece);
+      refresh();
+    } else if (t.dataset.pieces === 'arrete' && ui.fec) {
+      if (t.value) piecesState().arrete = t.value;
+      refresh();
+    } else if (t.dataset.fec && ui.fec) {
+      if (t.dataset.fec === 'q') return;
+      if (t.dataset.fec === 'client') ui.fec.clientId = t.value;
+      else ui.fec[t.dataset.fec] = t.value;
+      refresh();
     } else if (t.dataset.dash) {
       data.settings.dashResp = t.value;
       persist();
@@ -2784,6 +3578,13 @@
       else ui[path[0]] = value;
       if (path[0] === 'mf') renderMissionList();
       else renderDossierList();
+    }
+    if (t.dataset.fec === 'q' && ui.fec) {
+      ui.fec.q = t.value;
+      const pos = t.selectionStart;
+      refresh();
+      const again = $('input[data-fec="q"]');
+      if (again) { again.focus(); again.setSelectionRange(pos, pos); }
     }
     if (t.name === 'p1' && t.form) {
       const bar = $('[data-strength]', t.form);
