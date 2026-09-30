@@ -1,0 +1,84 @@
+# Suivi Dossiers — application de suivi pour cabinet comptable
+
+Application pour suivre vos dossiers clients et leur avancement, sur **PC, tablette et téléphone**.
+Elle a été conçue pour respecter le **secret professionnel** et la **déontologie** de l'expertise comptable :
+
+| Exigence | Comment l'application y répond |
+|---|---|
+| Secret professionnel | Aucune donnée ne quitte l'appareil : pas de serveur, pas de compte, pas de cloud, pas de statistiques. Une politique de sécurité (CSP) bloque toute connexion vers un domaine tiers. |
+| Confidentialité des données | Tout est chiffré sur l'appareil (AES-GCM 256 bits). La clé est dérivée du mot de passe maître (PBKDF2-SHA-256, 600 000 itérations) et n'est jamais enregistrée. |
+| Regards indiscrets | Verrouillage automatique après inactivité (1 à 30 min), verrouillage optionnel dès que l'application passe en arrière-plan, **mode discret** qui affiche les codes dossiers au lieu des noms et masque les coordonnées. |
+| Lettre de mission / LCB-FT | Chaque dossier contient la date de la lettre de mission, le niveau de vigilance et la date de la dernière identification. Le tableau de bord signale les dossiers à régulariser. |
+| RGPD | Minimisation (seules les informations utiles au suivi), suppression définitive d'un dossier (droit à l'effacement), export des données (portabilité), archivage en fin de mission. |
+
+## Fonctionnalités
+
+- **Tableau de bord** : missions en retard, échéances des 14 prochains jours, missions en attente du client ou à valider, avancement des campagnes (ex. « Bilan annuel 2025 : 12/40 terminés »), alertes de conformité.
+- **Dossiers** : forme juridique, SIREN, régimes fiscal et TVA, date de clôture, responsable, contact, notes, journal horodaté (appels, relances, pièces reçues…).
+- **Missions** avec étapes à cocher et pourcentage d'avancement, à partir de modèles modifiables : bilan annuel, TVA, paie, juridique annuel, déclaration de revenus, situation intermédiaire, création d'entreprise, mission libre.
+- **Récurrence** : quand une TVA mensuelle, une paie ou un bilan est terminé, l'occurrence suivante est créée automatiquement avec l'échéance décalée.
+- **Statuts** : à faire, en cours, attente client, à valider, terminé. Filtres par statut, échéance, type et collaborateur.
+- **Sauvegarde chiffrée** exportable, pour se prémunir d'une perte de l'appareil et **transférer les données entre PC et téléphone**. Export CSV possible (non chiffré, avec avertissement).
+- **Hors ligne** et installable comme une application (PWA), en mode clair ou sombre selon l'appareil.
+
+## Installation
+
+L'application est un ensemble de fichiers statiques (HTML, CSS, JavaScript, sans dépendance externe).
+Elle doit être servie en **https** (ou sur `localhost`) pour que le chiffrement fonctionne.
+
+### Option 1 — GitHub Pages (recommandé pour l'utiliser sur téléphone)
+
+1. Dans le dépôt GitHub : **Settings → Pages → Build and deployment** → *Deploy from a branch*, choisir la branche et le dossier `/ (root)`.
+2. Ouvrir l'adresse fournie (ex. `https://<compte>.github.io/compta/`).
+3. Installer l'application :
+   - **Android / Chrome** : menu ⋮ → *Installer l'application* (ou *Ajouter à l'écran d'accueil*).
+   - **iPhone / Safari** : bouton Partager → *Sur l'écran d'accueil*.
+   - **PC (Chrome / Edge)** : icône d'installation dans la barre d'adresse.
+
+Seul le code de l'application est publié : **vos données restent sur chacun de vos appareils** et ne transitent jamais par GitHub.
+
+### Option 2 — Sur un PC uniquement, sans rien publier
+
+```bash
+cd compta
+python3 -m http.server 8080
+```
+
+Puis ouvrir <http://localhost:8080> et l'installer depuis le navigateur.
+
+## Premier démarrage
+
+1. Choisissez un **mot de passe maître** (10 caractères minimum, une phrase de passe est idéale).
+   **Il n'existe aucun moyen de le récupérer** : sans lui, les données sont illisibles, y compris par vous.
+2. Dans *Paramètres*, renseignez le nom du cabinet, votre prénom et vos collaborateurs.
+3. Créez vos dossiers, puis leurs missions.
+4. Exportez régulièrement une **sauvegarde chiffrée** (un rappel s'affiche au bout de 7 jours).
+
+### Utiliser le même suivi sur PC et téléphone
+
+Chaque appareil a son propre coffre chiffré. Pour transférer : *Paramètres → Exporter une sauvegarde chiffrée* sur l'appareil source,
+puis sur l'autre appareil *Restaurer une sauvegarde* (à l'écran de création ou dans les paramètres) avec le mot de passe de cette sauvegarde.
+Transmettez le fichier par un moyen maîtrisé par le cabinet (câble, clé USB chiffrée, espace de stockage du cabinet) : même chiffré, il ne doit pas circuler n'importe où.
+
+## Bonnes pratiques de sécurité
+
+- Protégez aussi l'appareil : code de verrouillage, chiffrement du disque (BitLocker, FileVault — activé par défaut sur les téléphones récents), session Windows/macOS personnelle.
+- N'utilisez pas l'application en navigation privée : les données y seraient effacées à la fermeture.
+- Ne saisissez pas de données inutiles au suivi : les pièces et la comptabilité des clients restent dans votre logiciel de production.
+- Effacer les données du site dans le navigateur supprime le coffre : gardez une sauvegarde récente.
+
+## Aspects techniques
+
+```
+index.html            page unique + politique de sécurité (CSP)
+css/styles.css        interface responsive (PC / mobile, clair / sombre)
+js/vault.js           coffre chiffré : WebCrypto (PBKDF2 + AES-GCM) et IndexedDB
+js/app.js             application (dossiers, missions, tableau de bord, paramètres)
+sw.js                 service worker (fonctionnement hors ligne)
+manifest.webmanifest  installation comme application
+```
+
+- Aucune bibliothèque tierce, aucun appel réseau hors du domaine de l'application.
+- Les données déchiffrées n'existent qu'en mémoire, et sont effacées au verrouillage.
+- Chaque enregistrement est rechiffré avec un vecteur d'initialisation neuf ; l'intégrité est garantie par AES-GCM.
+- Les exports CSV sont protégés contre l'injection de formules dans les tableurs.
