@@ -18,6 +18,9 @@ Elle a été conçue pour respecter le **secret professionnel** et la **déontol
 - **Missions** avec étapes à cocher et pourcentage d'avancement, à partir de modèles modifiables : bilan annuel, TVA, paie, juridique annuel, déclaration de revenus, situation intermédiaire, création d'entreprise, mission libre.
 - **Récurrence** : quand une TVA mensuelle, une paie ou un bilan est terminé, l'occurrence suivante est créée automatiquement avec l'échéance décalée.
 - **Statuts** : à faire, en cours, attente client, à valider, terminé. Filtres par statut, échéance, type et collaborateur.
+- **Import Excel / CSV** de votre tableau de suivi existant (voir ci-dessous), réimportable à chaque mise à jour sans créer de doublons.
+- **Suivi mensuel** : une grille façon tableur (dossiers × mois) qui montre d'un coup d'œil les déclarations terminées, en retard, en attente du client ou à faire. Un clic sur une case ouvre la mission.
+- **Vue tableau** des dossiers, triée par numéro de dossier.
 - **Sauvegarde chiffrée** exportable, pour se prémunir d'une perte de l'appareil et **transférer les données entre PC et téléphone**. Export CSV possible (non chiffré, avec avertissement).
 - **Hors ligne** et installable comme une application (PWA), en mode clair ou sombre selon l'appareil.
 
@@ -60,6 +63,17 @@ Chaque appareil a son propre coffre chiffré. Pour transférer : *Paramètres �
 puis sur l'autre appareil *Restaurer une sauvegarde* (à l'écran de création ou dans les paramètres) avec le mot de passe de cette sauvegarde.
 Transmettez le fichier par un moyen maîtrisé par le cabinet (câble, clé USB chiffrée, espace de stockage du cabinet) : même chiffré, il ne doit pas circuler n'importe où.
 
+## Importer votre tableau Excel
+
+*Dossiers → Importer (Excel / CSV)*, puis choisissez votre fichier `.xlsx` (ou `.csv`). Le fichier est lu **uniquement sur l'appareil**, sans bibliothèque ni serveur externe.
+
+1. Les colonnes sont reconnues automatiquement : `N° DOSSIER`, `STATUT` (forme juridique), `DOSSIERS` (nom), `SIREN`, `TVA` (`M` = mensuel, `T` = trimestriel, `CA12` = réel simplifié), `JOUR TVA`, `IS/IR` (date de clôture), et les colonnes `1` à `12` (suivi mensuel).
+2. Associez vous-même les colonnes à l'intitulé ambigu (par ex. `M`, `C`) au *responsable*, au *collaborateur* ou au *superviseur / associé*.
+3. Colonnes de suivi mensuel : « OK », « X » ou une date = mission terminée ; case **hachurée** ou « - » = non applicable ; case vide = à faire si la déclaration est due et que son échéance est passée ou dans le mois. L'échéance est calculée au jour limite TVA du mois suivant la période.
+4. Les numéros de dossier servent de clé : réimporter le tableau met à jour les dossiers existants et passe à « terminé » les nouvelles cases « OK », sans rien dupliquer.
+
+Une fois l'import fait, supprimez les copies du fichier Excel dont vous n'avez plus besoin : elles ne sont pas chiffrées.
+
 ## Bonnes pratiques de sécurité
 
 - Protégez aussi l'appareil : code de verrouillage, chiffrement du disque (BitLocker, FileVault — activé par défaut sur les téléphones récents), session Windows/macOS personnelle.
@@ -73,6 +87,7 @@ Transmettez le fichier par un moyen maîtrisé par le cabinet (câble, clé USB 
 index.html            page unique + politique de sécurité (CSP)
 css/styles.css        interface responsive (PC / mobile, clair / sombre)
 js/vault.js           coffre chiffré : WebCrypto (PBKDF2 + AES-GCM) et IndexedDB
+js/sheet-reader.js    lecture locale des fichiers .xlsx (zip + XML) et .csv, sans dépendance
 js/app.js             application (dossiers, missions, tableau de bord, paramètres)
 sw.js                 service worker (fonctionnement hors ligne)
 manifest.webmanifest  installation comme application

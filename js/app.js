@@ -25,7 +25,7 @@
   };
   const RECURRENCE_MOIS = { mensuelle: 1, trimestrielle: 3, annuelle: 12 };
 
-  const FORMES = ['EI', 'Micro-entreprise', 'EURL', 'SARL', 'SAS', 'SASU', 'SA', 'SNC', 'SCI', 'SCM', 'SELARL', 'SELAS', 'Association', 'Particulier', 'Autre'];
+  const FORMES = ['EI', 'Micro-entreprise', 'EURL', 'SARL', 'SAS', 'SASU', 'SA', 'SNC', 'SCI', 'SCM', 'SELARL', 'SELAS', 'EARL', 'GAEC', 'Association', 'Particulier', 'Autre'];
   const REGIMES_FISCAUX = ['IS', 'IR – BIC', 'IR – BNC', 'IR – BA', 'Revenus fonciers', 'Micro', 'Non applicable'];
   const REGIMES_TVA = ['Réel normal (mensuel)', 'Réel normal (trimestriel)', 'Réel simplifié', 'Franchise en base', 'Non assujetti'];
   const VIGILANCE = { simplifiee: 'Simplifiée', standard: 'Standard', renforcee: 'Renforcée' };
@@ -86,6 +86,7 @@
     plus: '<path d="M12 5v14M5 12h14"/>',
     shield: '<path d="M12 3 4 6v6c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
     back: '<path d="M15 18l-6-6 6-6"/>',
+    grid: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16M15 4v16"/>',
   };
 
   function icon(name, cls) {
@@ -117,6 +118,12 @@
   function parseYmd(s) {
     const [y, m, d] = s.split('-').map(Number);
     return new Date(y, m - 1, d);
+  }
+
+  // Date au jour `day` du mois `month` (0-11, débordement accepté), bornée à la fin du mois.
+  function dayOfMonth(year, month, day) {
+    const last = new Date(year, month + 1, 0).getDate();
+    return ymd(new Date(year, month, Math.min(Number(day), last)));
   }
 
   function daysUntil(s) {
@@ -289,6 +296,12 @@
     return String(closing <= now ? now.getFullYear() : now.getFullYear() - 1);
   }
 
+  function addCollaborateurs(names) {
+    names.forEach((n) => {
+      if (n && !data.settings.collaborateurs.includes(n)) data.settings.collaborateurs.push(n);
+    });
+  }
+
   function log(clientId, texte, auto) {
     data.journal.push({ id: uid(), clientId, date: nowIso(), texte, auto: !!auto });
   }
@@ -327,6 +340,8 @@
       next.titre = m.titre.replace(m.exercice, exercice);
     }
     m.suiteCreee = true;
+    // Déjà présente (ex. créée par un import) : on ne la duplique pas.
+    if (data.missions.some((x) => x.clientId === m.clientId && x.id !== m.id && x.titre === next.titre)) return;
     data.missions.push(next);
     toast(`Occurrence suivante créée${next.echeance ? ' — échéance ' + fmtDate(next.echeance) : ''}.`);
   }
@@ -398,6 +413,8 @@
 
   function options(list, selected, withEmpty) {
     const entries = Array.isArray(list) ? list.map((v) => [v, v]) : Object.entries(list);
+    // Conserve une valeur absente de la liste (ex. issue d'un import).
+    if (selected && !entries.some(([v]) => v === selected)) entries.push([selected, selected]);
     return (withEmpty ? `<option value="">${esc(withEmpty === true ? '—' : withEmpty)}</option>` : '') +
       entries.map(([v, l]) => `<option value="${esc(v)}"${v === selected ? ' selected' : ''}>${esc(l)}</option>`).join('');
   }
@@ -484,6 +501,7 @@
             <a href="#/tableau" data-nav="tableau">${icon('home')}<span>Tableau de bord</span></a>
             <a href="#/dossiers" data-nav="dossiers">${icon('folder')}<span>Dossiers</span></a>
             <a href="#/missions" data-nav="missions">${icon('list')}<span>Missions</span></a>
+            <a href="#/grille" data-nav="grille">${icon('grid')}<span>Suivi mensuel</span></a>
             <a href="#/parametres" data-nav="parametres">${icon('gear')}<span>Paramètres</span></a>
           </nav>
           <div class="side-actions">
@@ -506,6 +524,8 @@
     qDossiers: '',
     showArchived: false,
     mf: { q: '', statut: 'ouvertes', resp: '', periode: 'toutes', type: '' },
+    grille: { annee: new Date().getFullYear(), type: 'tva', resp: '' },
+    imp: null,
   };
 
   function route() {
@@ -519,6 +539,7 @@
       case 'dossiers': main.innerHTML = viewDossiers(); renderDossierList(); break;
       case 'dossier': main.innerHTML = viewDossier(parts[1]); break;
       case 'missions': main.innerHTML = viewMissions(); renderMissionList(); break;
+      case 'grille': main.innerHTML = viewGrille(); scrollGrilleToMonth(); break;
       case 'parametres': main.innerHTML = viewSettings(); break;
       default: main.innerHTML = viewDashboard();
     }
@@ -561,7 +582,7 @@
     }
 
     if (!data.clients.length) {
-      return `<h1>${esc(hello)}</h1>${emptyState('Commencez par créer votre premier dossier client.', `<button class="btn primary" data-action="new-client">${icon('plus')}Nouveau dossier</button>`)}`;
+      return `<h1>${esc(hello)}</h1>${emptyState('Commencez par créer votre premier dossier client, ou importez votre tableau de suivi Excel.', `<div class="head-actions center"><button class="btn primary" data-action="new-client">${icon('plus')}Nouveau dossier</button><button class="btn" data-action="import-sheet">Importer un fichier Excel / CSV</button></div>`)}`;
     }
 
     // Campagnes : missions d'un même modèle et d'une même période (ex. « Bilan annuel 2025 »).
@@ -616,15 +637,23 @@
   // ---------------------------------------------------------------------------
 
   function viewDossiers() {
+    const table = data.settings.dossierView === 'tableau';
     return `
       <div class="page-head"><h1>Dossiers</h1>
-        <div class="head-actions"><button class="btn primary" data-action="new-client">${icon('plus')}Nouveau dossier</button></div>
+        <div class="head-actions">
+          <button class="btn" data-action="import-sheet">Importer (Excel / CSV)</button>
+          <button class="btn primary" data-action="new-client">${icon('plus')}Nouveau dossier</button>
+        </div>
       </div>
       <div class="filters">
         <input type="search" placeholder="Rechercher (nom, code, SIREN, responsable…)" data-filter="qDossiers" value="${esc(ui.qDossiers)}" spellcheck="false" autocomplete="off">
         <label class="check inline"><input type="checkbox" data-filter="showArchived"${ui.showArchived ? ' checked' : ''}><span>Afficher les archivés</span></label>
+        <div class="seg" role="group" aria-label="Affichage">
+          <button class="${table ? '' : 'on'}" data-action="dossier-view" data-view="cartes">Cartes</button>
+          <button class="${table ? 'on' : ''}" data-action="dossier-view" data-view="tableau">Tableau</button>
+        </div>
       </div>
-      <div id="dossier-list" class="cards"></div>`;
+      <div id="dossier-list" class="${table ? '' : 'cards'}"></div>`;
   }
 
   function renderDossierList() {
@@ -633,11 +662,29 @@
     const q = norm(ui.qDossiers);
     const list = data.clients
       .filter((c) => ui.showArchived || !c.archive)
-      .filter((c) => !q || norm([c.nom, c.code, c.siren, c.responsable, c.forme].join(' ')).includes(q))
-      .sort((a, b) => clientLabel(a).localeCompare(clientLabel(b), 'fr'));
+      .filter((c) => !q || norm([c.nom, c.code, c.siren, c.responsable, c.collaborateur, c.superviseur, c.forme].join(' ')).includes(q))
+      .sort((a, b) => data.settings.dossierView === 'tableau'
+        ? (a.code || '').localeCompare(b.code || '', 'fr', { numeric: true })
+        : clientLabel(a).localeCompare(clientLabel(b), 'fr'));
     if (!list.length) {
       el.innerHTML = emptyState(data.clients.length ? 'Aucun dossier ne correspond à la recherche.' : 'Aucun dossier pour le moment.',
         data.clients.length ? '' : `<button class="btn primary" data-action="new-client">${icon('plus')}Nouveau dossier</button>`);
+      return;
+    }
+    if (data.settings.dossierView === 'tableau') {
+      el.innerHTML = `<div class="grid-wrap card flush"><table class="dtable">
+        <thead><tr><th>N°</th><th>Forme</th><th>Dossier</th><th>TVA</th><th>Clôture</th><th>Responsable</th><th>En cours</th><th>Retard</th><th>Avancement</th></tr></thead>
+        <tbody>${list.map((c) => {
+          const open = data.missions.filter((m) => m.clientId === c.id && isOpen(m));
+          const late = open.filter(isLate).length;
+          const p = open.length ? Math.round(open.reduce((s, m) => s + progress(m), 0) / open.length) : 100;
+          return `<tr data-action="go" data-href="#/dossier/${c.id}" role="button" tabindex="0" class="${c.archive ? 'archived' : ''}">
+            <td>${esc(c.code)}</td><td>${esc(c.forme)}</td><td class="strong">${esc(clientLabel(c))}</td><td>${esc(tvaShort(c.regimeTva))}</td>
+            <td>${esc(c.cloture)}</td><td>${esc([c.responsable, c.collaborateur].filter(Boolean).join(' / '))}</td>
+            <td>${open.length}</td><td>${late ? `<span class="late">${late}</span>` : ''}</td>
+            <td>${open.length ? `<div class="prog">${bar(p)}<span class="pct">${p} %</span></div>` : '<span class="uptodate">À jour ✓</span>'}</td></tr>`;
+        }).join('')}</tbody></table></div>`;
+      applyWidths(el);
       return;
     }
     el.innerHTML = list.map((c) => {
@@ -715,11 +762,14 @@
             <h2>Informations</h2>
             <dl class="fields">
               ${field('Nom', c.nom, true)}
-              ${field('SIREN', c.siren, true)}
+              ${field('SIREN / SIRET', c.siren, true)}
               ${field('Régime fiscal', c.regimeFiscal)}
               ${field('Régime de TVA', c.regimeTva)}
+              ${field('Jour limite TVA', c.jourTva)}
               ${field('Clôture', c.cloture)}
               ${field('Responsable', c.responsable)}
+              ${field('Collaborateur', c.collaborateur)}
+              ${field('Superviseur / associé', c.superviseur)}
               ${field('Contact', c.contact, true)}
               ${field('E-mail', c.email, true)}
               ${field('Téléphone', c.tel, true)}
@@ -756,11 +806,14 @@
             <label class="span2">Nom / raison sociale *<input name="nom" required value="${esc(c.nom)}"></label>
             <label>Code dossier<input name="code" value="${esc(c.code)}" placeholder="Généré automatiquement" maxlength="12"></label>
             <label>Forme juridique<select name="forme">${options(FORMES, c.forme, true)}</select></label>
-            <label>SIREN<input name="siren" value="${esc(c.siren)}" inputmode="numeric" maxlength="11" pattern="[0-9 ]*"></label>
+            <label>SIREN / SIRET<input name="siren" value="${esc(c.siren)}" inputmode="numeric" maxlength="17" pattern="[0-9 ]*"></label>
             <label>Clôture (JJ/MM)<input name="cloture" value="${esc(c.cloture || (isNew ? '31/12' : ''))}" placeholder="31/12" pattern="\\d{2}/\\d{2}" maxlength="5"></label>
             <label>Régime fiscal<select name="regimeFiscal">${options(REGIMES_FISCAUX, c.regimeFiscal, true)}</select></label>
             <label>Régime de TVA<select name="regimeTva">${options(REGIMES_TVA, c.regimeTva, true)}</select></label>
+            <label>Jour limite de dépôt TVA<input type="number" name="jourTva" min="1" max="31" value="${esc(c.jourTva)}" placeholder="ex. 21"></label>
             <label>Responsable<input name="responsable" list="collabs" value="${esc(c.responsable || (isNew ? data.settings.utilisateur : ''))}"></label>
+            <label>Collaborateur<input name="collaborateur" list="collabs" value="${esc(c.collaborateur)}"></label>
+            <label>Superviseur / associé<input name="superviseur" list="collabs" value="${esc(c.superviseur)}"></label>
             <label>Contact<input name="contact" value="${esc(c.contact)}"></label>
             <label>E-mail<input name="email" type="email" value="${esc(c.email)}"></label>
             <label>Téléphone<input name="tel" type="tel" value="${esc(c.tel)}"></label>
@@ -857,7 +910,8 @@
           <button class="btn danger" data-action="delete-mission" data-id="${m.id}">Supprimer</button>
           <span class="spacer"></span>
           ${c ? `<a class="btn" href="#/dossier/${c.id}" data-action="close-modal">Voir le dossier</a>` : ''}
-          <button class="btn primary" data-action="edit-mission" data-id="${m.id}">Modifier</button>
+          <button class="btn" data-action="edit-mission" data-id="${m.id}">Modifier</button>
+          ${isOpen(m) ? `<button class="btn primary" data-action="complete-mission" data-id="${m.id}">✓ Terminée</button>` : ''}
         </footer>
       </div>`);
     modalRefresh = () => missionSheet(id);
@@ -914,6 +968,434 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Suivi mensuel (grille type tableur)
+  // ---------------------------------------------------------------------------
+
+  const MOIS_COURTS = ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
+  const MOIS_LONGS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+
+  function tvaShort(regime) {
+    const r = norm(regime);
+    if (!r) return '';
+    if (r.includes('mensuel')) return 'M';
+    if (r.includes('trimestriel')) return 'T';
+    if (r.includes('simplifie')) return 'CA12';
+    if (r.includes('franchise')) return 'F';
+    if (r.includes('non assujetti')) return '—';
+    return regime;
+  }
+
+  // Colonne (1-12) d'une période « MM/AAAA » ou « Tn AAAA » pour l'année donnée.
+  function periodColumn(exercice, year) {
+    let m = (exercice || '').match(/^(\d{1,2})\/(\d{4})$/);
+    if (m && Number(m[2]) === year) return Number(m[1]);
+    m = (exercice || '').match(/^T([1-4])\s*(\d{4})$/i);
+    if (m && Number(m[2]) === year) return Number(m[1]) * 3;
+    return 0;
+  }
+
+  // Sur petit écran, fait défiler la grille jusqu'au mois précédent (période en cours de déclaration).
+  function scrollGrilleToMonth() {
+    const wrap = $('.grid-wrap');
+    if (!wrap || Number(ui.grille.annee) !== new Date().getFullYear()) return;
+    const ths = $$('.grille thead th', wrap);
+    const target = ths[4 + Math.max(0, new Date().getMonth() - 2)];
+    const name = $('.grille thead .g-name', wrap);
+    if (target && name) wrap.scrollLeft = target.offsetLeft - name.offsetWidth - name.offsetLeft;
+  }
+
+  function viewGrille() {
+    const g = ui.grille;
+    const year = Number(g.annee);
+    const grid = new Map();
+    const years = new Set([new Date().getFullYear()]);
+    data.missions.forEach((m) => {
+      if (m.type !== g.type) return;
+      const ym = (m.exercice || '').match(/(\d{4})$/);
+      if (ym) years.add(Number(ym[1]));
+      const col = periodColumn(m.exercice, year);
+      if (!col) return;
+      if (!grid.has(m.clientId)) grid.set(m.clientId, {});
+      grid.get(m.clientId)[col] = m;
+    });
+    const clients = data.clients
+      .filter((c) => grid.has(c.id) && !c.archive)
+      .filter((c) => !g.resp || [c.responsable, c.collaborateur, c.superviseur].includes(g.resp))
+      .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'fr', { numeric: true }) || a.nom.localeCompare(b.nom, 'fr'));
+    const resps = Array.from(new Set(data.clients.flatMap((c) => [c.responsable, c.collaborateur, c.superviseur]).filter(Boolean))).sort();
+    const totals = Array.from({ length: 12 }, () => ({ done: 0, all: 0 }));
+
+    const cell = (m, col) => {
+      if (!m) return '<td class="g-none"></td>';
+      totals[col - 1].all++;
+      let cls = 'g-todo';
+      let txt = '·';
+      if (!isOpen(m)) { cls = 'g-ok'; txt = 'OK'; totals[col - 1].done++; }
+      else if (isLate(m)) { cls = 'g-late'; txt = '!'; }
+      else if (m.statut === 'attente_client') { cls = 'g-wait'; txt = 'Att.'; }
+      else if (m.statut !== 'a_faire') { cls = 'g-progress'; txt = progress(m) + '%'; }
+      return `<td class="${cls}" data-action="open-mission" data-id="${m.id}" role="button" tabindex="0" title="${esc(m.titre)} — ${esc(STATUTS[m.statut])}${m.echeance ? ' — échéance ' + fmtDate(m.echeance) : ''}">${txt}</td>`;
+    };
+
+    const body = clients.map((c) => {
+      const row = grid.get(c.id);
+      return `<tr>
+        <td class="g-code">${esc(c.code)}</td>
+        <th class="g-name" scope="row"><a href="#/dossier/${c.id}">${esc(clientLabel(c))}</a></th>
+        <td class="g-meta">${esc(tvaShort(c.regimeTva))}</td>
+        <td class="g-meta">${esc(c.jourTva)}</td>
+        ${Array.from({ length: 12 }, (_, i) => cell(row[i + 1], i + 1)).join('')}
+      </tr>`;
+    }).join('');
+
+    return `
+      <div class="page-head"><h1>Suivi mensuel</h1>
+        <div class="head-actions"><button class="btn" data-action="import-sheet">Importer (Excel / CSV)</button></div>
+      </div>
+      <div class="filters">
+        <select data-grille="type" aria-label="Type de mission">${options(Object.fromEntries(data.templates.map((t) => [t.id, t.nom])), g.type)}</select>
+        <select data-grille="annee" aria-label="Année">${options(Array.from(years).sort().map(String), String(year))}</select>
+        <select data-grille="resp" aria-label="Responsable">${options(resps, g.resp, 'Tous responsables')}</select>
+        <span class="legend"><span class="g-ok">OK</span> terminée <span class="g-late">!</span> en retard <span class="g-wait">Att.</span> attente client <span class="g-todo">·</span> à faire</span>
+      </div>
+      ${clients.length ? `
+      <div class="grid-wrap card flush">
+        <table class="grille">
+          <thead><tr><th>N°</th><th class="g-name">Dossier</th><th title="Régime de TVA">TVA</th><th title="Jour limite de dépôt">Jour</th>${MOIS_COURTS.map((m) => `<th>${m}</th>`).join('')}</tr></thead>
+          <tbody>${body}</tbody>
+          <tfoot><tr><td class="g-code"></td><th class="g-name">Terminées</th><td class="g-meta"></td><td class="g-meta"></td>${totals.map((t) => `<td>${t.all ? `${t.done}/${t.all}` : ''}</td>`).join('')}</tr></tfoot>
+        </table>
+      </div>
+      <p class="muted small">Cliquez sur une case pour ouvrir la mission et la marquer comme terminée. Les missions mensuelles (« MM/AAAA ») et trimestrielles (« T1 AAAA ») de l'année choisie apparaissent ici.</p>`
+      : emptyState(`Aucune mission « ${esc((templateById(g.type) || {}).nom || '')} » mensuelle ou trimestrielle pour ${year}.`, `<button class="btn primary" data-action="import-sheet">Importer mon tableau Excel</button>`)}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Import de dossiers (Excel / CSV)
+  // ---------------------------------------------------------------------------
+
+  const IMPORT_FIELDS = Object.assign({
+    '': '— Ignorer —',
+    code: 'N° de dossier',
+    nom: 'Nom du dossier *',
+    forme: 'Forme juridique',
+    siren: 'SIREN / SIRET',
+    regimeTva: 'Régime de TVA',
+    jourTva: 'Jour limite TVA',
+    cloture: 'Date de clôture',
+    regimeFiscal: 'Régime fiscal',
+    responsable: 'Responsable',
+    collaborateur: 'Collaborateur',
+    superviseur: 'Superviseur / associé',
+    contact: 'Contact',
+    email: 'E-mail',
+    tel: 'Téléphone',
+    notes: 'Ajouter aux notes',
+  }, Object.fromEntries(MOIS_LONGS.map((m, i) => [`mois:${i + 1}`, `Suivi — ${m}`])));
+
+  const NA_VALUES = new Set(['-', '/', 'na', 'n/a', 'nd', 'so', 'sans objet', 'neant']);
+  const DONE_RE = /^(ok|x|v|oui|fait|faite|done|✓|✔|☑)$/i;
+
+  function guessField(header, used) {
+    const h = norm(header).replace(/[°º.:_]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!h) return '';
+    const month = h.match(/^(\d{1,2})$/);
+    if (month && Number(month[1]) >= 1 && Number(month[1]) <= 12) return 'mois:' + Number(month[1]);
+    const byName = h.match(/^(janv|fevr|mars|avr|mai|juin|juil|aout|sept|oct|nov|dec)[a-z]*$/);
+    if (byName) return 'mois:' + (['janv', 'fevr', 'mars', 'avr', 'mai', 'juin', 'juil', 'aout', 'sept', 'oct', 'nov', 'dec'].indexOf(byName[1]) + 1);
+    const rules = [
+      [/^(n|no|num|numero)\s*(de\s*)?dossier|^code|^ref/, 'code'],
+      [/siren|siret/, 'siren'],
+      [/mail/, 'email'],
+      [/jour.*tva|tva.*jour|date.*tva|limite.*tva/, 'jourTva'],
+      [/tva/, 'regimeTva'],
+      [/^is\s*\/?\s*ir|cloture|exercice/, 'cloture'],
+      [/fiscal/, 'regimeFiscal'],
+      [/statut|forme/, 'forme'],
+      [/collab/, 'collaborateur'],
+      [/chef|associe|expert|superv|signataire/, 'superviseur'],
+      [/resp|manager|gestionnaire/, 'responsable'],
+      [/tel|phone|portable/, 'tel'],
+      [/contact|dirigeant|gerant/, 'contact'],
+      [/dossier|nom|raison|client|societe|denomination/, 'nom'],
+      [/note|comment|observ|remarque/, 'notes'],
+    ];
+    for (const [re, field] of rules) {
+      if (re.test(h) && (field === 'notes' || !used.has(field))) return field;
+    }
+    return '';
+  }
+
+  function normRegimeTva(v) {
+    const r = norm(v).trim();
+    if (!r) return '';
+    if (/^m$|mensuel|^rn\s*m/.test(r)) return 'Réel normal (mensuel)';
+    if (/^t$|trimest/.test(r)) return 'Réel normal (trimestriel)';
+    if (/ca\s*12|simplif|^rsi$|^rs$/.test(r)) return 'Réel simplifié';
+    if (/franch|^fb$/.test(r)) return 'Franchise en base';
+    if (/non assuj|exoner|^na$|^exo$/.test(r)) return 'Non assujetti';
+    return v;
+  }
+
+  function normCloture(v) {
+    let m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) return `${m[3]}/${m[2]}`;
+    m = v.match(/^(\d{1,2})\/(\d{1,2})(\/\d{2,4})?$/);
+    if (m) return `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}`;
+    return '';
+  }
+
+  function normForme(v) {
+    const found = FORMES.find((f) => norm(f) === norm(v));
+    return found || v.toUpperCase();
+  }
+
+  function detectHeaderRow(rows) {
+    let best = 0;
+    let bestScore = -1;
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const used = new Set();
+      const score = rows[i].reduce((s, c) => {
+        const f = guessField(c.text, used);
+        if (f) used.add(f);
+        return s + (f ? 2 : c.text && isNaN(Number(c.text)) ? 0.5 : 0);
+      }, 0);
+      if (score > bestScore) { bestScore = score; best = i; }
+    }
+    return best;
+  }
+
+  function setupMapping() {
+    const imp = ui.imp;
+    const rows = imp.book.sheets[imp.sheet].rows;
+    const header = rows[imp.headerRow] || [];
+    const width = rows.reduce((w, r) => Math.max(w, r.length), 0);
+    const used = new Set();
+    imp.mapping = Array.from({ length: width }, (_, i) => {
+      const f = guessField((header[i] || {}).text || '', used);
+      if (f) used.add(f);
+      return f;
+    });
+  }
+
+  function analyseImport() {
+    const imp = ui.imp;
+    const rows = imp.book.sheets[imp.sheet].rows;
+    const header = rows[imp.headerRow] || [];
+    const res = { items: [], skipped: 0, created: 0, updated: 0, unchanged: 0, missions: 0, missionsDone: 0 };
+    const col = (field) => imp.mapping.indexOf(field);
+    if (col('nom') < 0) return res;
+    const today = todayStr();
+    const horizon = addMonths(today, 1);
+    const tpl = templateById(imp.type) || data.templates[0];
+    const seen = new Set();
+
+    rows.slice(imp.headerRow + 1).forEach((row) => {
+      const get = (field) => {
+        const i = col(field);
+        return i >= 0 && row[i] ? row[i].text : '';
+      };
+      const nom = get('nom');
+      if (!nom) {
+        if (row.some((c) => c && c.text)) res.skipped++;
+        return;
+      }
+      const v = {
+        nom,
+        code: get('code').toUpperCase(),
+        forme: get('forme') ? normForme(get('forme')) : '',
+        siren: get('siren').replace(/\s+/g, ''),
+        regimeTva: normRegimeTva(get('regimeTva')),
+        jourTva: (() => { const n = parseInt(get('jourTva'), 10); return n >= 1 && n <= 31 ? String(n) : ''; })(),
+        cloture: normCloture(get('cloture')),
+        regimeFiscal: get('regimeFiscal'),
+        responsable: get('responsable'),
+        collaborateur: get('collaborateur'),
+        superviseur: get('superviseur'),
+        contact: get('contact'),
+        email: get('email'),
+        tel: get('tel'),
+      };
+      const notes = imp.mapping.map((f, i) => (f === 'notes' && row[i] && row[i].text ? `${(header[i] || {}).text || 'Note'} : ${row[i].text}` : '')).filter(Boolean);
+      const key = v.code || v.siren || norm(nom);
+      if (seen.has(key)) { res.skipped++; return; }
+      seen.add(key);
+      const existing = data.clients.find((c) => (v.code && c.code === v.code) || (!v.code && v.siren && c.siren === v.siren) || (!v.code && !v.siren && norm(c.nom) === norm(nom)));
+      if (existing && !imp.update) res.unchanged++;
+      else if (existing) res.updated++;
+      else res.created++;
+
+      // Colonnes de suivi mensuel → missions.
+      const months = [];
+      if (imp.missions && !(existing && !imp.update)) {
+        const regime = norm(v.regimeTva || (existing && existing.regimeTva) || '');
+        const monthly = regime.includes('mensuel');
+        const quarterly = regime.includes('trimestriel');
+        const jour = v.jourTva || (existing && existing.jourTva) || '';
+        imp.mapping.forEach((f, i) => {
+          if (!f.startsWith('mois:')) return;
+          const n = Number(f.slice(5));
+          const c = row[i] || { text: '', na: false };
+          const text = c.text.trim();
+          if (c.na || NA_VALUES.has(norm(text))) return;
+          const done = !!text && (DONE_RE.test(text) || /^\d{4}-\d{2}-\d{2}$/.test(text));
+          const quarter = quarterly && n % 3 === 0;
+          const echeance = jour ? dayOfMonth(imp.year, n, jour) : '';
+          if (!text) {
+            // Case vide : à faire seulement si une déclaration est due et que l'échéance approche.
+            if (!(monthly || quarter)) return;
+            if (echeance ? echeance > horizon : dayOfMonth(imp.year, n, 1) > today) return;
+          }
+          const label = quarter ? `T${n / 3} ${imp.year}` : `${pad(n)}/${imp.year}`;
+          months.push({ label, echeance, statut: done ? 'termine' : text ? 'en_cours' : 'a_faire', recurrence: quarter ? 'trimestrielle' : 'mensuelle' });
+          res.missions++;
+          if (done) res.missionsDone++;
+        });
+      }
+      res.items.push({ v, notes, existing, months, tpl });
+    });
+    return res;
+  }
+
+  function applyImport() {
+    const imp = ui.imp;
+    const res = analyseImport();
+    const stamp = nowIso();
+    res.newMissions = 0;
+    res.closedMissions = 0;
+    res.items.forEach(({ v, notes, existing, months, tpl }) => {
+      let c = existing;
+      if (existing && !imp.update) return;
+      if (existing) {
+        Object.keys(v).forEach((k) => { if (v[k]) c[k] = v[k]; });
+        const add = notes.filter((n) => !(c.notes || '').includes(n));
+        if (add.length) c.notes = [c.notes, ...add].filter(Boolean).join('\n');
+        c.updatedAt = stamp;
+      } else {
+        c = Object.assign({ id: uid(), archive: false, vigilance: 'standard', createdAt: stamp, updatedAt: stamp }, v, { notes: notes.join('\n') });
+        if (!c.code) c.code = genCode(c.nom, c.id);
+        data.clients.push(c);
+        log(c.id, 'Dossier importé depuis un fichier.', true);
+      }
+      addCollaborateurs([c.responsable, c.collaborateur, c.superviseur]);
+      months.forEach((p) => {
+        const titre = `${imp.titre || tpl.nom} ${p.label}`.trim();
+        const done = p.statut === 'termine';
+        const m = data.missions.find((x) => x.clientId === c.id && x.titre === titre);
+        if (m) {
+          if (done && isOpen(m)) {
+            m.statut = 'termine';
+            m.termineLe = p.echeance || todayStr();
+            m.etapes.forEach((e) => { if (!e.done) Object.assign(e, { done: true, doneAt: stamp }); });
+            m.updatedAt = stamp;
+            res.closedMissions++;
+          }
+          return;
+        }
+        res.newMissions++;
+        data.missions.push({
+          id: uid(), clientId: c.id, type: tpl.id, titre, exercice: p.label, echeance: p.echeance,
+          statut: p.statut, priorite: 'normale', responsable: c.responsable || c.collaborateur || '',
+          recurrence: p.recurrence, notes: '', suiteCreee: false,
+          etapes: tpl.etapes.map((label) => ({ id: uid(), label, done, doneAt: done ? stamp : null })),
+          termineLe: done ? p.echeance || todayStr() : null, createdAt: stamp, updatedAt: stamp,
+        });
+      });
+    });
+    return res;
+  }
+
+  async function startImport() {
+    const file = await pickFile('.xlsx,.xlsm,.csv,.txt,.xls', true);
+    if (!file) return;
+    let book;
+    try {
+      book = await SheetReader.read(file);
+    } catch (e) {
+      toast(e.message, true);
+      return;
+    }
+    const sheet = Math.max(0, book.sheets.findIndex((s) => s.rows.length > 1));
+    ui.imp = {
+      fileName: file.name, book, sheet, headerRow: detectHeaderRow(book.sheets[sheet].rows), mapping: [],
+      year: new Date().getFullYear(), missions: true, update: true, type: templateById('tva') ? 'tva' : data.templates[0].id, titre: 'TVA',
+    };
+    setupMapping();
+    renderImport();
+  }
+
+  function renderImport() {
+    const imp = ui.imp;
+    const rows = imp.book.sheets[imp.sheet].rows;
+    const header = rows[imp.headerRow] || [];
+    const res = analyseImport();
+    const hasMonths = imp.mapping.some((f) => f.startsWith('mois:'));
+    const hasName = imp.mapping.includes('nom');
+    const samples = (i) => rows.slice(imp.headerRow + 1).map((r) => (r[i] ? r[i].text : '')).filter(Boolean).slice(0, 3);
+    const columns = imp.mapping.map((f, i) => ({ i, f, head: (header[i] || {}).text || '', ex: samples(i) })).filter((c) => c.head || c.ex.length);
+    const letter = (i) => (i >= 26 ? String.fromCharCode(64 + Math.floor(i / 26)) : '') + String.fromCharCode(65 + (i % 26));
+
+    modalRefresh = null;
+    openModal(`
+      <div class="sheet">
+        <header class="modal-head"><div><div class="muted small">${esc(imp.fileName)}</div><h2>Importer des dossiers</h2></div><button type="button" class="icon-btn" data-action="close-modal" aria-label="Fermer">✕</button></header>
+        <div class="modal-body">
+          <div class="info-box small">Le fichier est lu <strong>uniquement sur cet appareil</strong> ; son contenu est ensuite chiffré dans votre coffre. Pensez à supprimer les copies non chiffrées inutiles.</div>
+          <div class="form-grid imp-top">
+            ${imp.book.sheets.length > 1 ? `<label>Feuille<select data-imp="sheet">${options(Object.fromEntries(imp.book.sheets.map((s, i) => [String(i), s.name])), String(imp.sheet))}</select></label>` : ''}
+            <label>Ligne des en-têtes<input type="number" min="1" max="${rows.length}" data-imp="headerRow" value="${imp.headerRow + 1}"></label>
+          </div>
+          <h3>Correspondance des colonnes</h3>
+          <p class="muted small">Vérifiez à quoi correspond chaque colonne. Les colonnes « M », « C »… peuvent être associées au responsable, au collaborateur ou au superviseur.</p>
+          <div class="imp-cols">${columns.map((c) => `
+            <div class="imp-col${c.f ? ' mapped' : ''}">
+              <div class="imp-head"><span class="muted small">${letter(c.i)}</span> <strong>${esc(c.head || '(sans titre)')}</strong></div>
+              <div class="imp-ex muted small">${c.ex.map(esc).join(' · ') || '—'}</div>
+              <select data-imp="map" data-col="${c.i}" aria-label="Colonne ${esc(c.head)}">${options(IMPORT_FIELDS, c.f)}</select>
+            </div>`).join('')}
+          </div>
+          ${hasMonths ? `
+          <fieldset>
+            <legend>Colonnes de suivi mensuel</legend>
+            <label class="check"><input type="checkbox" data-imp="missions"${imp.missions ? ' checked' : ''}><span>Créer les missions correspondantes</span></label>
+            <div class="form-grid">
+              <label>Année<input type="number" min="2000" max="2100" data-imp="year" value="${imp.year}"></label>
+              <label>Type de mission<select data-imp="type">${options(Object.fromEntries(data.templates.map((t) => [t.id, t.nom])), imp.type)}</select></label>
+              <label class="span2">Intitulé<input data-imp="titre" value="${esc(imp.titre)}" spellcheck="false"></label>
+            </div>
+            <p class="muted small">« OK », « X » ou une date = terminée · case hachurée ou « - » = non applicable · case vide = à faire si la déclaration est due (chaque mois en régime mensuel, en mars, juin, septembre et décembre en trimestriel) et que son échéance est passée ou dans le mois. L'échéance est calculée avec le jour limite TVA, le mois suivant la période. Les mois suivants seront créés automatiquement au fil de l'eau.</p>
+          </fieldset>` : ''}
+          <label class="check"><input type="checkbox" data-imp="update"${imp.update ? ' checked' : ''}><span>Mettre à jour les dossiers déjà présents (même N° de dossier) : vous pouvez réimporter votre tableau à chaque mise à jour.</span></label>
+          <div class="imp-summary ${hasName ? '' : 'warn'}">
+            ${hasName ? `<strong>${res.created}</strong> nouveau(x) dossier(s) · <strong>${res.updated}</strong> mis à jour${res.unchanged ? ` · ${res.unchanged} inchangé(s)` : ''}${res.skipped ? ` · ${res.skipped} ligne(s) ignorée(s)` : ''}${imp.missions && hasMonths ? `<br><strong>${res.missions}</strong> mission(s) lue(s) dans le fichier, dont ${res.missionsDone} terminée(s) (celles déjà présentes ne sont pas dupliquées)` : ''}` : 'Associez au moins une colonne au <strong>nom du dossier</strong>.'}
+          </div>
+        </div>
+        <footer class="modal-foot"><button type="button" class="btn" data-action="close-modal">Annuler</button><button class="btn primary" data-action="apply-import"${hasName && res.items.length ? '' : ' disabled'}>Importer</button></footer>
+      </div>`, true);
+  }
+
+  function onImportChange(t) {
+    const imp = ui.imp;
+    const k = t.dataset.imp;
+    if (k === 'map') imp.mapping[Number(t.dataset.col)] = t.value;
+    else if (k === 'sheet') { imp.sheet = Number(t.value); imp.headerRow = detectHeaderRow(imp.book.sheets[imp.sheet].rows); setupMapping(); }
+    else if (k === 'headerRow') { imp.headerRow = Math.max(0, Number(t.value) - 1); setupMapping(); }
+    else if (k === 'year') imp.year = Number(t.value) || imp.year;
+    else if (k === 'missions' || k === 'update') imp[k] = t.checked;
+    else if (k === 'type') {
+      imp.type = t.value;
+      const tpl = templateById(t.value);
+      if (tpl && t.value !== 'tva') imp.titre = tpl.nom;
+      else if (t.value === 'tva') imp.titre = 'TVA';
+    } else if (k === 'titre') imp.titre = t.value;
+    const body = $('#modal .modal-body');
+    const scroll = body ? body.scrollTop : 0;
+    renderImport();
+    const nb = $('#modal .modal-body');
+    if (nb) nb.scrollTop = scroll;
+  }
+
+  // ---------------------------------------------------------------------------
   // Paramètres
   // ---------------------------------------------------------------------------
 
@@ -965,6 +1447,7 @@
           <div class="stack">
             <button class="btn primary block" data-action="export-backup">Exporter une sauvegarde chiffrée</button>
             <button class="btn block" data-action="import-backup">Restaurer une sauvegarde…</button>
+            <button class="btn block" data-action="import-sheet">Importer des dossiers (Excel / CSV)</button>
             <button class="btn block" data-action="export-csv">Exporter les missions en CSV (non chiffré)</button>
           </div>
           <p class="muted small">Stockage persistant : ${persisted}</p>
@@ -1012,8 +1495,9 @@
   // Fenêtres modales
   // ---------------------------------------------------------------------------
 
-  function openModal(html) {
+  function openModal(html, wide) {
     const modal = $('#modal');
+    modal.classList.toggle('wide', !!wide);
     modal.innerHTML = html;
     applyWidths(modal);
     if (!modal.open) modal.showModal();
@@ -1073,13 +1557,16 @@
   // Sauvegardes et exports
   // ---------------------------------------------------------------------------
 
-  function pickFile() {
+  // Renvoie le texte du fichier choisi, ou l'objet File si `asFile`.
+  function pickFile(accept, asFile) {
     return new Promise((resolve) => {
       const input = $('#file-input');
       input.value = '';
+      input.accept = accept || '.json,application/json';
       input.onchange = () => {
         const file = input.files[0];
         if (!file) return resolve(null);
+        if (asFile) return resolve(file);
         file.text().then(resolve, () => resolve(null));
       };
       input.click();
@@ -1246,6 +1733,17 @@
       closeModal();
       refresh();
     },
+    'complete-mission': (el) => {
+      const m = missionById(el.dataset.id);
+      m.etapes.forEach((e) => {
+        if (!e.done) Object.assign(e, { done: true, doneAt: nowIso() });
+      });
+      toast(`« ${m.titre} » terminée.`);
+      setStatus(m, 'termine');
+      persist();
+      closeModal();
+      refresh();
+    },
     'toggle-step': (el) => {
       const m = missionById(el.dataset.mission);
       toggleStep(m, el.dataset.step, el.checked);
@@ -1272,6 +1770,26 @@
       persist();
       closeModal();
       refresh();
+    },
+    'import-sheet': () => startImport(),
+    'apply-import': async () => {
+      const res = applyImport();
+      await persist();
+      closeModal();
+      ui.imp = null;
+      toast(`Import terminé : ${res.created} dossier(s) créé(s), ${res.updated} mis à jour` +
+        (res.newMissions ? `, ${res.newMissions} mission(s) créée(s)` : '') +
+        (res.closedMissions ? `, ${res.closedMissions} mission(s) passée(s) à « terminé »` : '') + '.');
+      if (location.hash === '#/dossiers') refresh();
+      else location.hash = '#/dossiers';
+    },
+    'dossier-view': (el) => {
+      data.settings.dossierView = el.dataset.view;
+      persist();
+      refresh();
+    },
+    'go': (el) => {
+      location.hash = el.dataset.href;
     },
     'export-backup': () => exportBackup(),
     'import-backup': () => importBackup(),
@@ -1319,7 +1837,12 @@
   document.addEventListener('change', (e) => {
     const t = e.target;
     if (!data) return;
-    if (t.dataset.actionChange === 'mission-status') {
+    if (t.dataset.imp && ui.imp) {
+      onImportChange(t);
+    } else if (t.dataset.grille) {
+      ui.grille[t.dataset.grille] = t.value;
+      refresh();
+    } else if (t.dataset.actionChange === 'mission-status') {
       setStatus(missionById(t.dataset.id), t.value);
       persist();
       refresh();
@@ -1344,7 +1867,14 @@
     const tpl = templateById(form.type.value);
     if (!tpl) return;
     const c = clientById(form.clientId.value);
-    const exercice = tpl.recurrence === 'annuelle' ? lastClosedYear(c) : '';
+    let exercice = tpl.recurrence === 'annuelle' ? lastClosedYear(c) : '';
+    // TVA mensuelle : période du mois précédent, échéance au jour limite du dossier.
+    if (tpl.id === 'tva' && tpl.recurrence === 'mensuelle') {
+      const now = new Date();
+      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      exercice = `${pad(prev.getMonth() + 1)}/${prev.getFullYear()}`;
+      if (c && c.jourTva && !form.echeance.value) form.echeance.value = dayOfMonth(now.getFullYear(), now.getMonth(), c.jourTva);
+    }
     const autoTitles = data.templates.map((t) => t.nom);
     const currentTitle = form.titre.value.trim();
     if (!currentTitle || autoTitles.some((n) => currentTitle === n || currentTitle.startsWith(n + ' '))) {
@@ -1419,7 +1949,7 @@
 
     async client(form) {
       const id = form.dataset.id;
-      const fields = ['nom', 'code', 'forme', 'siren', 'cloture', 'regimeFiscal', 'regimeTva', 'responsable', 'contact', 'email', 'tel', 'lettreMission', 'vigilance', 'kycDate', 'notes'];
+      const fields = ['nom', 'code', 'forme', 'siren', 'cloture', 'regimeFiscal', 'regimeTva', 'jourTva', 'responsable', 'collaborateur', 'superviseur', 'contact', 'email', 'tel', 'lettreMission', 'vigilance', 'kycDate', 'notes'];
       const values = Object.fromEntries(fields.map((f) => [f, val(form, f)]));
       values.code = values.code.toUpperCase() || genCode(values.nom, id);
       if (data.clients.some((c) => c.code === values.code && c.id !== id)) {
@@ -1436,7 +1966,7 @@
         data.clients.push(c);
         log(c.id, 'Dossier créé.', true);
       }
-      if (values.responsable && !data.settings.collaborateurs.includes(values.responsable)) data.settings.collaborateurs.push(values.responsable);
+      addCollaborateurs([values.responsable, values.collaborateur, values.superviseur]);
       await persist();
       closeModal();
       if (!id) location.hash = '#/dossier/' + c.id;
@@ -1475,7 +2005,7 @@
         log(m.clientId, `Mission « ${m.titre} » créée.`, true);
       }
       setStatus(m, statut);
-      if (values.responsable && !data.settings.collaborateurs.includes(values.responsable)) data.settings.collaborateurs.push(values.responsable);
+      addCollaborateurs([values.responsable]);
       await persist();
       closeModal();
       refresh();
