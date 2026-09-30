@@ -163,7 +163,7 @@ legend { font-weight: 700; font-size: .85rem; padding: 0 .35rem; }
 
 /* ---------- Mise en page ---------- */
 
-.layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+.layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
 .sidebar {
   position: sticky; top: 0; height: 100vh;
   display: flex; flex-direction: column; gap: 1rem;

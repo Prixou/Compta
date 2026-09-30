@@ -524,7 +524,7 @@
     qDossiers: '',
     showArchived: false,
     mf: { q: '', statut: 'ouvertes', resp: '', periode: 'toutes', type: '' },
-    grille: { annee: new Date().getFullYear(), type: 'tva', resp: '' },
+    grille: { annee: new Date().getFullYear(), type: 'tva', resp: '', regime: '' },
     imp: null,
   };
 
@@ -985,8 +985,16 @@
     return regime;
   }
 
-  // Colonne (1-12) d'une période « MM/AAAA » ou « Tn AAAA » pour l'année donnée.
+  const REGIME_FILTRES = { '': 'Tous régimes', M: 'TVA mensuelle', T: 'TVA trimestrielle', CA12: 'TVA annuelle (CA12)', autre: 'Autres régimes' };
+
+  function regimeGroup(c) {
+    const r = tvaShort(c.regimeTva);
+    return ['M', 'T', 'CA12'].includes(r) ? r : 'autre';
+  }
+
+  // Colonne d'une période pour l'année donnée : 1-12 pour « MM/AAAA » ou « Tn AAAA », 13 pour l'exercice « AAAA ».
   function periodColumn(exercice, year) {
+    if ((exercice || '').trim() === String(year)) return 13;
     let m = (exercice || '').match(/^(\d{1,2})\/(\d{4})$/);
     if (m && Number(m[2]) === year) return Number(m[1]);
     m = (exercice || '').match(/^T([1-4])\s*(\d{4})$/i);
@@ -1018,12 +1026,23 @@
       if (!grid.has(m.clientId)) grid.set(m.clientId, {});
       grid.get(m.clientId)[col] = m;
     });
-    const clients = data.clients
+    const base = data.clients
       .filter((c) => grid.has(c.id) && !c.archive)
-      .filter((c) => !g.resp || [c.responsable, c.collaborateur, c.superviseur].includes(g.resp))
+      .filter((c) => !g.resp || [c.responsable, c.collaborateur, c.superviseur].includes(g.resp));
+    const counts = base.reduce((acc, c) => {
+      acc[regimeGroup(c)] = (acc[regimeGroup(c)] || 0) + 1;
+      return acc;
+    }, {});
+    const regimeOptions = Object.fromEntries(Object.entries(REGIME_FILTRES)
+      .filter(([k]) => !k || counts[k] || k === g.regime)
+      .map(([k, l]) => [k, `${l} (${k ? counts[k] || 0 : base.length})`]));
+    const clients = base
+      .filter((c) => !g.regime || regimeGroup(c) === g.regime)
       .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'fr', { numeric: true }) || a.nom.localeCompare(b.nom, 'fr'));
     const resps = Array.from(new Set(data.clients.flatMap((c) => [c.responsable, c.collaborateur, c.superviseur]).filter(Boolean))).sort();
-    const totals = Array.from({ length: 12 }, () => ({ done: 0, all: 0 }));
+    // Colonne « Année » affichée seulement s'il existe des missions annuelles (ex. CA12 « 2026 »).
+    const cols = clients.some((c) => grid.get(c.id)[13]) ? 13 : 12;
+    const totals = Array.from({ length: cols }, () => ({ done: 0, all: 0 }));
 
     const cell = (m, col) => {
       if (!m) return '<td class="g-none"></td>';
@@ -1044,7 +1063,7 @@
         <th class="g-name" scope="row"><a href="#/dossier/${c.id}">${esc(clientLabel(c))}</a></th>
         <td class="g-meta">${esc(tvaShort(c.regimeTva))}</td>
         <td class="g-meta">${esc(c.jourTva)}</td>
-        ${Array.from({ length: 12 }, (_, i) => cell(row[i + 1], i + 1)).join('')}
+        ${Array.from({ length: cols }, (_, i) => cell(row[i + 1], i + 1)).join('')}
       </tr>`;
     }).join('');
 
@@ -1055,19 +1074,22 @@
       <div class="filters">
         <select data-grille="type" aria-label="Type de mission">${options(Object.fromEntries(data.templates.map((t) => [t.id, t.nom])), g.type)}</select>
         <select data-grille="annee" aria-label="Année">${options(Array.from(years).sort().map(String), String(year))}</select>
+        <select data-grille="regime" aria-label="Régime de TVA">${options(regimeOptions, g.regime)}</select>
         <select data-grille="resp" aria-label="Responsable">${options(resps, g.resp, 'Tous responsables')}</select>
         <span class="legend"><span class="g-ok">OK</span> terminée <span class="g-late">!</span> en retard <span class="g-wait">Att.</span> attente client <span class="g-todo">·</span> à faire</span>
       </div>
       ${clients.length ? `
       <div class="grid-wrap card flush">
         <table class="grille">
-          <thead><tr><th>N°</th><th class="g-name">Dossier</th><th title="Régime de TVA">TVA</th><th title="Jour limite de dépôt">Jour</th>${MOIS_COURTS.map((m) => `<th>${m}</th>`).join('')}</tr></thead>
+          <thead><tr><th>N°</th><th class="g-name">Dossier</th><th title="Régime de TVA">TVA</th><th title="Jour limite de dépôt">Jour</th>${MOIS_COURTS.map((m) => `<th>${m}</th>`).join('')}${cols === 13 ? '<th title="Déclaration annuelle de l\'exercice">Année</th>' : ''}</tr></thead>
           <tbody>${body}</tbody>
           <tfoot><tr><td class="g-code"></td><th class="g-name">Terminées</th><td class="g-meta"></td><td class="g-meta"></td>${totals.map((t) => `<td>${t.all ? `${t.done}/${t.all}` : ''}</td>`).join('')}</tr></tfoot>
         </table>
       </div>
-      <p class="muted small">Cliquez sur une case pour ouvrir la mission et la marquer comme terminée. Les missions mensuelles (« MM/AAAA ») et trimestrielles (« T1 AAAA ») de l'année choisie apparaissent ici.</p>`
-      : emptyState(`Aucune mission « ${esc((templateById(g.type) || {}).nom || '')} » mensuelle ou trimestrielle pour ${year}.`, `<button class="btn primary" data-action="import-sheet">Importer mon tableau Excel</button>`)}`;
+      <p class="muted small">${clients.length} dossier${clients.length > 1 ? 's' : ''}. Cliquez sur une case pour ouvrir la mission et la marquer comme terminée. Les missions mensuelles (« MM/AAAA »), trimestrielles (« T1 AAAA ») et annuelles (« AAAA ») de l'année choisie apparaissent ici.</p>`
+      : base.length
+        ? emptyState(`Aucun dossier « ${esc(REGIME_FILTRES[g.regime])} » pour ces critères.`, '<button class="btn" data-action="grille-reset">Afficher tous les régimes</button>')
+        : emptyState(`Aucune mission « ${esc((templateById(g.type) || {}).nom || '')} » pour ${year}.`, `<button class="btn primary" data-action="import-sheet">Importer mon tableau Excel</button>`)}`;
   }
 
   // ---------------------------------------------------------------------------
@@ -1772,6 +1794,10 @@
       refresh();
     },
     'import-sheet': () => startImport(),
+    'grille-reset': () => {
+      ui.grille.regime = '';
+      refresh();
+    },
     'apply-import': async () => {
       const res = applyImport();
       await persist();
