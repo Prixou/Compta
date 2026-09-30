@@ -183,7 +183,16 @@
 
     async destroy() {
       session = null;
-      await idb('readwrite', (s) => s.delete(KEY));
+      await idb('readwrite', (s) => s.clear());
+    },
+
+    // Réglages techniques non sensibles (ex. référence du fichier de sauvegarde automatique).
+    async getMeta(name) {
+      return idb('readonly', (s) => s.get('meta:' + name));
+    },
+
+    async setMeta(name, value) {
+      await idb('readwrite', (s) => (value === undefined ? s.delete('meta:' + name) : s.put(value, 'meta:' + name)));
     },
   };
 

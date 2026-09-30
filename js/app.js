@@ -72,8 +72,30 @@
       id: 'creation', nom: "Création d'entreprise", recurrence: 'aucune',
       etapes: ['Lettre de mission signée', 'Identification du client (LCB-FT)', 'Statuts rédigés', 'Dépôt du capital', 'Annonce légale', 'Immatriculation (guichet unique)', 'Options fiscales et sociales'],
     },
+    {
+      id: 'acompte_is', nom: "Acompte d'IS", recurrence: 'trimestrielle',
+      etapes: ["Calcul de l'acompte", 'Validation', 'Télépaiement (relevé 2571)'],
+    },
+    {
+      id: 'solde_is', nom: "Solde d'IS", recurrence: 'annuelle',
+      etapes: ["Calcul de l'IS définitif", 'Relevé de solde 2572 télétransmis', 'Paiement du solde'],
+    },
+    {
+      id: 'cfe', nom: 'CFE', recurrence: 'annuelle',
+      etapes: ["Avis d'imposition consulté", 'Montant contrôlé', 'Paiement / prélèvement vérifié'],
+    },
+    {
+      id: 'ca12', nom: 'TVA annuelle (CA12)', recurrence: 'annuelle',
+      etapes: ['Pièces reçues', 'Calcul de la TVA annuelle', 'Validation', 'Télédéclaration CA12', 'Télépaiement'],
+    },
+    {
+      id: 'acompte_ca12', nom: 'Acompte de TVA (CA12)', recurrence: 'aucune',
+      etapes: ["Calcul de l'acompte", 'Télépaiement'],
+    },
     { id: 'libre', nom: 'Mission libre', recurrence: 'aucune', etapes: [] },
   ];
+  // Version des modèles par défaut : les modèles ajoutés depuis sont proposés aux coffres existants.
+  const TEMPLATES_VERSION = 2;
 
   const ICONS = {
     home: '<path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
@@ -86,6 +108,9 @@
     plus: '<path d="M12 5v14M5 12h14"/>',
     shield: '<path d="M12 3 4 6v6c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
     back: '<path d="M15 18l-6-6 6-6"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+    mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+    help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17h.01"/>',
     grid: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16M15 4v16"/>',
   };
 
@@ -227,6 +252,12 @@
         discret: false,
         kycMois: 12,
         lastBackup: null,
+        tplVersion: TEMPLATES_VERSION,
+        relanceJours: 7,
+        signature: '',
+        dashResp: '',
+        dossierView: 'cartes',
+        pointage: false,
       },
       templates: clone(DEFAULT_TEMPLATES),
       clients: [],
@@ -239,11 +270,18 @@
   function migrate(d) {
     const base = emptyData();
     d = d && typeof d === 'object' ? d : base;
+    const tplVersion = (d.settings && d.settings.tplVersion) || (d === base ? TEMPLATES_VERSION : 1);
     d.settings = Object.assign(base.settings, d.settings || {});
     d.templates = Array.isArray(d.templates) ? d.templates : base.templates;
     d.clients = Array.isArray(d.clients) ? d.clients : [];
     d.missions = Array.isArray(d.missions) ? d.missions : [];
     d.journal = Array.isArray(d.journal) ? d.journal : [];
+    if (tplVersion < TEMPLATES_VERSION) {
+      const libre = d.templates.findIndex((t) => t.id === 'libre');
+      const missing = DEFAULT_TEMPLATES.filter((t) => t.id !== 'libre' && !d.templates.some((x) => x.id === t.id));
+      d.templates.splice(libre >= 0 ? libre : d.templates.length, 0, ...clone(missing));
+      d.settings.tplVersion = TEMPLATES_VERSION;
+    }
     d.missions.forEach((m) => {
       m.etapes = Array.isArray(m.etapes) ? m.etapes : [];
       m.statut = STATUTS[m.statut] ? m.statut : 'a_faire';
@@ -252,12 +290,13 @@
     return d;
   }
 
-  function persist() {
+  function persist(opts) {
     data.updatedAt = nowIso();
     const snapshot = data;
     saving = saving
       .then(() => Vault.save(snapshot))
       .catch((err) => toast("Erreur d'enregistrement : " + err.message, true));
+    if (!(opts && opts.noAutoBackup)) scheduleAutoBackup();
     return saving;
   }
 
@@ -311,6 +350,7 @@
     if (prev === statut) return;
     m.statut = statut;
     m.updatedAt = nowIso();
+    if (statut === 'attente_client') m.attenteDepuis = todayStr();
     if (statut === 'termine') {
       m.termineLe = todayStr();
       log(m.clientId, `Mission « ${m.titre} » terminée.`, true);
@@ -505,6 +545,7 @@
             <a href="#/parametres" data-nav="parametres">${icon('gear')}<span>Paramètres</span></a>
           </nav>
           <div class="side-actions">
+            <a class="btn ghost block" href="#/aide" data-nav="aide">${icon('help')}<span>Aide</span></a>
             <button class="btn ghost block" data-action="toggle-discret">${icon(discret ? 'eyeOff' : 'eye')}<span>${discret ? 'Mode discret activé' : 'Mode discret'}</span></button>
             <button class="btn ghost block" data-action="lock">${icon('lock')}<span>Verrouiller</span></button>
           </div>
@@ -512,6 +553,7 @@
         <header class="topbar">
           <div class="brand">${icon('shield')}<strong>Suivi Dossiers</strong></div>
           <div class="top-actions">
+            <a class="icon-btn" href="#/aide" title="Aide" aria-label="Aide">${icon('help')}</a>
             <button class="icon-btn" data-action="toggle-discret" title="Mode discret" aria-label="Mode discret">${icon(discret ? 'eyeOff' : 'eye')}</button>
             <button class="icon-btn" data-action="lock" title="Verrouiller" aria-label="Verrouiller">${icon('lock')}</button>
           </div>
@@ -540,6 +582,7 @@
       case 'dossier': main.innerHTML = viewDossier(parts[1]); break;
       case 'missions': main.innerHTML = viewMissions(); renderMissionList(); break;
       case 'grille': main.innerHTML = viewGrille(); scrollGrilleToMonth(); break;
+      case 'aide': main.innerHTML = viewAide(); break;
       case 'parametres': main.innerHTML = viewSettings(); break;
       default: main.innerHTML = viewDashboard();
     }
@@ -559,19 +602,30 @@
 
   function viewDashboard() {
     const s = data.settings;
-    const active = data.clients.filter((c) => !c.archive);
-    const open = data.missions.filter((m) => isOpen(m) && clientById(m.clientId) && !clientById(m.clientId).archive);
+    const r = s.dashResp;
+    const clientInScope = (c) => !r || [c.responsable, c.collaborateur, c.superviseur].includes(r);
+    const inScope = (m) => {
+      const c = clientById(m.clientId);
+      return c && !c.archive && (!r || m.responsable === r || clientInScope(c));
+    };
+    const active = data.clients.filter((c) => !c.archive && clientInScope(c));
+    const open = data.missions.filter((m) => isOpen(m) && inScope(m));
     const late = open.filter(isLate).sort(byDue);
     const soon = open.filter((m) => m.echeance && daysUntil(m.echeance) >= 0 && daysUntil(m.echeance) <= 14).sort(byDue);
     const wait = open.filter((m) => m.statut === 'attente_client').sort(byDue);
+    const relances = wait.filter(relanceDue);
     const review = open.filter((m) => m.statut === 'a_valider').sort(byDue);
     const compliance = active.map((c) => ({ c, issues: complianceIssues(c) })).filter((x) => x.issues.length);
+    const resps = Array.from(new Set(s.collaborateurs.concat(data.clients.flatMap((c) => [c.responsable, c.collaborateur, c.superviseur])).filter(Boolean))).sort();
 
     const hour = new Date().getHours();
     const hello = (hour < 18 ? 'Bonjour' : 'Bonsoir') + (s.utilisateur ? ' ' + s.utilisateur : '');
 
     let backupBanner = '';
-    if (data.clients.length) {
+    if (ui.autoBackup && ui.autoBackup.needsPermission) {
+      backupBanner = `<div class="banner warn"><span>La sauvegarde automatique vers <strong>${esc(ui.autoBackup.name)}</strong> doit être réactivée (autorisation du navigateur).</span>
+        <button class="btn small" data-action="autobackup-resume">Réactiver</button></div>`;
+    } else if (data.clients.length && !(ui.autoBackup && ui.autoBackup.active)) {
       const days = s.lastBackup ? Math.floor((Date.now() - new Date(s.lastBackup)) / 86400000) : null;
       if (days === null || days >= 7) {
         backupBanner = `<div class="banner warn">
@@ -585,16 +639,22 @@
       return `<h1>${esc(hello)}</h1>${emptyState('Commencez par créer votre premier dossier client, ou importez votre tableau de suivi Excel.', `<div class="head-actions center"><button class="btn primary" data-action="new-client">${icon('plus')}Nouveau dossier</button><button class="btn" data-action="import-sheet">Importer un fichier Excel / CSV</button></div>`)}`;
     }
 
-    // Campagnes : missions d'un même modèle et d'une même période (ex. « Bilan annuel 2025 »).
+    // Campagnes : missions d'un même modèle et d'une même période (ex. « Bilan annuel 2025 »),
+    // limitées à celles dont une échéance est dépassée ou proche.
     const groups = {};
+    const horizon = addDays(todayStr(), 45);
     data.missions.forEach((m) => {
-      if (!m.exercice) return;
-      const tpl = templateById(m.type);
-      const key = (tpl ? tpl.nom : m.type || 'Mission') + ' ' + m.exercice;
-      (groups[key] = groups[key] || { key, total: 0, done: 0 }).total++;
-      if (!isOpen(m)) groups[key].done++;
+      if (!m.exercice || !inScope(m)) return;
+      const key = tplName(m.type) + ' ' + m.exercice;
+      const g = (groups[key] = groups[key] || { key, total: 0, done: 0, due: '9999' });
+      g.total++;
+      if (!isOpen(m)) g.done++;
+      else if (m.echeance && m.echeance < g.due) g.due = m.echeance;
     });
-    const campaigns = Object.values(groups).filter((g) => g.total >= 2 && g.done < g.total).sort((a, b) => a.key.localeCompare(b.key, 'fr'));
+    const campaigns = Object.values(groups)
+      .filter((g) => g.total >= 2 && g.done < g.total && g.due <= horizon)
+      .sort((a, b) => a.due.localeCompare(b.due))
+      .slice(0, 9);
 
     const section = (title, list, emptyText) => `
       <section class="card">
@@ -605,9 +665,13 @@
     return `
       <div class="page-head"><h1>${esc(hello)}</h1>
         <div class="head-actions">
+          <button class="btn" data-action="open-cal">${icon('calendar')}Calendrier fiscal</button>
           <button class="btn" data-action="new-client">${icon('plus')}Dossier</button>
           <button class="btn primary" data-action="new-mission">${icon('plus')}Mission</button>
         </div>
+      </div>
+      <div class="filters">
+        <select data-dash="resp" aria-label="Portefeuille">${options(Object.fromEntries([['', 'Tous les dossiers du cabinet']].concat(resps.map((x) => [x, x === s.utilisateur ? `Mes dossiers (${x})` : `Portefeuille de ${x}`]))), r)}</select>
       </div>
       ${backupBanner}
       <div class="kpis">
@@ -618,18 +682,20 @@
       </div>
       ${campaigns.length ? `<section class="card"><h2>Avancement des campagnes</h2><div class="campaigns">${campaigns.map((g) => {
         const p = Math.round((g.done * 100) / g.total);
-        return `<div class="campaign"><div class="campaign-head"><span>${esc(g.key)}</span><span class="muted">${g.done}/${g.total} terminées</span></div>${bar(p)}</div>`;
+        return `<div class="campaign"><div class="campaign-head"><span>${esc(g.key)}</span><span class="muted">${g.done}/${g.total}</span></div>${bar(p)}<div class="muted small">${g.due < '9999' ? (g.due < todayStr() ? '<span class="late">échéance dépassée</span>' : 'prochaine échéance ' + fmtDate(g.due)) : ''}</div></div>`;
       }).join('')}</div></section>` : ''}
       <div class="grid2">
         ${section('En retard', late, 'Aucune mission en retard. 👍')}
         ${section('Échéances des 14 prochains jours', soon, 'Rien de prévu dans les 14 prochains jours.')}
+        ${relances.length ? section(`À relancer <span class="muted small">(sans nouvelles depuis ${s.relanceJours} j ou plus)</span>`, relances, '') : ''}
         ${section('En attente du client', wait, 'Aucune mission en attente du client.')}
         ${section('À valider', review, 'Aucune mission à valider.')}
       </div>
-      ${compliance.length ? `<section class="card"><h2>Conformité (lettre de mission, LCB-FT) <span class="count">${compliance.length}</span></h2>
+      ${compliance.length ? `<section class="card"><details${compliance.length <= 5 ? ' open' : ''}><summary><h2>Conformité (lettre de mission, LCB-FT) <span class="count">${compliance.length}</span></h2></summary>
+        <p class="muted small">Dossiers dont la lettre de mission ou l'identification LCB-FT n'est pas renseignée ou doit être revue. Complétez-les depuis la fiche du dossier (bouton « Modifier »).</p>
         <div class="clist">${compliance.map(({ c, issues }) => `
           <a class="crow" href="#/dossier/${c.id}"><span class="crow-name">${esc(clientLabel(c))}</span><span class="crow-issues">${issues.map((i) => `<span class="badge warn">${esc(i)}</span>`).join('')}</span></a>`).join('')}
-        </div></section>` : ''}`;
+        </div></details></section>` : ''}`;
   }
 
   // ---------------------------------------------------------------------------
@@ -733,6 +799,8 @@
         </div>
         <div class="head-actions">
           <button class="btn" data-action="edit-client" data-id="${c.id}">Modifier</button>
+          ${open.length ? `<button class="btn" data-action="open-msg" data-client="${c.id}">${icon('mail')}Écrire au client</button>` : ''}
+          <button class="btn" data-action="open-cal" data-client="${c.id}">${icon('calendar')}Échéances de l'année</button>
           <button class="btn primary" data-action="new-mission" data-client="${c.id}">${icon('plus')}Mission</button>
         </div>
       </div>
@@ -843,7 +911,7 @@
     const resps = Array.from(new Set(data.settings.collaborateurs.concat(data.missions.map((m) => m.responsable)).filter(Boolean))).sort();
     return `
       <div class="page-head"><h1>Missions</h1>
-        <div class="head-actions"><button class="btn primary" data-action="new-mission">${icon('plus')}Nouvelle mission</button></div>
+        <div class="head-actions"><button class="btn" data-action="open-cal">${icon('calendar')}Calendrier fiscal</button><button class="btn primary" data-action="new-mission">${icon('plus')}Nouvelle mission</button></div>
       </div>
       <div class="filters">
         <input type="search" placeholder="Rechercher…" data-filter="mf.q" value="${esc(f.q)}" spellcheck="false" autocomplete="off">
@@ -899,6 +967,7 @@
             <div><div class="muted small">Responsable</div>${esc(m.responsable || '—')}</div>
             <div><div class="muted small">Récurrence</div>${esc(RECURRENCES[m.recurrence] || 'Aucune')}</div>
           </div>
+          ${m.relances && m.relances.length ? `<p class="muted small">Client relancé ${m.relances.length} fois, dernière fois le ${fmtDate(lastRelance(m).slice(0, 10))}.${relanceDue(m) ? ' <strong class="late">Nouvelle relance conseillée.</strong>' : ''}</p>` : m.statut === 'attente_client' && m.attenteDepuis ? `<p class="muted small">En attente du client depuis le ${fmtDate(m.attenteDepuis)}.</p>` : ''}
           <div class="prog big">${bar(p)}<span class="pct">${p} %</span></div>
           ${m.etapes.length ? `<ul class="steps">${m.etapes.map((e) => `
             <li><label class="check"><input type="checkbox" data-action="toggle-step" data-mission="${m.id}" data-step="${e.id}"${e.done ? ' checked' : ''}>
@@ -909,6 +978,7 @@
         <footer class="modal-foot">
           <button class="btn danger" data-action="delete-mission" data-id="${m.id}">Supprimer</button>
           <span class="spacer"></span>
+          ${c && isOpen(m) ? `<button class="btn" data-action="open-msg" data-client="${c.id}" data-mission="${m.id}">${icon('mail')}Écrire au client</button>` : ''}
           ${c ? `<a class="btn" href="#/dossier/${c.id}" data-action="close-modal">Voir le dossier</a>` : ''}
           <button class="btn" data-action="edit-mission" data-id="${m.id}">Modifier</button>
           ${isOpen(m) ? `<button class="btn primary" data-action="complete-mission" data-id="${m.id}">✓ Terminée</button>` : ''}
@@ -1012,7 +1082,8 @@
     if (target && name) wrap.scrollLeft = target.offsetLeft - name.offsetWidth - name.offsetLeft;
   }
 
-  function viewGrille() {
+  // Données de la grille : dossiers affichés et missions indexées par colonne (1-12, 13 = année).
+  function grilleModel() {
     const g = ui.grille;
     const year = Number(g.annee);
     const grid = new Map();
@@ -1042,6 +1113,52 @@
     const resps = Array.from(new Set(data.clients.flatMap((c) => [c.responsable, c.collaborateur, c.superviseur]).filter(Boolean))).sort();
     // Colonne « Année » affichée seulement s'il existe des missions annuelles (ex. CA12 « 2026 »).
     const cols = clients.some((c) => grid.get(c.id)[13]) ? 13 : 12;
+    return { g, year, grid, years, base, clients, resps, regimeOptions, cols };
+  }
+
+  function grilleCellState(m) {
+    if (!m) return 'none';
+    if (!isOpen(m)) return 'ok';
+    if (isLate(m)) return 'late';
+    if (m.statut === 'attente_client') return 'wait';
+    return m.statut === 'a_faire' ? 'todo' : 'progress';
+  }
+
+  async function exportGrille() {
+    const { year, grid, clients, cols } = grilleModel();
+    const ok = await ask({
+      title: 'Export Excel non chiffré',
+      message: "Le fichier Excel n'est <strong>pas chiffré</strong> et contient des informations couvertes par le secret professionnel. Enregistrez-le uniquement sur un support sécurisé. Il peut être réimporté dans l'application.",
+      okLabel: 'Exporter',
+    });
+    if (!ok) return;
+    const STYLE = { ok: 3, late: 4, none: 5, todo: 6, progress: 6, wait: 7 };
+    const head = ['N°DOSSIER', 'STATUT', 'DOSSIERS', 'RESPONSABLE', 'COLLABORATEUR', 'SUPERVISEUR', 'SIREN', 'TVA', 'JOUR TVA', 'IS/IR']
+      .concat(Array.from({ length: 12 }, (_, i) => i + 1), cols === 13 ? ['ANNÉE'] : []);
+    const rows = [head.map((v) => ({ v, s: 1 }))];
+    clients.forEach((c) => {
+      const row = grid.get(c.id);
+      const text = (v) => ({ v: v || '', s: 2 });
+      const cells = [c.code, c.forme, c.nom, c.responsable, c.collaborateur, c.superviseur, c.siren, tvaShort(c.regimeTva)].map(text);
+      cells.push({ v: c.jourTva ? Number(c.jourTva) : '', s: 6 }, text(c.cloture ? `${c.cloture}/${year}` : ''));
+      for (let i = 1; i <= cols; i++) {
+        const state = grilleCellState(row[i]);
+        cells.push({ v: state === 'ok' ? 'OK' : state === 'wait' ? 'ATT' : '', s: STYLE[state] });
+      }
+      rows.push(cells);
+    });
+    const blob = XlsxWriter.build({
+      sheetName: `Suivi ${tplName(ui.grille.type)} ${year}`,
+      rows,
+      widths: [11, 9, 44, 13, 15, 13, 17, 7, 9, 12].concat(Array(cols).fill(6)),
+      freeze: { row: 1, col: 3 },
+    });
+    download(`suivi-${norm(tplName(ui.grille.type)).replace(/[^a-z0-9]+/g, '-')}-${year}.xlsx`, blob, blob.type);
+  }
+
+  function viewGrille() {
+    const { g, year, grid, years, base, clients, resps, regimeOptions, cols } = grilleModel();
+    const pointage = !!data.settings.pointage;
     const totals = Array.from({ length: cols }, () => ({ done: 0, all: 0 }));
 
     const cell = (m, col) => {
@@ -1053,7 +1170,7 @@
       else if (isLate(m)) { cls = 'g-late'; txt = '!'; }
       else if (m.statut === 'attente_client') { cls = 'g-wait'; txt = 'Att.'; }
       else if (m.statut !== 'a_faire') { cls = 'g-progress'; txt = progress(m) + '%'; }
-      return `<td class="${cls}" data-action="open-mission" data-id="${m.id}" role="button" tabindex="0" title="${esc(m.titre)} — ${esc(STATUTS[m.statut])}${m.echeance ? ' — échéance ' + fmtDate(m.echeance) : ''}">${txt}</td>`;
+      return `<td class="${cls}" data-action="${pointage ? 'grille-toggle' : 'open-mission'}" data-id="${m.id}" role="button" tabindex="0" title="${esc(m.titre)} — ${esc(STATUTS[m.statut])}${m.echeance ? ' — échéance ' + fmtDate(m.echeance) : ''}${pointage ? ' — cliquer pour ' + (isOpen(m) ? 'pointer OK' : 'annuler') : ''}">${txt}</td>`;
     };
 
     const body = clients.map((c) => {
@@ -1069,13 +1186,21 @@
 
     return `
       <div class="page-head"><h1>Suivi mensuel</h1>
-        <div class="head-actions"><button class="btn" data-action="import-sheet">Importer (Excel / CSV)</button></div>
+        <div class="head-actions">
+          <button class="btn" data-action="open-cal">${icon('calendar')}Calendrier fiscal</button>
+          <button class="btn" data-action="import-sheet">Importer</button>
+          <button class="btn" data-action="export-grille"${clients.length ? '' : ' disabled'}>Exporter en Excel</button>
+        </div>
       </div>
       <div class="filters">
         <select data-grille="type" aria-label="Type de mission">${options(Object.fromEntries(data.templates.map((t) => [t.id, t.nom])), g.type)}</select>
         <select data-grille="annee" aria-label="Année">${options(Array.from(years).sort().map(String), String(year))}</select>
         <select data-grille="regime" aria-label="Régime de TVA">${options(regimeOptions, g.regime)}</select>
         <select data-grille="resp" aria-label="Responsable">${options(resps, g.resp, 'Tous responsables')}</select>
+        <div class="seg" role="group" aria-label="Mode de clic">
+          <button class="${pointage ? '' : 'on'}" data-action="grille-mode" data-mode="fiche" title="Un clic ouvre la mission">Ouvrir</button>
+          <button class="${pointage ? 'on' : ''}" data-action="grille-mode" data-mode="pointage" title="Un clic pointe la case OK">Pointage rapide</button>
+        </div>
         <span class="legend"><span class="g-ok">OK</span> terminée <span class="g-late">!</span> en retard <span class="g-wait">Att.</span> attente client <span class="g-todo">·</span> à faire</span>
       </div>
       ${clients.length ? `
@@ -1086,10 +1211,411 @@
           <tfoot><tr><td class="g-code"></td><th class="g-name">Terminées</th><td class="g-meta"></td><td class="g-meta"></td>${totals.map((t) => `<td>${t.all ? `${t.done}/${t.all}` : ''}</td>`).join('')}</tr></tfoot>
         </table>
       </div>
-      <p class="muted small">${clients.length} dossier${clients.length > 1 ? 's' : ''}. Cliquez sur une case pour ouvrir la mission et la marquer comme terminée. Les missions mensuelles (« MM/AAAA »), trimestrielles (« T1 AAAA ») et annuelles (« AAAA ») de l'année choisie apparaissent ici.</p>`
+      <p class="muted small">${clients.length} dossier${clients.length > 1 ? 's' : ''}. ${pointage ? '<strong>Pointage rapide :</strong> un clic sur une case la passe à OK, un second clic annule.' : 'Cliquez sur une case pour ouvrir la mission, ou activez le « Pointage rapide » pour cocher les cases comme dans Excel.'} Les missions mensuelles (« MM/AAAA »), trimestrielles (« T1 AAAA ») et annuelles (« AAAA ») de l'année choisie apparaissent ici.</p>`
       : base.length
         ? emptyState(`Aucun dossier « ${esc(REGIME_FILTRES[g.regime])} » pour ces critères.`, '<button class="btn" data-action="grille-reset">Afficher tous les régimes</button>')
         : emptyState(`Aucune mission « ${esc((templateById(g.type) || {}).nom || '')} » pour ${year}.`, `<button class="btn primary" data-action="import-sheet">Importer mon tableau Excel</button>`)}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Messages et relances clients
+  // ---------------------------------------------------------------------------
+
+  const MODELES_MESSAGE = { pieces: 'Demande de documents', relance: 'Relance', validation: 'Envoi pour validation' };
+  const PIECE_RE = /re[çc]u|pi[èe]ce|relev|document|variable|justificatif|lettre de mission|avis|facture/i;
+
+  // Étapes non cochées qui correspondent à des documents attendus du client.
+  function piecesManquantes(m) {
+    const periode = m.exercice ? ` de la période ${m.exercice}` : '';
+    return m.etapes
+      .filter((e) => !e.done && PIECE_RE.test(e.label))
+      .map((e) => {
+        const label = e.label.replace(/\s+re[çc]u(e|s|es)?$/i, '').replace(/\s+à jour$/i, '');
+        if (/^(pi[èe]ces|documents)$/i.test(label)) return `Pièces${periode} (factures d'achats et de ventes, relevés bancaires, justificatifs)`;
+        if (/^pi[èe]ces comptables$/i.test(label)) return `Pièces comptables${periode} (factures, notes de frais, justificatifs)`;
+        return label + (/relev|variable/i.test(label) ? periode : '');
+      });
+  }
+
+  const lastRelance = (m) => (m.relances && m.relances.length ? m.relances[m.relances.length - 1] : null);
+
+  // Mission en attente du client sans relance depuis le délai choisi dans les paramètres.
+  function relanceDue(m) {
+    if (m.statut !== 'attente_client') return false;
+    const since = lastRelance(m) ? lastRelance(m).slice(0, 10) : m.attenteDepuis || (m.updatedAt || '').slice(0, 10);
+    return !since || -daysUntil(since) >= (data.settings.relanceJours || 7);
+  }
+
+  function buildMessage(c, missions, modele) {
+    const s = data.settings;
+    const salut = c.contact ? `Bonjour ${c.contact},` : 'Bonjour,';
+    const signature = s.signature || [s.utilisateur, s.cabinet].filter(Boolean).join('\n');
+    const titres = missions.map((m) => `« ${m.titre} »`).join(', ');
+    const nextDue = missions.map((m) => m.echeance).filter(Boolean).sort()[0];
+    const pieces = [];
+    missions.forEach((m) => piecesManquantes(m).forEach((p) => {
+      const line = missions.length > 1 ? `${p} (${m.titre})` : p;
+      if (!pieces.includes(line)) pieces.push(line);
+    }));
+    if (!pieces.length) pieces.push("les pièces comptables de la période (factures d'achats et de ventes, relevés bancaires, justificatifs)");
+    const list = pieces.map((p) => `- ${p}`);
+    const ending = ['', 'Nous restons à votre disposition pour toute question.', '', 'Cordialement,', signature];
+    let subject;
+    let body;
+    if (modele === 'relance') {
+      const last = missions.map(lastRelance).filter(Boolean).sort().pop();
+      subject = `Relance — ${c.nom} : documents en attente`;
+      body = [salut, '',
+        `Sauf erreur de notre part, nous n'avons pas encore reçu les éléments ${last ? `demandés le ${fmtDate(last.slice(0, 10))} ` : 'nécessaires '}pour ${titres} :`,
+        ...list, '',
+        nextDue
+          ? daysUntil(nextDue) < 0
+            ? `L'échéance du ${fmtDate(nextDue)} est dépassée : merci de nous transmettre ces documents dans les meilleurs délais.`
+            : `L'échéance est fixée au ${fmtDate(nextDue)} : sans ces documents, nous ne pourrons pas la respecter.`
+          : 'Merci de nous les transmettre dans les meilleurs délais.',
+        ...ending];
+    } else if (modele === 'validation') {
+      const limit = nextDue ? addDays(nextDue, -3) : null;
+      subject = `${c.nom} — ${missions.map((m) => m.titre).join(', ')} : pour validation`;
+      body = [salut, '',
+        `Vous trouverez ci-joint ${titres} concernant ${c.nom}.`,
+        limit && limit >= todayStr()
+          ? `Merci de nous faire part de votre validation avant le ${fmtDate(limit)}, afin que nous puissions procéder au dépôt dans les délais (échéance du ${fmtDate(nextDue)}).`
+          : 'Merci de nous faire part de votre validation dans les meilleurs délais, afin que nous puissions procéder au dépôt.',
+        ...ending];
+    } else {
+      const limit = nextDue ? addDays(nextDue, -7) : null;
+      subject = `${c.nom} — documents nécessaires : ${missions.map((m) => m.titre).join(', ')}`;
+      body = [salut, '',
+        `Afin de mener à bien ${titres} pour ${c.nom}, nous avons besoin des éléments suivants :`,
+        ...list, '',
+        limit && limit > todayStr()
+          ? `Nous vous remercions de nous les transmettre au plus tard le ${fmtDate(limit)}, afin de respecter l'échéance du ${fmtDate(nextDue)}.`
+          : 'Nous vous remercions de nous les transmettre dès que possible.',
+        ...ending];
+    }
+    return { subject, body: body.join('\n') };
+  }
+
+  function openMessage(clientId, missionId) {
+    const c = clientById(clientId);
+    if (!c) return;
+    const open = data.missions.filter((m) => m.clientId === c.id && isOpen(m)).sort(byDue);
+    let selected = missionId ? [missionId] : open.filter((m) => m.statut === 'attente_client').map((m) => m.id);
+    if (!selected.length && open.length) selected = [open[0].id];
+    const first = missionById(selected[0]);
+    ui.msg = {
+      clientId, selected: new Set(selected),
+      modele: first && first.statut === 'attente_client' && lastRelance(first) ? 'relance' : first && first.statut === 'a_valider' ? 'validation' : 'pieces',
+    };
+    renderMessage();
+  }
+
+  function renderMessage() {
+    const st = ui.msg;
+    const c = clientById(st.clientId);
+    const open = data.missions.filter((m) => m.clientId === c.id && isOpen(m)).sort(byDue);
+    const missions = open.filter((m) => st.selected.has(m.id));
+    const msg = buildMessage(c, missions.length ? missions : open.slice(0, 1), st.modele);
+    modalRefresh = null;
+    openModal(`
+      <div class="sheet">
+        <header class="modal-head"><div><div class="muted small">${esc(c.nom)}${c.email ? ' · ' + esc(c.email) : ''}</div><h2>Écrire au client</h2></div><button type="button" class="icon-btn" data-action="close-modal" aria-label="Fermer">✕</button></header>
+        <div class="modal-body">
+          <div class="seg msg-models" role="group" aria-label="Modèle">${Object.entries(MODELES_MESSAGE).map(([k, l]) => `<button class="${k === st.modele ? 'on' : ''}" data-action="msg-model" data-model="${k}">${l}</button>`).join('')}</div>
+          ${open.length > 1 ? `<div class="msg-missions">${open.map((m) => `<label class="check"><input type="checkbox" data-msg="mission" value="${m.id}"${st.selected.has(m.id) ? ' checked' : ''}><span>${esc(m.titre)} <span class="muted small">${m.echeance ? fmtDate(m.echeance) : ''} · ${esc(STATUTS[m.statut])}${lastRelance(m) ? ` · relancé le ${fmtDate(lastRelance(m).slice(0, 10))}` : ''}</span></span></label>`).join('')}</div>` : ''}
+          <label>Objet<input id="msg-subject" value="${esc(msg.subject)}" spellcheck="false"></label>
+          <label>Message<textarea id="msg-body" rows="14" spellcheck="false">${esc(msg.body)}</textarea></label>
+          <p class="muted small">Le message est préparé ici puis envoyé par <strong>votre propre messagerie</strong> : l'application n'envoie rien elle-même. La liste des documents reprend les étapes non cochées de la mission. Relisez et ajustez avant l'envoi.${c.email ? '' : ' Ajoutez l\'e-mail du client dans sa fiche pour ouvrir directement votre messagerie.'}</p>
+        </div>
+        <footer class="modal-foot">
+          <button type="button" class="btn" data-action="close-modal">Fermer</button>
+          <span class="spacer"></span>
+          <button class="btn" data-action="msg-copy">Copier le message</button>
+          <button class="btn primary" data-action="msg-mail"${c.email ? '' : ' disabled'}>${icon('mail')}Ouvrir dans ma messagerie</button>
+        </footer>
+      </div>`, true);
+  }
+
+  // Trace l'envoi : date de relance, statut « attente client », journal du dossier.
+  function recordMessage() {
+    const st = ui.msg;
+    const c = clientById(st.clientId);
+    const missions = data.missions.filter((m) => st.selected.has(m.id) && isOpen(m));
+    missions.forEach((m) => {
+      m.relances = (m.relances || []).concat(nowIso());
+      if (st.modele !== 'validation' && ['a_faire', 'en_cours'].includes(m.statut)) setStatus(m, 'attente_client');
+      m.updatedAt = nowIso();
+    });
+    log(c.id, `${MODELES_MESSAGE[st.modele]} envoyée${missions.length ? ' : ' + missions.map((m) => m.titre).join(', ') : ''}.`, false);
+    persist();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Calendrier fiscal : génération automatique des échéances
+  // ---------------------------------------------------------------------------
+
+  const FERIES_FIXES = ['01-01', '05-01', '05-08', '07-14', '08-15', '11-01', '11-11', '12-25'];
+
+  function easterSunday(y) {
+    const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4;
+    const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(y, month - 1, day);
+  }
+
+  // Jour ouvré : ni samedi, ni dimanche, ni jour férié (fixes, lundi de Pâques, Ascension, lundi de Pentecôte).
+  function isWorkingDay(d) {
+    const dow = d.getDay();
+    if (dow === 0 || dow === 6) return false;
+    if (FERIES_FIXES.includes(ymd(d).slice(5))) return false;
+    const diff = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - easterSunday(d.getFullYear())) / 86400000);
+    return ![1, 39, 50].includes(diff);
+  }
+
+  function nextWorkingDay(s) {
+    const d = parseYmd(s);
+    while (!isWorkingDay(d)) d.setDate(d.getDate() + 1);
+    return ymd(d);
+  }
+
+  function nthWorkingDayAfter(s, n) {
+    const d = parseYmd(s);
+    for (let k = 0; k < n;) {
+      d.setDate(d.getDate() + 1);
+      if (isWorkingDay(d)) k++;
+    }
+    return ymd(d);
+  }
+
+  function addDays(s, n) {
+    const d = parseYmd(s);
+    d.setDate(d.getDate() + n);
+    return ymd(d);
+  }
+
+  function endOfMonth(s) {
+    const d = parseYmd(s);
+    return ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+  }
+
+  function closingDate(c, year) {
+    const m = (c.cloture || '31/12').match(/^(\d{2})\/(\d{2})$/) || [0, '31', '12'];
+    return dayOfMonth(year, Number(m[2]) - 1, Number(m[1]));
+  }
+
+  const isDecClosing = (closing) => closing.slice(5) === '12-31';
+  const nextYear = (closing) => Number(closing.slice(0, 4)) + 1;
+
+  // Liasse : 2e jour ouvré après le 1er mai (clôture au 31/12) ou 3 mois après la clôture, + 15 jours en télétransmission.
+  function liasseDate(closing) {
+    const base = isDecClosing(closing) ? nthWorkingDayAfter(`${nextYear(closing)}-05-01`, 2) : endOfMonth(addMonths(closing, 3));
+    return nextWorkingDay(addDays(base, 15));
+  }
+
+  function ca12Date(closing) {
+    return isDecClosing(closing) ? nthWorkingDayAfter(`${nextYear(closing)}-05-01`, 2) : nextWorkingDay(endOfMonth(addMonths(closing, 3)));
+  }
+
+  // Solde d'IS : 15 mai (clôture au 31/12), sinon le 15 du 4e mois suivant la clôture.
+  function soldeIsDate(closing) {
+    if (isDecClosing(closing)) return nextWorkingDay(`${nextYear(closing)}-05-15`);
+    const d = parseYmd(closing);
+    return nextWorkingDay(dayOfMonth(d.getFullYear(), d.getMonth() + 4, 15));
+  }
+
+  const SOCIETES = ['EURL', 'SARL', 'SAS', 'SASU', 'SA', 'SNC', 'SCI', 'SCM', 'SMC', 'SELARL', 'SELAS', 'EARL', 'GAEC'];
+  const IS_PAR_DEFAUT = ['SAS', 'SASU', 'SA', 'SELAS', 'SARL', 'SELARL'];
+  const formeOf = (c) => (c.forme || '').toUpperCase();
+
+  // Sans régime fiscal renseigné, l'IS est présumé pour les formes qui y sont soumises par défaut.
+  function presumedIS(c) {
+    const r = norm(c.regimeFiscal);
+    return r ? r === 'is' : IS_PAR_DEFAUT.includes(formeOf(c));
+  }
+
+  const tplName = (id) => (templateById(id) || DEFAULT_TEMPLATES.find((t) => t.id === id) || { nom: id }).nom;
+
+  const OBLIGATIONS = [
+    {
+      id: 'tva', label: 'TVA mensuelle / trimestrielle',
+      rule: 'Au jour limite TVA du dossier, le mois qui suit la période.',
+      applies: (c) => ['M', 'T'].includes(tvaShort(c.regimeTva)),
+      plan: (c, Y) => {
+        const quarterly = tvaShort(c.regimeTva) === 'T';
+        const out = [];
+        for (let n = 1; n <= 12; n++) {
+          if (quarterly && n % 3) continue;
+          const label = quarterly ? `T${n / 3} ${Y}` : `${pad(n)}/${Y}`;
+          out.push({
+            tpl: 'tva', titre: `TVA ${label}`, exercice: label, recurrence: quarterly ? 'trimestrielle' : 'mensuelle',
+            echeance: c.jourTva ? nextWorkingDay(dayOfMonth(Y, n, c.jourTva)) : '',
+            ref: dayOfMonth(Y, n, c.jourTva || 24),
+          });
+        }
+        return out;
+      },
+    },
+    {
+      id: 'ca12', label: 'TVA annuelle CA12 et acomptes',
+      rule: 'CA12 : 2e jour ouvré après le 1er mai (clôture au 31/12) ou 3 mois après la clôture. Acomptes : juillet et décembre (15 du mois).',
+      applies: (c) => tvaShort(c.regimeTva) === 'CA12',
+      plan: (c, Y) => [
+        { tpl: 'ca12', titre: `TVA CA12 ${Y}`, exercice: String(Y), echeance: ca12Date(closingDate(c, Y)), recurrence: 'annuelle' },
+        { tpl: 'acompte_ca12', titre: `Acompte CA12 07/${Y}`, exercice: `07/${Y}`, echeance: nextWorkingDay(`${Y}-07-15`), recurrence: 'aucune' },
+        { tpl: 'acompte_ca12', titre: `Acompte CA12 12/${Y}`, exercice: `12/${Y}`, echeance: nextWorkingDay(`${Y}-12-15`), recurrence: 'aucune' },
+      ],
+    },
+    {
+      id: 'acompte_is', label: "Acomptes d'IS",
+      rule: "15 mars, 15 juin, 15 septembre, 15 décembre (dossiers à l'IS).",
+      applies: presumedIS,
+      plan: (c, Y) => [3, 6, 9, 12].map((n) => ({
+        tpl: 'acompte_is', titre: `Acompte IS ${pad(n)}/${Y}`, exercice: `${pad(n)}/${Y}`, echeance: nextWorkingDay(`${Y}-${pad(n)}-15`), recurrence: 'trimestrielle',
+      })),
+    },
+    {
+      id: 'solde_is', label: "Solde d'IS (2572)",
+      rule: '15 mai (clôture au 31/12) ou le 15 du 4e mois suivant la clôture.',
+      applies: presumedIS,
+      plan: (c, Y) => [{ tpl: 'solde_is', titre: `Solde IS ${Y}`, exercice: String(Y), echeance: soldeIsDate(closingDate(c, Y)), recurrence: 'annuelle' }],
+    },
+    {
+      id: 'bilan', label: 'Bilan et liasse fiscale',
+      rule: 'Exercice clos dans l\'année : 2e jour ouvré après le 1er mai (clôture au 31/12) ou 3 mois après la clôture, + 15 jours de télétransmission.',
+      applies: (c) => norm(c.forme) !== 'particulier',
+      plan: (c, Y) => [{ tpl: 'bilan', titre: `${tplName('bilan')} ${Y}`, exercice: String(Y), echeance: liasseDate(closingDate(c, Y)), recurrence: 'annuelle' }],
+    },
+    {
+      id: 'juridique', label: 'Approbation des comptes et dépôt au greffe',
+      rule: 'Assemblée dans les 6 mois suivant la clôture (sociétés).',
+      applies: (c) => SOCIETES.includes(formeOf(c)),
+      plan: (c, Y) => [{ tpl: 'juridique', titre: `${tplName('juridique')} ${Y}`, exercice: String(Y), echeance: nextWorkingDay(endOfMonth(addMonths(closingDate(c, Y), 6))), recurrence: 'annuelle' }],
+    },
+    {
+      id: 'cfe', label: 'CFE',
+      rule: '15 décembre (hors particuliers et SCI).',
+      applies: (c) => norm(c.forme) !== 'particulier' && formeOf(c) !== 'SCI',
+      plan: (c, Y) => [{ tpl: 'cfe', titre: `CFE ${Y}`, exercice: String(Y), echeance: nextWorkingDay(`${Y}-12-15`), recurrence: 'annuelle' }],
+    },
+  ];
+
+  function calClients() {
+    const cal = ui.cal;
+    return data.clients
+      .filter((c) => !c.archive)
+      .filter((c) => !cal.only || c.id === cal.only)
+      .filter((c) => !cal.resp || [c.responsable, c.collaborateur, c.superviseur].includes(cal.resp))
+      .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'fr', { numeric: true }));
+  }
+
+  function calPlan() {
+    const cal = ui.cal;
+    const today = todayStr();
+    const res = { items: [], existing: 0, past: 0, byOb: {}, clients: new Set() };
+    calClients().forEach((c) => {
+      if (cal.excluded.has(c.id)) return;
+      OBLIGATIONS.forEach((ob) => {
+        if (!cal.obligations.has(ob.id) || !ob.applies(c)) return;
+        ob.plan(c, cal.year).forEach((p) => {
+          if (data.missions.some((m) => m.clientId === c.id && m.titre === p.titre)) { res.existing++; return; }
+          if (cal.skipPast && (p.echeance || p.ref) < today) { res.past++; return; }
+          res.items.push(Object.assign({ c }, p));
+          res.byOb[ob.id] = (res.byOb[ob.id] || 0) + 1;
+          res.clients.add(c.id);
+        });
+      });
+    });
+    return res;
+  }
+
+  function applyCal() {
+    const res = calPlan();
+    const stamp = nowIso();
+    const perClient = {};
+    res.items.forEach((p) => {
+      let tpl = templateById(p.tpl);
+      if (!tpl) {
+        tpl = clone(DEFAULT_TEMPLATES.find((t) => t.id === p.tpl));
+        data.templates.push(tpl);
+      }
+      data.missions.push({
+        id: uid(), clientId: p.c.id, type: tpl.id, titre: p.titre, exercice: p.exercice, echeance: p.echeance,
+        statut: 'a_faire', priorite: 'normale', responsable: p.c.responsable || p.c.collaborateur || '',
+        recurrence: p.recurrence, notes: '', suiteCreee: false, termineLe: null, createdAt: stamp, updatedAt: stamp,
+        etapes: tpl.etapes.map((label) => ({ id: uid(), label, done: false, doneAt: null })),
+      });
+      perClient[p.c.id] = (perClient[p.c.id] || 0) + 1;
+    });
+    Object.entries(perClient).forEach(([id, n]) => log(id, `Calendrier fiscal ${ui.cal.year} : ${n} échéance(s) créée(s).`, true));
+    return res;
+  }
+
+  function openCalendar(onlyClient) {
+    const prev = ui.cal;
+    ui.cal = {
+      year: prev ? prev.year : new Date().getFullYear(),
+      skipPast: true,
+      obligations: prev ? prev.obligations : new Set(OBLIGATIONS.map((o) => o.id)),
+      resp: '',
+      excluded: new Set(),
+      only: onlyClient || '',
+    };
+    renderCalendar();
+  }
+
+  function renderCalendar() {
+    const cal = ui.cal;
+    const res = calPlan();
+    const clients = calClients();
+    const resps = Array.from(new Set(data.clients.flatMap((c) => [c.responsable, c.collaborateur, c.superviseur]).filter(Boolean))).sort();
+    const only = cal.only && clientById(cal.only);
+    modalRefresh = null;
+    openModal(`
+      <div class="sheet">
+        <header class="modal-head"><div><div class="muted small">${only ? esc(clientLabel(only)) : 'Assistant'}</div><h2>Calendrier fiscal</h2></div><button type="button" class="icon-btn" data-action="close-modal" aria-label="Fermer">✕</button></header>
+        <div class="modal-body">
+          <p class="muted small">Crée en une fois les échéances de l'année pour vos dossiers, selon leur forme, leur régime de TVA, leur régime fiscal et leur date de clôture. Les échéances déjà présentes ne sont jamais dupliquées.</p>
+          <div class="form-grid">
+            <label>Année<input type="number" min="2000" max="2100" data-cal="year" value="${cal.year}"></label>
+            ${only ? '' : `<label>Responsable<select data-cal="resp">${options(resps, cal.resp, 'Tous les dossiers')}</select></label>`}
+          </div>
+          <label class="check"><input type="checkbox" data-cal="skipPast"${cal.skipPast ? ' checked' : ''}><span>Ne pas créer les échéances déjà passées</span></label>
+          <h3>Obligations</h3>
+          <div class="cal-obs">${OBLIGATIONS.map((ob) => {
+            const n = clients.filter((c) => ob.applies(c)).length;
+            return `<label class="check cal-ob"><input type="checkbox" data-cal="ob" value="${ob.id}"${cal.obligations.has(ob.id) ? ' checked' : ''}>
+              <span><strong>${esc(ob.label)}</strong> <span class="badge">${n} dossier${n > 1 ? 's' : ''}</span>${res.byOb[ob.id] ? ` <span class="badge st-en_cours">+${res.byOb[ob.id]}</span>` : ''}<br><span class="muted small">${esc(ob.rule)}</span></span></label>`;
+          }).join('')}</div>
+          ${only ? '' : `
+          <details class="cal-clients"><summary>Dossiers concernés : ${clients.length - cal.excluded.size} / ${clients.length} <span class="muted small">(décocher pour exclure)</span></summary>
+            <div class="cal-list">${clients.map((c) => `<label class="check"><input type="checkbox" data-cal="client" value="${c.id}"${cal.excluded.has(c.id) ? '' : ' checked'}><span>${esc(c.code)} — ${esc(clientLabel(c))} <span class="muted small">${esc([c.forme, tvaShort(c.regimeTva), c.cloture].filter(Boolean).join(' · '))}</span></span></label>`).join('')}</div>
+          </details>`}
+          <div class="imp-summary ${res.items.length ? '' : 'warn'}">
+            <strong>${res.items.length}</strong> échéance(s) à créer pour ${res.clients.size} dossier(s)${res.existing ? ` · ${res.existing} déjà présente(s)` : ''}${res.past ? ` · ${res.past} déjà passée(s), ignorée(s)` : ''}
+          </div>
+          <p class="muted small">Dates <strong>indicatives</strong>, calculées selon les règles générales et reportées au jour ouvré suivant. Vérifiez-les avec le calendrier fiscal officiel et la situation de chaque dossier. L'IS est présumé pour les SARL, SAS, SASU, SA, SELARL et SELAS dont le régime fiscal n'est pas renseigné.</p>
+        </div>
+        <footer class="modal-foot"><button type="button" class="btn" data-action="close-modal">Annuler</button><button class="btn primary" data-action="apply-cal"${res.items.length ? '' : ' disabled'}>Créer ${res.items.length} échéance(s)</button></footer>
+      </div>`, true);
+  }
+
+  function onCalChange(t) {
+    const cal = ui.cal;
+    const k = t.dataset.cal;
+    if (k === 'year') cal.year = Number(t.value) || cal.year;
+    else if (k === 'resp') cal.resp = t.value;
+    else if (k === 'skipPast') cal.skipPast = t.checked;
+    else if (k === 'ob') t.checked ? cal.obligations.add(t.value) : cal.obligations.delete(t.value);
+    else if (k === 'client') t.checked ? cal.excluded.delete(t.value) : cal.excluded.add(t.value);
+    const body = $('#modal .modal-body');
+    const scroll = body ? body.scrollTop : 0;
+    const open = !!$('#modal details[open]');
+    renderCalendar();
+    if (open && $('#modal details')) $('#modal details').open = true;
+    if ($('#modal .modal-body')) $('#modal .modal-body').scrollTop = scroll;
   }
 
   // ---------------------------------------------------------------------------
@@ -1418,6 +1944,245 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Sauvegarde automatique dans un fichier (Chrome / Edge sur ordinateur)
+  // ---------------------------------------------------------------------------
+
+  const AUTO_BACKUP_DELAY = 20000;
+  let autoBackupTimer = null;
+  let autoBackupHandle = null;
+  const autoBackupSupported = () => typeof window.showSaveFilePicker === 'function';
+
+  function scheduleAutoBackup() {
+    if (!autoBackupHandle || !ui.autoBackup || !ui.autoBackup.active) return;
+    clearTimeout(autoBackupTimer);
+    autoBackupTimer = setTimeout(writeAutoBackup, AUTO_BACKUP_DELAY);
+  }
+
+  // Écrit la sauvegarde chiffrée dans le fichier choisi (même format que l'export manuel).
+  async function writeAutoBackup() {
+    clearTimeout(autoBackupTimer);
+    autoBackupTimer = null;
+    if (!autoBackupHandle || !data) return false;
+    try {
+      data.settings.lastBackup = nowIso();
+      await persist({ noAutoBackup: true });
+      const text = await Vault.exportBackup(data);
+      const writable = await autoBackupHandle.createWritable();
+      await writable.write(text);
+      await writable.close();
+      ui.autoBackup = { active: true, name: autoBackupHandle.name, last: nowIso() };
+      return true;
+    } catch (e) {
+      ui.autoBackup = { active: false, needsPermission: true, name: autoBackupHandle.name };
+      return false;
+    }
+  }
+
+  async function initAutoBackup() {
+    ui.autoBackup = null;
+    autoBackupHandle = null;
+    if (!autoBackupSupported()) return;
+    try {
+      const handle = await Vault.getMeta('autoBackup');
+      if (!handle) return;
+      autoBackupHandle = handle;
+      const perm = await handle.queryPermission({ mode: 'readwrite' });
+      if (perm === 'granted') {
+        ui.autoBackup = { active: true, name: handle.name };
+        writeAutoBackup();
+      } else {
+        ui.autoBackup = { active: false, needsPermission: true, name: handle.name };
+      }
+    } catch (e) {
+      ui.autoBackup = null;
+    }
+  }
+
+  async function chooseAutoBackup() {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'suivi-dossiers-sauvegarde-auto.json',
+        types: [{ description: 'Sauvegarde chiffrée', accept: { 'application/json': ['.json'] } }],
+      });
+      autoBackupHandle = handle;
+      await Vault.setMeta('autoBackup', handle);
+      ui.autoBackup = { active: true, name: handle.name };
+      if (await writeAutoBackup()) toast('Sauvegarde automatique activée.');
+      refresh();
+    } catch (e) {
+      if (e.name !== 'AbortError') toast(e.message, true);
+    }
+  }
+
+  async function resumeAutoBackup() {
+    if (!autoBackupHandle) return;
+    try {
+      if ((await autoBackupHandle.requestPermission({ mode: 'readwrite' })) === 'granted' && (await writeAutoBackup())) {
+        toast('Sauvegarde automatique réactivée.');
+      }
+    } catch (e) {
+      toast(e.message, true);
+    }
+    refresh();
+  }
+
+  async function stopAutoBackup() {
+    clearTimeout(autoBackupTimer);
+    autoBackupHandle = null;
+    ui.autoBackup = null;
+    await Vault.setMeta('autoBackup', undefined);
+    toast('Sauvegarde automatique désactivée.');
+    refresh();
+  }
+
+  function autoBackupCard() {
+    const ab = ui.autoBackup;
+    let body;
+    if (!autoBackupSupported()) {
+      body = `<p class="muted small">Disponible sur <strong>ordinateur</strong> avec Chrome ou Edge. Sur cet appareil, utilisez « Exporter une sauvegarde chiffrée » régulièrement.</p>`;
+    } else if (ab && ab.active) {
+      body = `<p>✓ Active — fichier <strong>${esc(ab.name)}</strong>${ab.last ? `, mis à jour le ${fmtDateTime(ab.last)}` : ''}.</p>
+        <p class="muted small">Le fichier chiffré est réécrit 20 secondes après chaque modification et à chaque ouverture.</p>
+        <div class="stack"><button class="btn block" data-action="autobackup-choose">Changer de fichier</button><button class="btn block" data-action="autobackup-stop">Désactiver</button></div>`;
+    } else if (ab && ab.needsPermission) {
+      body = `<p>Le navigateur demande une nouvelle autorisation pour écrire dans <strong>${esc(ab.name)}</strong>.</p>
+        <div class="stack"><button class="btn primary block" data-action="autobackup-resume">Réactiver</button><button class="btn block" data-action="autobackup-stop">Désactiver</button></div>`;
+    } else {
+      body = `<p class="muted small">Choisissez un fichier, par exemple sur le serveur du cabinet ou dans un dossier synchronisé : l'application y écrit automatiquement une sauvegarde <strong>chiffrée</strong> après chaque modification. Vous n'avez plus à y penser.</p>
+        <button class="btn primary block" data-action="autobackup-choose">Choisir le fichier de sauvegarde</button>`;
+    }
+    return `<section class="card"><h2>Sauvegarde automatique</h2>${body}</section>`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Export vers l'agenda (.ics)
+  // ---------------------------------------------------------------------------
+
+  function icsEscape(s) {
+    return String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+  }
+
+  // Replie les lignes à 75 octets comme l'exige le format iCalendar.
+  function icsFold(line) {
+    const enc = new TextEncoder();
+    const out = [];
+    let cur = '';
+    let bytes = 0;
+    for (const ch of line) {
+      const b = enc.encode(ch).length;
+      if (bytes + b > 74) {
+        out.push(cur);
+        cur = ' ' + ch;
+        bytes = 1 + b;
+      } else {
+        cur += ch;
+        bytes += b;
+      }
+    }
+    out.push(cur);
+    return out.join('\r\n');
+  }
+
+  function buildIcs({ months, names, reminder, resp }) {
+    const today = todayStr();
+    const end = addMonths(today, months);
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+    const list = data.missions
+      .filter((m) => isOpen(m) && m.echeance && m.echeance >= today && m.echeance <= end)
+      .filter((m) => {
+        const c = clientById(m.clientId);
+        return c && !c.archive && (!resp || m.responsable === resp || [c.responsable, c.collaborateur, c.superviseur].includes(resp));
+      })
+      .sort(byDue);
+    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Suivi Dossiers//FR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Échéances du cabinet'];
+    list.forEach((m) => {
+      const c = clientById(m.clientId);
+      const who = names ? c.nom : c.code || '••••';
+      lines.push(
+        'BEGIN:VEVENT',
+        `UID:${m.id}@suivi-dossiers`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART;VALUE=DATE:${m.echeance.replace(/-/g, '')}`,
+        `DTEND;VALUE=DATE:${addDays(m.echeance, 1).replace(/-/g, '')}`,
+        `SUMMARY:${icsEscape(`${m.titre} — ${who}`)}`,
+        `DESCRIPTION:${icsEscape(`Statut : ${STATUTS[m.statut]}${m.responsable ? `\nResponsable : ${m.responsable}` : ''}\nDétails dans l'application Suivi Dossiers.`)}`,
+        'TRANSP:TRANSPARENT'
+      );
+      if (reminder > 0) {
+        // Rappel à 9 h, `reminder` jour(s) avant l'échéance.
+        lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEscape(`Échéance : ${m.titre} — ${who}`)}`, `TRIGGER:-P${reminder > 1 ? reminder - 1 + 'D' : ''}T15H`, 'END:VALARM');
+      }
+      lines.push('END:VEVENT');
+    });
+    lines.push('END:VCALENDAR');
+    return { text: lines.map(icsFold).join('\r\n') + '\r\n', count: list.length };
+  }
+
+  function icsForm() {
+    const s = data.settings;
+    const resps = Array.from(new Set(s.collaborateurs.concat(data.clients.flatMap((c) => [c.responsable, c.collaborateur])).filter(Boolean))).sort();
+    modalRefresh = null;
+    openModal(`
+      <form data-form="ics" autocomplete="off">
+        <header class="modal-head"><h2>Échéances dans mon agenda</h2><button type="button" class="icon-btn" data-action="close-modal" aria-label="Fermer">✕</button></header>
+        <div class="modal-body">
+          <p class="muted small">Crée un fichier <strong>.ics</strong> à ouvrir avec votre agenda (Outlook, Google Agenda, Calendrier de l'iPhone…) pour recevoir des rappels, même application fermée. Réimportez-le après chaque mise à jour : les événements existants sont remplacés.</p>
+          <div class="form-grid">
+            <label>Période<select name="months">${options({ 1: '1 mois', 3: '3 mois', 6: '6 mois', 12: '12 mois' }, '3')}</select></label>
+            <label>Rappel<select name="reminder">${options({ 0: 'Aucun', 1: 'La veille à 9 h', 2: '2 jours avant à 9 h', 7: '1 semaine avant à 9 h' }, '2')}</select></label>
+            <label>Dossiers<select name="resp">${options(resps, s.dashResp, 'Tous les dossiers')}</select></label>
+            <label>Libellé des événements<select name="names">${options({ codes: 'N° de dossier uniquement (recommandé)', noms: 'Nom du client' }, 'codes')}</select></label>
+          </div>
+          <div class="info-box small">Les agendas en ligne (Google, iCloud, Outlook.com) stockent les événements chez leur éditeur : conservez le libellé « N° de dossier uniquement » pour qu'aucun nom de client n'y figure.</div>
+          <p class="form-error" data-error></p>
+        </div>
+        <footer class="modal-foot"><button type="button" class="btn" data-action="close-modal">Annuler</button><button class="btn primary" type="submit">Télécharger le fichier agenda</button></footer>
+      </form>`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Aide
+  // ---------------------------------------------------------------------------
+
+  function viewAide() {
+    const item = (title, html, open) => `<details class="card help"${open ? ' open' : ''}><summary><h2>${title}</h2></summary><div class="help-body">${html}</div></details>`;
+    return `
+      <div class="page-head"><h1>Aide</h1></div>
+      ${item('Premiers pas', `<ol>
+        <li><strong>Paramètres</strong> : renseignez le nom du cabinet, votre prénom, vos collaborateurs et votre signature.</li>
+        <li><strong>Dossiers → Importer</strong> : importez votre tableau Excel de suivi (ou créez les dossiers un par un).</li>
+        <li><strong>Calendrier fiscal</strong> : créez en un clic les échéances de l'année de tous vos dossiers.</li>
+        <li><strong>Sauvegarde</strong> : activez la sauvegarde automatique (sur ordinateur) ou exportez une sauvegarde chiffrée chaque semaine.</li>
+      </ol>`, true)}
+      ${item('Au quotidien', `<ul>
+        <li>Le <strong>tableau de bord</strong> liste ce qui est en retard, les échéances des 14 prochains jours, les clients à relancer et les missions à valider. Choisissez « Mes dossiers » pour ne voir que votre portefeuille.</li>
+        <li>Cliquez sur une mission pour cocher ses étapes : elle passe « en cours » à la première étape cochée, et « terminée » à la dernière. Le bouton <strong>✓ Terminée</strong> valide tout d'un coup.</li>
+        <li>Les missions récurrentes (TVA, paie, acomptes…) créent automatiquement l'occurrence suivante lorsqu'elles sont terminées.</li>
+      </ul>`)}
+      ${item('Suivi mensuel (grille)', `<ul>
+        <li>Reproduit votre tableau Excel : un dossier par ligne, un mois par colonne. Filtrez par type de mission, régime de TVA (mensuel, trimestriel, CA12) et responsable.</li>
+        <li><strong>Pointage rapide</strong> : un clic sur une case la passe à OK, un second clic annule, comme dans Excel.</li>
+        <li><strong>Exporter en Excel</strong> produit un fichier réimportable (attention : non chiffré).</li>
+      </ul>`)}
+      ${item('Calendrier fiscal', `<p>Le bouton <strong>Calendrier fiscal</strong> (tableau de bord, missions, suivi mensuel ou fiche dossier) crée les échéances de l'année selon la forme, le régime de TVA, le régime fiscal et la date de clôture de chaque dossier : TVA, CA12 et acomptes, acomptes et solde d'IS, bilan et liasse, approbation des comptes, CFE. Les dates sont reportées au jour ouvré suivant.</p>
+        <p class="muted">Les dates sont <strong>indicatives</strong> : vérifiez-les avec le calendrier fiscal officiel. Renseignez le régime fiscal des dossiers pour affiner (l'IS est présumé pour les SARL, SAS, SASU, SA, SELARL, SELAS).</p>`)}
+      ${item('Relancer un client', `<ul>
+        <li>Depuis une mission ou un dossier, <strong>Écrire au client</strong> prépare un message : demande de documents, relance ou envoi pour validation.</li>
+        <li>La liste des documents reprend les étapes non cochées de la mission (« Pièces reçues », « Relevés bancaires reçus »…).</li>
+        <li>« Copier le message » ou « Ouvrir dans ma messagerie » : l'envoi est noté dans le journal du dossier et la mission passe « en attente du client ».</li>
+        <li>Sans réponse après le délai choisi dans les paramètres (7 jours par défaut), la mission apparaît dans <strong>À relancer</strong>.</li>
+      </ul>`)}
+      ${item('Rappels dans votre agenda', `<p>Paramètres → <strong>Échéances dans mon agenda</strong> : téléchargez un fichier .ics et ouvrez-le avec votre agenda pour être prévenu même application fermée. Par défaut, seuls les numéros de dossier apparaissent dans l'agenda.</p>`)}
+      ${item('PC et téléphone', `<p>Chaque appareil possède son propre coffre chiffré ; il n'y a volontairement aucun serveur. Pour retrouver vos données sur un autre appareil : exportez une sauvegarde chiffrée, puis <strong>Restaurer une sauvegarde</strong> sur l'autre appareil avec le même mot de passe. La sauvegarde automatique placée dans un dossier synchronisé du cabinet facilite ce transfert.</p>`)}
+      ${item('Sécurité et secret professionnel', `<ul>
+        <li>Les données sont chiffrées (AES-256) et ne quittent jamais l'appareil. Aucun compte, aucun serveur, aucun traceur.</li>
+        <li>Le <strong>mode discret</strong> (icône œil) remplace les noms par les numéros de dossier : utile en rendez-vous ou en déplacement.</li>
+        <li>L'application se verrouille seule après quelques minutes d'inactivité. Sans le mot de passe, <strong>personne</strong> ne peut lire les données, pas même vous : notez-le en lieu sûr.</li>
+        <li>Les exports Excel et CSV ne sont pas chiffrés : supprimez-les après usage.</li>
+      </ul>`)}`;
+  }
+
+  // ---------------------------------------------------------------------------
   // Paramètres
   // ---------------------------------------------------------------------------
 
@@ -1434,6 +2199,8 @@
             <label>Votre prénom<input name="utilisateur" value="${esc(s.utilisateur)}"></label>
             <label>Collaborateurs (un par ligne)<textarea name="collaborateurs" rows="3">${esc(s.collaborateurs.join('\n'))}</textarea></label>
             <label>Revue LCB-FT tous les (mois)<input type="number" name="kycMois" min="1" max="60" value="${esc(s.kycMois)}"></label>
+            <label>Relancer un client sans réponse après (jours)<input type="number" name="relanceJours" min="1" max="60" value="${esc(s.relanceJours)}"></label>
+            <label>Signature des messages<textarea name="signature" rows="3" placeholder="${esc([s.utilisateur, s.cabinet].filter(Boolean).join('\n') || 'Prénom Nom\nCabinet')}">${esc(s.signature)}</textarea></label>
             <button class="btn primary" type="submit">Enregistrer</button>
           </form>
         </section>
@@ -1473,6 +2240,15 @@
             <button class="btn block" data-action="export-csv">Exporter les missions en CSV (non chiffré)</button>
           </div>
           <p class="muted small">Stockage persistant : ${persisted}</p>
+        </section>
+        ${autoBackupCard()}
+        <section class="card">
+          <h2>Agenda et aide</h2>
+          <p class="muted small">Recevez les rappels d'échéances dans votre agenda habituel, même lorsque l'application est fermée.</p>
+          <div class="stack">
+            <button class="btn block" data-action="open-ics">${icon('calendar')}Échéances dans mon agenda (.ics)</button>
+            <a class="btn block" href="#/aide">${icon('help')}Guide d'utilisation</a>
+          </div>
         </section>
         <section class="card">
           <h2>${icon('shield')} Engagements de confidentialité</h2>
@@ -1664,8 +2440,12 @@
 
   async function lock(message) {
     if (!data) return;
+    if (autoBackupTimer) await writeAutoBackup();
     await saving;
     Vault.lock();
+    clearTimeout(autoBackupTimer);
+    autoBackupHandle = null;
+    ui.autoBackup = null;
     data = null;
     closeModal();
     const ask = $('#ask');
@@ -1693,6 +2473,7 @@
 
   async function afterUnlock() {
     lastActivity = Date.now();
+    await initAutoBackup();
     if (navigator.storage && navigator.storage.persist) {
       try {
         ui.persisted = (await navigator.storage.persisted()) || (await navigator.storage.persist());
@@ -1794,6 +2575,67 @@
       refresh();
     },
     'import-sheet': () => startImport(),
+    'open-cal': (el) => openCalendar(el.dataset.client),
+    'open-msg': (el) => openMessage(el.dataset.client, el.dataset.mission),
+    'msg-model': (el) => {
+      ui.msg.modele = el.dataset.model;
+      renderMessage();
+    },
+    'msg-copy': async () => {
+      const text = $('#msg-body').value;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (e) {
+        $('#msg-body').select();
+        document.execCommand('copy');
+      }
+      recordMessage();
+      refresh();
+      toast('Message copié : collez-le dans votre messagerie. Envoi noté dans le journal.');
+    },
+    'msg-mail': () => {
+      const c = clientById(ui.msg.clientId);
+      const url = `mailto:${encodeURIComponent(c.email).replace(/%40/g, '@')}?subject=${encodeURIComponent($('#msg-subject').value)}&body=${encodeURIComponent($('#msg-body').value)}`;
+      recordMessage();
+      closeModal();
+      refresh();
+      window.location.href = url;
+      toast('Messagerie ouverte. Envoi noté dans le journal.');
+    },
+    'apply-cal': async () => {
+      const res = applyCal();
+      await persist();
+      closeModal();
+      toast(`${res.items.length} échéance(s) créée(s) pour ${res.clients.size} dossier(s).`);
+      refresh();
+    },
+    'grille-mode': (el) => {
+      data.settings.pointage = el.dataset.mode === 'pointage';
+      persist();
+      refresh();
+    },
+    'grille-toggle': (el) => {
+      const m = missionById(el.dataset.id);
+      if (!m) return;
+      if (isOpen(m)) {
+        m.etapes.forEach((e) => { if (!e.done) Object.assign(e, { done: true, doneAt: nowIso() }); });
+        toast(`${m.titre} — ${clientLabel(clientById(m.clientId))} : OK`);
+        setStatus(m, 'termine');
+      } else {
+        m.etapes.forEach((e) => Object.assign(e, { done: false, doneAt: null }));
+        setStatus(m, 'a_faire');
+        toast(`${m.titre} — ${clientLabel(clientById(m.clientId))} : annulé`);
+      }
+      persist();
+      refresh();
+      const again = $(`.grille td[data-id="${m.id}"]`);
+      if (again) again.focus({ preventScroll: true });
+    },
+    'export-grille': () => exportGrille(),
+    'open-ics': () => icsForm(),
+    'autobackup-choose': () => chooseAutoBackup(),
+    'autobackup-resume': () => resumeAutoBackup(),
+    'autobackup-stop': () => stopAutoBackup(),
     'grille-reset': () => {
       ui.grille.regime = '';
       refresh();
@@ -1838,6 +2680,9 @@
       });
       if (!ok) return;
       await saving;
+      clearTimeout(autoBackupTimer);
+      autoBackupHandle = null;
+      ui.autoBackup = null;
       await Vault.destroy();
       data = null;
       closeModal();
@@ -1865,6 +2710,15 @@
     if (!data) return;
     if (t.dataset.imp && ui.imp) {
       onImportChange(t);
+    } else if (t.dataset.cal && ui.cal) {
+      onCalChange(t);
+    } else if (t.dataset.msg === 'mission' && ui.msg) {
+      t.checked ? ui.msg.selected.add(t.value) : ui.msg.selected.delete(t.value);
+      renderMessage();
+    } else if (t.dataset.dash) {
+      data.settings.dashResp = t.value;
+      persist();
+      refresh();
     } else if (t.dataset.grille) {
       ui.grille[t.dataset.grille] = t.value;
       refresh();
@@ -2052,6 +2906,8 @@
       s.utilisateur = val(form, 'utilisateur');
       s.collaborateurs = Array.from(new Set(form.collaborateurs.value.split('\n').map((x) => x.trim()).filter(Boolean)));
       s.kycMois = Math.max(1, Number(val(form, 'kycMois')) || 12);
+      s.relanceJours = Math.max(1, Number(val(form, 'relanceJours')) || 7);
+      s.signature = form.signature.value.trim();
       await persist();
       renderShell();
       route();
@@ -2071,6 +2927,19 @@
       } catch (e) {
         formError(form, e.message);
       }
+    },
+
+    ics(form) {
+      const { text, count } = buildIcs({
+        months: Number(form.months.value),
+        reminder: Number(form.reminder.value),
+        resp: form.resp.value,
+        names: form.names.value === 'noms',
+      });
+      if (!count) return formError(form, 'Aucune échéance à venir sur cette période.');
+      download(`echeances-cabinet-${todayStr()}.ics`, text, 'text/calendar;charset=utf-8');
+      closeModal();
+      toast(`${count} échéance(s) exportée(s). Ouvrez le fichier avec votre agenda.`);
     },
 
     async template(form) {

@@ -3,14 +3,16 @@
  * Il ne manipule jamais les données des dossiers (stockées chiffrées dans IndexedDB)
  * et n'effectue aucune requête vers un autre domaine.
  */
-const CACHE = 'suivi-dossiers-v3';
+const VERSION = '5';
+const CACHE = 'suivi-dossiers-v' + VERSION;
 const ASSETS = [
   './',
   'index.html',
-  'css/styles.css',
-  'js/vault.js',
-  'js/sheet-reader.js',
-  'js/app.js',
+  'css/styles.css?v=' + VERSION,
+  'js/vault.js?v=' + VERSION,
+  'js/sheet-reader.js?v=' + VERSION,
+  'js/xlsx-writer.js?v=' + VERSION,
+  'js/app.js?v=' + VERSION,
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',
@@ -30,12 +32,13 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Réseau d'abord (pour recevoir les mises à jour), cache en secours (hors ligne).
+// Réseau d'abord, en revalidant toujours auprès du serveur (pas de version périmée
+// tirée du cache HTTP), puis cache en secours pour le fonctionnement hors ligne.
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   event.respondWith(
-    fetch(req)
+    fetch(req, { cache: 'no-cache' })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();

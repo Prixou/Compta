@@ -460,3 +460,32 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
   .grille td { min-width: 40px; }
   dialog.wide { width: 100vw; }
 }
+
+/* ---------- Calendrier fiscal ---------- */
+
+.cal-obs { display: grid; gap: .1rem; margin-bottom: .75rem; }
+.cal-ob { padding: .5rem .2rem; border-top: 1px solid var(--border); margin: 0; }
+.cal-ob:first-child { border-top: 0; }
+.cal-clients { border: 1px solid var(--border); border-radius: 10px; padding: .6rem .8rem; margin-bottom: .75rem; }
+.cal-clients summary { cursor: pointer; font-weight: 600; }
+.cal-list { max-height: 260px; overflow-y: auto; margin-top: .5rem; }
+.cal-list .check { margin: 0; padding: .3rem 0; }
+
+/* ---------- Messages clients ---------- */
+
+.msg-models { margin-bottom: .9rem; flex-wrap: wrap; }
+.msg-missions { border: 1px solid var(--border); border-radius: 10px; padding: .4rem .7rem; margin-bottom: .8rem; max-height: 180px; overflow-y: auto; }
+.msg-missions .check { margin: 0; padding: .3rem 0; }
+#msg-body { font-size: .92rem; line-height: 1.5; }
+
+/* ---------- Aide ---------- */
+
+.help summary { list-style: none; cursor: pointer; }
+.help summary::-webkit-details-marker { display: none; }
+.help summary h2 { margin: 0; }
+.help summary h2::after { content: "▾"; color: var(--muted); font-size: .9rem; margin-left: auto; }
+.help[open] summary { margin-bottom: .6rem; }
+.help-body { font-size: .95rem; }
+.help-body li { margin-bottom: .4rem; }
+.help-body ol, .help-body ul { padding-left: 1.2rem; margin: 0; }
+.top-actions .icon-btn { color: inherit; }

@@ -21,6 +21,13 @@ Elle a été conçue pour respecter le **secret professionnel** et la **déontol
 - **Import Excel / CSV** de votre tableau de suivi existant (voir ci-dessous), réimportable à chaque mise à jour sans créer de doublons.
 - **Suivi mensuel** : une grille façon tableur (dossiers × mois) qui montre d'un coup d'œil les déclarations terminées, en retard, en attente du client ou à faire. Un clic sur une case ouvre la mission.
 - **Vue tableau** des dossiers, triée par numéro de dossier.
+- **Calendrier fiscal automatique** : en un clic, les échéances de l'année pour tous les dossiers selon leur forme, leur régime de TVA, leur régime fiscal et leur date de clôture : TVA mensuelle et trimestrielle, CA12 et acomptes, acomptes et solde d'IS, bilan et liasse, approbation des comptes et dépôt au greffe, CFE. Les dates tombant un week-end ou un jour férié sont reportées au jour ouvré suivant. Elles sont **indicatives** et restent à vérifier avec le calendrier fiscal officiel.
+- **Pointage rapide** dans le suivi mensuel : un clic passe la case à OK, comme dans Excel. La grille s'exporte en Excel, et le fichier obtenu est réimportable.
+- **Messages aux clients** : demande de documents, relance ou envoi pour validation, pré-rédigés avec la liste des pièces manquantes (tirée des étapes non cochées). Le message est copié ou ouvert dans votre messagerie, puis l'envoi est noté dans le journal. Les clients sans réponse depuis 7 jours apparaissent dans **À relancer**.
+- **Rappels dans votre agenda** : export `.ics` (Outlook, Google Agenda, iPhone) avec rappel à 9 h, les N° de dossier seuls remplaçant les noms par défaut.
+- **Filtre « Mes dossiers »** sur le tableau de bord, pour chaque collaborateur.
+- **Sauvegarde automatique** (ordinateur, Chrome ou Edge) : la sauvegarde chiffrée est écrite dans le fichier de votre choix après chaque modification.
+- **Aide intégrée** dans l'application.
 - **Sauvegarde chiffrée** exportable, pour se prémunir d'une perte de l'appareil et **transférer les données entre PC et téléphone**. Export CSV possible (non chiffré, avec avertissement).
 - **Hors ligne** et installable comme une application (PWA), en mode clair ou sombre selon l'appareil.
 
@@ -88,6 +95,7 @@ index.html            page unique + politique de sécurité (CSP)
 css/styles.css        interface responsive (PC / mobile, clair / sombre)
 js/vault.js           coffre chiffré : WebCrypto (PBKDF2 + AES-GCM) et IndexedDB
 js/sheet-reader.js    lecture locale des fichiers .xlsx (zip + XML) et .csv, sans dépendance
+js/xlsx-writer.js     écriture locale de fichiers .xlsx (export de la grille), sans dépendance
 js/app.js             application (dossiers, missions, tableau de bord, paramètres)
 sw.js                 service worker (fonctionnement hors ligne)
 manifest.webmanifest  installation comme application
