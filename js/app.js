@@ -92,10 +92,18 @@
       id: 'acompte_ca12', nom: 'Acompte de TVA (CA12)', recurrence: 'aucune',
       etapes: ["Calcul de l'acompte", 'Télépaiement'],
     },
+    {
+      id: 'saisie', nom: 'Saisie comptable', recurrence: 'mensuelle',
+      etapes: ['Pièces reçues', 'Relevés bancaires reçus', 'Saisie', 'Rapprochement bancaire'],
+    },
+    {
+      id: 'declaration', nom: 'Déclaration fiscale', recurrence: 'annuelle',
+      etapes: ['Préparation', 'Contrôle', 'Dépôt / paiement'],
+    },
     { id: 'libre', nom: 'Mission libre', recurrence: 'aucune', etapes: [] },
   ];
   // Version des modèles par défaut : les modèles ajoutés depuis sont proposés aux coffres existants.
-  const TEMPLATES_VERSION = 2;
+  const TEMPLATES_VERSION = 3;
 
   const ICONS = {
     home: '<path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
@@ -156,9 +164,10 @@
     return Math.round((parseYmd(s) - parseYmd(todayStr())) / 86400000);
   }
 
+  // JJ/MM/AAAA à partir de AAAA-MM-JJ (plus rapide que toLocaleDateString sur de grands volumes).
   function fmtDate(s) {
     if (!s) return '—';
-    return parseYmd(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return /^\d{4}-\d{2}-\d{2}/.test(s) ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : s;
   }
 
   function fmtDateTime(iso) {
@@ -301,7 +310,29 @@
     return saving;
   }
 
-  const clientById = (id) => data.clients.find((c) => c.id === id);
+  // Index reconstruits quand la liste change (ajout, suppression, import, restauration).
+  let clientIdx = null, clientIdxOf = null, clientIdxLen = -1;
+  function clientById(id) {
+    if (clientIdxOf !== data.clients || clientIdxLen !== data.clients.length) {
+      clientIdx = new Map(data.clients.map((c) => [c.id, c]));
+      clientIdxOf = data.clients;
+      clientIdxLen = data.clients.length;
+    }
+    return clientIdx.get(id);
+  }
+  let missionIdx = null, missionIdxOf = null, missionIdxLen = -1;
+  function missionsOf(clientId) {
+    if (missionIdxOf !== data.missions || missionIdxLen !== data.missions.length) {
+      missionIdx = new Map();
+      data.missions.forEach((m) => {
+        if (!missionIdx.has(m.clientId)) missionIdx.set(m.clientId, []);
+        missionIdx.get(m.clientId).push(m);
+      });
+      missionIdxOf = data.missions;
+      missionIdxLen = data.missions.length;
+    }
+    return missionIdx.get(clientId) || [];
+  }
   const missionById = (id) => data.missions.find((m) => m.id === id);
   const templateById = (id) => data.templates.find((t) => t.id === id);
   const isOpen = (m) => m.statut !== 'termine';
@@ -745,7 +776,7 @@
       el.innerHTML = `<div class="grid-wrap card flush"><table class="dtable">
         <thead><tr><th>N°</th><th>Forme</th><th>Dossier</th><th>TVA</th><th>Clôture</th><th>Responsable</th><th>En cours</th><th>Retard</th><th>Avancement</th></tr></thead>
         <tbody>${list.map((c) => {
-          const open = data.missions.filter((m) => m.clientId === c.id && isOpen(m));
+          const open = missionsOf(c.id).filter(isOpen);
           const late = open.filter(isLate).length;
           const p = open.length ? Math.round(open.reduce((s, m) => s + progress(m), 0) / open.length) : 100;
           return `<tr data-action="go" data-href="#/dossier/${c.id}" role="button" tabindex="0" class="${c.archive ? 'archived' : ''}">
@@ -758,7 +789,7 @@
       return;
     }
     el.innerHTML = list.map((c) => {
-      const ms = data.missions.filter((m) => m.clientId === c.id);
+      const ms = missionsOf(c.id);
       const open = ms.filter(isOpen);
       const late = open.filter(isLate).length;
       const next = open.filter((m) => m.echeance).sort(byDue)[0];
@@ -787,7 +818,7 @@
     const c = clientById(id);
     if (!c) return emptyState('Ce dossier n\'existe pas ou a été supprimé.', '<a class="btn" href="#/dossiers">Retour aux dossiers</a>');
     const discret = data.settings.discret;
-    const ms = data.missions.filter((m) => m.clientId === c.id);
+    const ms = missionsOf(c.id);
     const open = ms.filter(isOpen).sort(byDue);
     const closed = ms.filter((m) => !isOpen(m)).sort((a, b) => (b.termineLe || '').localeCompare(a.termineLe || ''));
     const journal = data.journal.filter((j) => j.clientId === c.id).sort((a, b) => b.date.localeCompare(a.date));
@@ -952,8 +983,10 @@
       if (q && !norm([m.titre, m.exercice, clientLabel(c), c.code, m.responsable].join(' ')).includes(q)) return false;
       return true;
     }).sort(byDue);
+    const limit = ui.mfLimit || 300;
     el.innerHTML = list.length
-      ? `<p class="muted small">${list.length} mission${list.length > 1 ? 's' : ''}</p><div class="mlist card flush">${list.map((m) => missionRow(m, true)).join('')}</div>`
+      ? `<p class="muted small">${list.length} mission${list.length > 1 ? 's' : ''}</p><div class="mlist card flush">${list.slice(0, limit).map((m) => missionRow(m, true)).join('')}</div>
+        ${list.length > limit ? `<button class="btn block more-btn" data-action="missions-more">Afficher ${Math.min(300, list.length - limit)} mission(s) de plus (${list.length - limit} restante(s))</button>` : ''}`
       : emptyState(data.clients.length ? 'Aucune mission ne correspond aux filtres.' : "Créez d'abord un dossier pour pouvoir y rattacher des missions.");
     applyWidths(el);
   }
@@ -1167,6 +1200,30 @@
     download(`suivi-${norm(tplName(ui.grille.type)).replace(/[^a-z0-9]+/g, '-')}-${year}.xlsx`, blob, blob.type);
   }
 
+  function grilleCellView(m, pointage) {
+    let cls = 'g-todo', txt = '·';
+    if (!isOpen(m)) { cls = 'g-ok'; txt = 'OK'; }
+    else if (isLate(m)) { cls = 'g-late'; txt = '!'; }
+    else if (m.statut === 'attente_client') { cls = 'g-wait'; txt = 'Att.'; }
+    else if (m.statut !== 'a_faire') { cls = 'g-progress'; txt = progress(m) + '%'; }
+    const title = `${m.titre} — ${STATUTS[m.statut]}${m.echeance ? ' — échéance ' + fmtDate(m.echeance) : ''}${pointage ? ' — cliquer pour ' + (isOpen(m) ? 'pointer OK' : 'annuler') : ''}`;
+    return { cls, txt, title };
+  }
+
+  // Pointage : mise à jour de la seule case et du total de sa colonne, sans redessiner la grille.
+  function updateGrilleCell(m) {
+    const td = $(`.grille td[data-id="${m.id}"]`);
+    if (!td) return refresh();
+    const v = grilleCellView(m, true);
+    td.className = v.cls;
+    td.textContent = v.txt;
+    td.title = v.title;
+    const col = td.dataset.col;
+    const cells = $$(`.grille tbody td[data-col="${col}"]`);
+    const foot = $$('.grille tfoot td')[Number(col) + 2];
+    if (foot) foot.textContent = `${cells.filter((c) => c.classList.contains('g-ok')).length}/${cells.length}`;
+  }
+
   function viewGrille() {
     const { g, year, grid, years, base, clients, resps, regimeOptions, cols } = grilleModel();
     const pointage = !!data.settings.pointage;
@@ -1175,13 +1232,9 @@
     const cell = (m, col) => {
       if (!m) return '<td class="g-none"></td>';
       totals[col - 1].all++;
-      let cls = 'g-todo';
-      let txt = '·';
-      if (!isOpen(m)) { cls = 'g-ok'; txt = 'OK'; totals[col - 1].done++; }
-      else if (isLate(m)) { cls = 'g-late'; txt = '!'; }
-      else if (m.statut === 'attente_client') { cls = 'g-wait'; txt = 'Att.'; }
-      else if (m.statut !== 'a_faire') { cls = 'g-progress'; txt = progress(m) + '%'; }
-      return `<td class="${cls}" data-action="${pointage ? 'grille-toggle' : 'open-mission'}" data-id="${m.id}" role="button" tabindex="0" title="${esc(m.titre)} — ${esc(STATUTS[m.statut])}${m.echeance ? ' — échéance ' + fmtDate(m.echeance) : ''}${pointage ? ' — cliquer pour ' + (isOpen(m) ? 'pointer OK' : 'annuler') : ''}">${txt}</td>`;
+      if (!isOpen(m)) totals[col - 1].done++;
+      const v = grilleCellView(m, pointage);
+      return `<td class="${v.cls}" data-action="${pointage ? 'grille-toggle' : 'open-mission'}" data-id="${m.id}" data-col="${col}" role="button" tabindex="0" title="${esc(v.title)}">${v.txt}</td>`;
     };
 
     const body = clients.map((c) => {
@@ -1895,15 +1948,23 @@
     return res;
   }
 
-  async function startImport() {
-    const file = await pickFile('.xlsx,.xlsm,.csv,.txt,.xls', true);
-    if (!file) return;
-    let book;
-    try {
-      book = await SheetReader.read(file);
-    } catch (e) {
-      toast(e.message, true);
-      return;
+  async function startImport(opts) {
+    let file = opts && opts.file;
+    let book = opts && opts.book;
+    if (!book) {
+      file = await pickFile('.xlsx,.xlsm,.csv,.txt,.xls', true);
+      if (!file) return;
+      try {
+        book = await SheetReader.read(file);
+      } catch (e) {
+        toast(e.message, true);
+        return;
+      }
+    }
+    if (!opts || !opts.classic) {
+      if (book.sheets.some((sh) => CAB_TABS[0].re.test(norm(sh.name))) && book.sheets.some((sh) => CAB_TABS.slice(1).some((t) => t.re.test(norm(sh.name))))) {
+        return openCabinetImport(book, file.name);
+      }
     }
     const sheet = Math.max(0, book.sheets.findIndex((s) => s.rows.length > 1));
     ui.imp = {
@@ -1989,7 +2050,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '7';
+  const ASSET_VERSION = '8';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -2022,11 +2083,25 @@
     return { errors: all.filter((c) => c.level === 'error').length, warnings: all.filter((c) => c.level === 'warn').length };
   }
 
-  function startFec(file) {
+  // Analyse d'un FEC : principal (target 'main') ou exercice précédent pour la revue analytique ('prev').
+  function startFec(file, target) {
     if (!file) return;
     if (fecWorker) fecWorker.terminate();
+    if (target === 'prev') {
+      Object.assign(ui.fec, { prevStatus: 'loading', prevName: file.name, prev: null, prevError: '' });
+      refresh();
+      return runFecWorker(file, (res, err) => {
+        if (!ui.fec) return;
+        Object.assign(ui.fec, err ? { prevStatus: 'error', prevError: err } : { prevStatus: 'done', prev: res });
+        refresh();
+      });
+    }
     ui.fec = { status: 'loading', pct: 0, fileName: file.name, section: 'synthese', q: '', classe: '' };
     refresh();
+    runFecWorker(file, null);
+  }
+
+  function runFecWorker(file, onDone) {
     file.arrayBuffer().then((buffer) => {
       fecWorker = new Worker('js/fec-worker.js?v=' + ASSET_VERSION);
       fecWorker.onmessage = (e) => {
@@ -2042,6 +2117,7 @@
         }
         fecWorker.terminate();
         fecWorker = null;
+        if (onDone) return onDone(m.type === 'done' ? m.result : null, m.type === 'error' ? m.message : '');
         if (m.type === 'error') Object.assign(ui.fec, { status: 'error', message: m.message });
         else {
           const siren = m.result.meta.siren;
@@ -2052,11 +2128,13 @@
         else toast(m.type === 'error' ? 'Analyse du FEC impossible.' : 'Analyse du FEC terminée.');
       };
       fecWorker.onerror = (err) => {
+        if (onDone) return onDone(null, err.message || 'Erreur pendant l\'analyse.');
         Object.assign(ui.fec, { status: 'error', message: err.message || 'Erreur pendant l\'analyse.' });
         refresh();
       };
       fecWorker.postMessage({ buffer, fileName: file.name }, [buffer]);
     }, (err) => {
+      if (onDone) return onDone(null, err.message);
       Object.assign(ui.fec, { status: 'error', message: err.message });
       refresh();
     });
@@ -2207,7 +2285,7 @@
     const dmy = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
     const clients = data.clients.filter((c) => !c.archive).sort((a, b) => clientLabel(a).localeCompare(clientLabel(b), 'fr'));
     const nbPieces = r.pieces ? computePieces(r, piecesState().mode, piecesState().arrete).length : 0;
-    const tabs = { synthese: 'Synthèse', pieces: `Pièces à demander${nbPieces ? ` (${nbPieces})` : ''}`, conformite: `Conformité${errors ? ` (${errors})` : ''}`, sig: 'SIG et bilan', balance: 'Balance', details: 'Détails' };
+    const tabs = { synthese: 'Synthèse', pieces: `Pièces à demander${nbPieces ? ` (${nbPieces})` : ''}`, revue: 'Revue N / N-1', rappro: 'Rapprochement', conformite: `Conformité${errors ? ` (${errors})` : ''}`, sig: 'SIG et bilan', balance: 'Balance', details: 'Détails' };
     let body = '';
 
     if (f.section === 'synthese') {
@@ -2237,6 +2315,10 @@
         </section>` : ''}
         <section class="card"><h2>Points de révision <span class="count">${r.alerts.length}</span></h2>${checkList(r.alerts, true)}</section>
         ${errors ? `<section class="card"><h2>Anomalies de conformité du fichier</h2>${checkList(r.checks.filter((c) => c.level === 'error'))}<button class="btn small" data-action="fec-tab" data-tab="conformite">Voir tous les contrôles</button></section>` : ''}`;
+    } else if (f.section === 'rappro') {
+      body = viewRappro();
+    } else if (f.section === 'revue') {
+      body = viewRevue();
     } else if (f.section === 'pieces') {
       body = viewPieces();
     } else if (f.section === 'conformite') {
@@ -2311,6 +2393,7 @@
     justif: 'Justificatifs de dépenses payées directement',
     ventes: 'Ventes et encaissements',
     attente: 'Opérations à identifier',
+    releve: 'Opérations bancaires non comptabilisées',
     immo: 'Immobilisations',
     social: 'Social',
     associe: "Compte courant d'associé",
@@ -2440,6 +2523,12 @@
       push('associe', 'mvts', `Justificatifs des ${cca.length} mouvement(s) du compte courant d'associé (retraits ${eur(out)} €, apports ${eur(inn)} €)`);
     }
 
+    // Opérations du relevé bancaire non comptabilisées (rapprochement)
+    const rappro = ui.fec && ui.fec.result === r && ui.fec.rappro && ui.fec.rappro.include ? rapproResult() : null;
+    if (rappro) rappro.bankOnly.filter((o) => o.date <= arrete).forEach((o, i) => {
+      push('releve', `${o.date}:${o.amount}:${i}`, `Justificatif de l'opération bancaire « ${o.label} » du ${d(o.date)} (${o.amount > 0 ? 'encaissement' : 'paiement'} de ${eur(Math.abs(o.amount))} €), non comptabilisée`);
+    });
+
     // Caisse
     if (r.alerts.some((a) => a.label === 'Caisse créditrice')) push('caisse', 'neg', 'Brouillard de caisse et justificatifs des dépenses en espèces (la caisse devient négative à certaines dates)');
 
@@ -2561,6 +2650,528 @@
       .concat(items.map((i) => [t(PIECES_CATS[i.cat]), t(i.text), t(''), t('')]));
     const blob = XlsxWriter.build({ sheets: [{ name: 'Pièces à fournir', rows, widths: [30, 110, 10, 40], freeze: { row: 3 }, filter: { row: 3 } }] });
     download(`pieces-a-fournir-${st.arrete}.xlsx`, blob, blob.type);
+  }
+
+  // ---------- Revue analytique N / N-1 et contrôles de cohérence ----------
+
+  const RUBRIQUES = {
+    10: 'Capital et réserves', 11: 'Report à nouveau', 12: 'Résultat', 13: "Subventions d'investissement", 14: 'Provisions réglementées',
+    15: 'Provisions pour risques et charges', 16: 'Emprunts et dettes assimilées', 17: 'Dettes rattachées à des participations',
+    20: 'Immobilisations incorporelles', 21: 'Immobilisations corporelles', 23: 'Immobilisations en cours', 26: 'Participations',
+    27: 'Autres immobilisations financières', 28: 'Amortissements des immobilisations', 29: 'Dépréciations des immobilisations',
+    31: 'Matières premières', 33: 'En-cours de production', 35: 'Stocks de produits', 37: 'Stocks de marchandises', 39: 'Dépréciations des stocks',
+    40: 'Fournisseurs', 41: 'Clients', 42: 'Personnel', 43: 'Organismes sociaux', 44: 'État et collectivités', 45: 'Groupe et associés',
+    46: 'Débiteurs et créditeurs divers', 47: "Comptes d'attente et de régularisation", 48: 'Comptes de régularisation', 49: 'Dépréciations des comptes de tiers',
+    50: 'Valeurs mobilières de placement', 51: 'Banques', 53: 'Caisse', 58: 'Virements internes',
+    60: 'Achats', 61: 'Services extérieurs', 62: 'Autres services extérieurs', 63: 'Impôts et taxes', 64: 'Charges de personnel',
+    65: 'Autres charges de gestion courante', 66: 'Charges financières', 67: 'Charges exceptionnelles', 68: 'Dotations aux amortissements et provisions',
+    69: 'Participation et impôt sur les bénéfices', 70: "Chiffre d'affaires", 71: 'Production stockée', 72: 'Production immobilisée',
+    74: "Subventions d'exploitation", 75: 'Autres produits de gestion courante', 76: 'Produits financiers', 77: 'Produits exceptionnels',
+    78: 'Reprises sur amortissements et provisions', 79: 'Transferts de charges',
+  };
+
+  // Valeur « naturelle » d'un compte : charges au débit, produits au crédit, bilan en solde débiteur (+) / créditeur (-).
+  const acctValue = (b) => (b.compte[0] === '7' ? -b.s : b.s);
+
+  function revueData(r, prev, seuil, seuilPct) {
+    const byAcc = new Map();
+    r.balance.forEach((b) => byAcc.set(b.compte, { compte: b.compte, lib: b.lib, n: acctValue(b), n1: 0 }));
+    if (prev) prev.balance.forEach((b) => {
+      const x = byAcc.get(b.compte) || { compte: b.compte, lib: b.lib, n: 0, n1: 0 };
+      x.n1 = acctValue(b);
+      byAcc.set(b.compte, x);
+    });
+    const accounts = Array.from(byAcc.values()).map((x) => {
+      const delta = Math.round((x.n - x.n1) * 100) / 100;
+      const pct = x.n1 ? delta / Math.abs(x.n1) : null;
+      const flagged = !!prev && Math.abs(delta) >= seuil && (pct === null || Math.abs(pct) >= seuilPct);
+      return Object.assign(x, { delta, pct, flagged, rub: x.compte.slice(0, 2) });
+    }).sort((a, b) => a.compte.localeCompare(b.compte));
+    const rubs = new Map();
+    accounts.forEach((a) => {
+      if (!RUBRIQUES[a.rub]) return;
+      const g = rubs.get(a.rub) || { code: a.rub, label: RUBRIQUES[a.rub], n: 0, n1: 0, accounts: [] };
+      g.n += a.n;
+      g.n1 += a.n1;
+      g.accounts.push(a);
+      rubs.set(a.rub, g);
+    });
+    const rubriques = Array.from(rubs.values()).map((g) => {
+      const delta = g.n - g.n1;
+      return Object.assign(g, { delta, pct: g.n1 ? delta / Math.abs(g.n1) : null, flagged: g.accounts.some((a) => a.flagged) });
+    }).sort((a, b) => a.code.localeCompare(b.code));
+    return { accounts, rubriques, flagged: accounts.filter((a) => a.flagged).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)) };
+  }
+
+  function defaultSeuil(r) {
+    const base = Math.max(r.kpi.ca, 0) || r.balance.filter((b) => b.compte[0] === '6').reduce((t, b) => t + Math.max(b.s, 0), 0);
+    return Math.max(500, Math.round((base * 0.01) / 100) * 100);
+  }
+
+  // Sommes par préfixes de compte : mouvements de l'exercice (hors à-nouveaux) ou solde de fin.
+  function sums(r) {
+    const match = (b, pref, excl) => pref.some((p) => b.compte.startsWith(p)) && !(excl || []).some((p) => b.compte.startsWith(p));
+    return {
+      mv: (pref, excl) => r.balance.reduce((t, b) => (match(b, pref, excl) ? t + (b.dm - b.cm) : t), 0),
+      solde: (pref, excl) => r.balance.reduce((t, b) => (match(b, pref, excl) ? t + b.s : t), 0),
+      opening: (pref, excl) => r.balance.reduce((t, b) => (match(b, pref, excl) ? t + b.an : t), 0),
+    };
+  }
+
+  function ratios(r) {
+    const { mv, solde } = sums(r);
+    const ca = r.kpi.ca;
+    const achatsTTC = (mv(['60', '61', '62']) || 0) * 1.2;
+    const cp = r.bilan.passif[0][1];
+    const dettesFin = r.bilan.passif[2][1];
+    const ventesMarch = -mv(['707', '7097']);
+    return {
+      // Taux de marge seulement si la vente de marchandises est une activité significative.
+      tauxMarge: ventesMarch > 0 && ventesMarch >= ca * 0.1 ? r.kpi.marge / ventesMarch : null,
+      ebeCa: ca > 0 ? r.kpi.ebe / ca : null,
+      resCa: ca > 0 ? r.kpi.resultat / ca : null,
+      dso: ca > 0 ? (Math.max(solde(['411']), 0) / (ca * 1.2)) * 365 : null,
+      dpo: achatsTTC > 0 ? (Math.max(-solde(['401']), 0) / achatsTTC) * 365 : null,
+      endettement: cp > 0 ? dettesFin / cp : null,
+      cp, dettesFin,
+    };
+  }
+
+  function coherenceChecks(r, prev, client) {
+    const out = [];
+    const add = (level, label, detail) => out.push({ level, label, detail, examples: [], count: 0 });
+    const { mv, solde } = sums(r);
+    const pctTxt = (x) => (x * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' %';
+    const ca = r.kpi.ca;
+
+    // TVA
+    const collectee = -mv(['4457']);
+    const deductible = mv(['4456']);
+    const franchise = client && /franchise|non assujetti/i.test(client.regimeTva || '');
+    if (ca > 1000 && !franchise) {
+      const taux = collectee / ca;
+      if (collectee <= 0) add('warn', 'Aucune TVA collectée', `CA de ${eur(ca, 0)} € sans TVA collectée (4457) : activité exonérée, autoliquidation, ou TVA non comptabilisée ?`);
+      else if (taux < 0.04 || taux > 0.205) add('warn', 'Taux apparent de TVA collectée atypique', `TVA collectée ${eur(collectee, 0)} € pour un CA de ${eur(ca, 0)} € (${pctTxt(taux)}) : vérifier les taux appliqués et les opérations exonérées.`);
+      else add('ok', 'Taux apparent de TVA collectée cohérent', `${pctTxt(taux)} du chiffre d'affaires.`);
+    }
+    const reste4457 = -solde(['4457']);
+    if (collectee > 0 && reste4457 > collectee * 0.35) add('warn', 'TVA collectée non reversée', `Solde de ${eur(reste4457, 0)} € en 4457 en fin de période, soit plus de 4 mois de TVA : déclarations manquantes ou écritures de liquidation non passées ?`);
+    const reste4456 = solde(['4456']);
+    if (deductible > 0 && reste4456 > deductible * 0.35) add('warn', 'TVA déductible non récupérée', `Solde de ${eur(reste4456, 0)} € en 4456 en fin de période, soit plus de 4 mois de TVA déductible.`);
+
+    // Social
+    const salaires = mv(['641', '644']);
+    const charges = mv(['645', '646', '647']);
+    if (salaires > 0) {
+      const tx = charges / salaires;
+      if (charges <= 0) add('warn', 'Salaires sans charges sociales', `${eur(salaires, 0)} € de rémunérations sans charges sociales comptabilisées (645).`);
+      else if (tx < 0.2 || tx > 0.65) add('warn', 'Ratio charges sociales / salaires atypique', `${pctTxt(tx)} (habituellement 25 à 50 %) : vérifier les écritures de paie et les exonérations.`);
+      else add('ok', 'Charges sociales cohérentes avec les salaires', `${pctTxt(tx)} des rémunérations.`);
+      const du421 = -solde(['421']);
+      if (du421 > (salaires / 12) * 1.5) add('warn', 'Salaires restant dus', `${eur(du421, 0)} € au crédit du 421 : plus d'un mois de salaires non versés ?`);
+    }
+
+    // Amortissements
+    const immoAmort = solde(['21']);
+    const dotations = mv(['6811', '6812']);
+    if (immoAmort > 0 && dotations <= 0) add('warn', 'Pas de dotation aux amortissements', `Immobilisations corporelles de ${eur(immoAmort, 0)} € sans dotation (6811) : amortissements à comptabiliser à la clôture.`);
+    else if (immoAmort > 0) add('ok', 'Dotations aux amortissements comptabilisées', `${eur(dotations, 0)} €, soit ${pctTxt(dotations / immoAmort)} des immobilisations corporelles brutes.`);
+
+    // Emprunts
+    const emprunts = -solde(['164', '165', '166', '167', '168']);
+    const empruntsDebut = -sums(r).opening(['164', '165', '166', '167', '168']);
+    const interets = mv(['6611', '6616']);
+    if (emprunts > 0 || empruntsDebut > 0) {
+      const moyen = (emprunts + empruntsDebut) / 2 || emprunts;
+      if (interets <= 0) add('warn', "Emprunts sans intérêts comptabilisés", `Emprunts de ${eur(Math.max(emprunts, empruntsDebut), 0)} € sans intérêts en 6611 : échéances non ventilées capital / intérêts ?`);
+      else if (moyen > 0 && interets / moyen > 0.1) add('warn', "Taux d'intérêt apparent élevé", `${pctTxt(interets / moyen)} de l'encours moyen : vérifier la ventilation des échéances.`);
+      else if (moyen > 0) add('ok', 'Intérêts cohérents avec les emprunts', `Taux apparent ${pctTxt(interets / moyen)}.`);
+    }
+
+    // Capitaux propres
+    const capital = -solde(['101', '108']);
+    const cp = r.bilan.passif[0][1];
+    if (r.meta.hasAN && capital > 0 && cp < capital / 2) {
+      add('error', 'Capitaux propres inférieurs à la moitié du capital social', `Capitaux propres ${eur(cp, 0)} € pour un capital de ${eur(capital, 0)} € : consultation des associés dans les 4 mois de l'approbation des comptes (art. L223-42 / L225-248 C. com.).`);
+    } else if (r.meta.hasAN && cp < 0) add('error', 'Capitaux propres négatifs', `${eur(cp, 0)} €.`);
+
+    // Impôt sur les sociétés
+    const is = mv(['695', '696', '697', '698', '699']);
+    if (r.kpi.resultat > 0 && is <= 0 && client && norm(client.regimeFiscal) === 'is') add('info', "Impôt sur les sociétés non comptabilisé", "Résultat bénéficiaire sans IS en 695 : à calculer et comptabiliser à la clôture.");
+
+    // Mois sans chiffre d'affaires
+    const period = r.monthly.filter((m) => !r.meta.closing || m.mois <= r.meta.closing.slice(0, 7));
+    const sansCa = period.filter((m) => m.ca <= 0).map((m) => m.mois);
+    if (ca > 0 && sansCa.length && sansCa.length < period.length) add('info', "Mois sans chiffre d'affaires", `${fmtMonths(sansCa)} : activité saisonnière ou factures non saisies ?`);
+
+    // Points fiscaux
+    const fisc = [
+      [['6712', '6711'], 'Pénalités et amendes', 'non déductibles : à réintégrer sur la 2058-A'],
+      [['6234'], 'Cadeaux à la clientèle', 'TVA récupérable seulement si ≤ 73 € TTC par bénéficiaire et par an ; relevé des frais généraux si seuil dépassé'],
+      [['6238', '6713'], 'Dons', 'réduction d\'impôt mécénat possible (2069-RCI), non déductibles du résultat'],
+      [['6226', '6227', '6228', '622'], 'Honoraires', 'DAS2 à déposer pour chaque bénéficiaire ayant reçu plus de 1 200 €'],
+      [['6615'], 'Intérêts des comptes courants', 'vérifier le taux maximal déductible et la libération du capital'],
+      [['6354'], 'Taxes sur les véhicules', 'non déductibles (taxes annuelles sur les véhicules de tourisme)'],
+    ];
+    fisc.forEach(([pref, label, detail]) => {
+      const v = mv(pref);
+      if (v > (label === 'Honoraires' ? 1200 : 0)) add('info', `${label} : ${eur(v, 0)} €`, detail);
+    });
+
+    // Comparaison N-1
+    if (prev) {
+      const d = (a, b) => (b ? (a - b) / Math.abs(b) : null);
+      const vCa = d(r.kpi.ca, prev.kpi.ca);
+      if (vCa !== null && Math.abs(vCa) >= 0.2) add('info', `Chiffre d'affaires ${vCa > 0 ? 'en hausse' : 'en baisse'} de ${pctTxt(Math.abs(vCa))}`, `${eur(prev.kpi.ca, 0)} € → ${eur(r.kpi.ca, 0)} €`);
+      const rn = ratios(r), rp = ratios(prev);
+      if (rn.tauxMarge !== null && rp.tauxMarge !== null && Math.abs(rn.tauxMarge - rp.tauxMarge) >= 0.05) add('warn', 'Taux de marge commerciale en forte variation', `${pctTxt(rp.tauxMarge)} → ${pctTxt(rn.tauxMarge)} : stock, prix d'achat, ou achats non rattachés à l'exercice ?`);
+      if (rn.dso !== null && rp.dso !== null && rn.dso - rp.dso > 20) add('info', 'Délai de paiement clients allongé', `${Math.round(rp.dso)} j → ${Math.round(rn.dso)} j : créances à surveiller (dépréciation ?).`);
+      if (prev.meta.closing && r.meta.closing) {
+        const gap = daysUntilFrom(prev.meta.closing, r.meta.closing);
+        if (gap < 330 || gap > 400) add('warn', 'Exercices non consécutifs', `Clôtures du ${fmtDate(prev.meta.closing)} et du ${fmtDate(r.meta.closing)} : vérifier que le FEC N-1 est le bon.`);
+      }
+      if (prev.meta.siren && r.meta.siren && prev.meta.siren !== r.meta.siren) add('error', 'SIREN différents', `Le FEC N-1 (${prev.meta.siren}) ne correspond pas au même dossier (${r.meta.siren}).`);
+    }
+    return out;
+  }
+
+  function revueComments() {
+    const f = ui.fec;
+    const c = clientById(f.clientId);
+    const key = f.result.meta.closing || f.result.meta.fileName;
+    if (c) {
+      c.revue = c.revue || {};
+      c.revue[key] = c.revue[key] || { comments: {}, note: '' };
+      return c.revue[key];
+    }
+    f.revueLocal = f.revueLocal || { comments: {}, note: '' };
+    return f.revueLocal;
+  }
+
+  function pctCell(p) {
+    if (p === null || p === undefined) return '<td class="muted">—</td>';
+    return `<td class="${p > 0 ? 'up' : p < 0 ? 'down' : ''}">${p > 0 ? '+' : ''}${(p * 100).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} %</td>`;
+  }
+
+  function viewRevue() {
+    const f = ui.fec;
+    const r = f.result;
+    const prev = f.prev;
+    f.seuil = f.seuil || defaultSeuil(r);
+    const rd = revueData(r, prev, f.seuil, 0.2);
+    const checks = coherenceChecks(r, prev, clientById(f.clientId));
+    const store = revueComments();
+    const yearN = (r.meta.closing || r.meta.maxDate || '').slice(0, 4);
+    const yearP = prev ? (prev.meta.closing || prev.meta.maxDate || '').slice(0, 4) : '';
+    const loadCard = `
+      <div class="revue-load">
+        ${prev ? `<span>Comparé à <strong>${esc(f.prevName)}</strong> (${prev.meta.lines.toLocaleString('fr-FR')} lignes)</span><button class="btn small" data-action="fec-prev">Changer le FEC N-1</button>`
+          : f.prevStatus === 'loading' ? `<span class="muted">Analyse du FEC N-1 en cours…</span>`
+          : `<span>${f.prevStatus === 'error' ? `<span class="late">${esc(f.prevError)}</span> ` : ''}Ajoutez le FEC de l'exercice précédent pour comparer les comptes et repérer les variations à justifier.</span><button class="btn primary small" data-action="fec-prev">Charger le FEC N-1</button>`}
+        <button class="btn small" data-action="fec-note">Note de synthèse</button>
+      </div>`;
+    const sigRows = r.sig.filter((x) => x.strong || x.label === 'Chiffre d\'affaires net').map((x) => {
+      const p = prev && prev.sig.find((y) => y.label === x.label);
+      const v1 = p ? p.value : null;
+      return `<tr class="${x.strong ? 'strong' : ''}"><td>${esc(x.label)}</td><td>${eur(x.value, 0)}</td>${prev ? `<td>${eur(v1, 0)}</td><td>${eur(x.value - v1, 0)}</td>${pctCell(v1 ? (x.value - v1) / Math.abs(v1) : null)}` : ''}</tr>`;
+    }).join('');
+    return `
+      <section class="card">${loadCard}</section>
+      <section class="card"><h2>Contrôles de cohérence</h2>${checkList(checks, true)}</section>
+      <section class="card"><h2>Chiffres clés ${prev ? `${yearN} / ${yearP}` : yearN}</h2>
+        <div class="grid-wrap"><table class="dtable num sig"><thead><tr><th>Solde</th><th>${yearN}</th>${prev ? `<th>${yearP}</th><th>Variation</th><th>%</th>` : ''}</tr></thead><tbody>${sigRows}</tbody></table></div>
+      </section>
+      ${prev ? `
+      <section class="card">
+        <h2>Variations significatives à justifier <span class="count">${rd.flagged.length}</span></h2>
+        <div class="filters">
+          <label class="inline-label">Seuil de signification <input type="number" min="0" step="100" data-revue="seuil" value="${f.seuil}"> €</label>
+          <span class="muted small">et variation d'au moins 20 %. Vos commentaires sont enregistrés${clientById(f.clientId) ? ' dans le dossier' : ' (rattachez un dossier pour les conserver)'} et repris dans la note de synthèse.</span>
+        </div>
+        ${rd.flagged.length ? `<div class="grid-wrap"><table class="dtable num revue"><thead><tr><th>Compte</th><th>Libellé</th><th>${yearN}</th><th>${yearP}</th><th>Variation</th><th>%</th><th>Justification</th></tr></thead>
+          <tbody>${rd.flagged.map((a) => `<tr><td>${esc(a.compte)}</td><td>${esc(a.lib)}</td><td>${eur(a.n, 0)}</td><td>${eur(a.n1, 0)}</td><td>${eur(a.delta, 0)}</td>${pctCell(a.pct)}
+            <td class="comment"><input data-comment="${esc(a.compte)}" value="${esc(store.comments[a.compte] || '')}" placeholder="Explication…" spellcheck="false" autocomplete="off"></td></tr>`).join('')}</tbody></table></div>`
+          : '<p class="muted">Aucune variation significative au regard du seuil choisi.</p>'}
+      </section>
+      <section class="card"><h2>Comparatif par poste</h2>
+        <div class="grid-wrap"><table class="dtable num revue"><thead><tr><th>Poste</th><th>Libellé</th><th>${yearN}</th><th>${yearP}</th><th>Variation</th><th>%</th></tr></thead>
+          <tbody>${rd.rubriques.map((g) => `<tr class="${g.flagged ? 'flag' : ''}"><td>${g.code}</td><td>${esc(g.label)}${g.flagged ? ' <span class="lvl lvl-warn"><b aria-hidden="true">!</b>À justifier</span>' : ''}</td><td>${eur(g.n, 0)}</td><td>${eur(g.n1, 0)}</td><td>${eur(g.delta, 0)}</td>${pctCell(g.pct)}</tr>`).join('')}</tbody></table></div>
+        <p class="muted small">Charges au débit, produits au crédit ; comptes de bilan : solde débiteur positif, créditeur négatif.</p>
+      </section>` : ''}`;
+  }
+
+  // ---------- Note de synthèse (impression / PDF) ----------
+
+  function noteHtml() {
+    const f = ui.fec;
+    const r = f.result;
+    const prev = f.prev;
+    const c = clientById(f.clientId);
+    const s = data.settings;
+    const store = revueComments();
+    const yearN = r.meta.closing ? `clos le ${fmtDate(r.meta.closing)}` : '';
+    const rn = ratios(r), rp = prev ? ratios(prev) : null;
+    const pct = (x) => (x === null || x === undefined ? '—' : (x * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' %');
+    const days = (x) => (x === null || x === undefined ? '—' : Math.round(x) + ' j');
+    const line = (label, n, p, fmt) => `<tr><td>${esc(label)}</td><td>${fmt ? fmt(n) : eur(n, 0) + ' €'}</td>${prev ? `<td>${fmt ? fmt(p) : eur(p, 0) + ' €'}</td><td>${fmt ? '' : (p ? ((n - p) / Math.abs(p) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' %' : '—')}</td>` : ''}</tr>`;
+    const k = r.kpi, kp = prev ? prev.kpi : {};
+    const facts = [];
+    if (prev) {
+      const v = (a, b) => (b ? (a - b) / Math.abs(b) : null);
+      const vc = v(k.ca, kp.ca);
+      if (vc !== null) facts.push(`Le chiffre d'affaires s'établit à ${eur(k.ca, 0)} €, ${Math.abs(vc) < 0.02 ? 'stable' : `${vc > 0 ? 'en hausse' : 'en baisse'} de ${pct(Math.abs(vc))}`} par rapport à l'exercice précédent.`);
+      const vr = k.resultat - kp.resultat;
+      facts.push(`Le résultat ${k.resultat >= 0 ? 'bénéficiaire' : 'déficitaire'} de ${eur(Math.abs(k.resultat), 0)} € ${vr >= 0 ? 'progresse' : 'recule'} de ${eur(Math.abs(vr), 0)} €.`);
+      const vt = k.tresorerie - kp.tresorerie;
+      facts.push(`La trésorerie ${vt >= 0 ? 'augmente' : 'diminue'} de ${eur(Math.abs(vt), 0)} € pour atteindre ${eur(k.tresorerie, 0)} €.`);
+    } else {
+      facts.push(`Le chiffre d'affaires s'établit à ${eur(k.ca, 0)} € et le résultat à ${eur(k.resultat, 0)} €.`);
+    }
+    const rd = prev ? revueData(r, prev, f.seuil || defaultSeuil(r), 0.2) : null;
+    const justified = rd ? rd.flagged.filter((a) => store.comments[a.compte]).slice(0, 8) : [];
+    const attention = coherenceChecks(r, prev, c).concat(r.alerts).filter((x) => x.level === 'error' || x.level === 'warn');
+    return `
+      <article class="note">
+        <header class="note-head">
+          <div><div class="note-cab">${esc(s.cabinet || '')}</div><h1>Note de synthèse</h1>
+          <div class="note-sub">${esc(c ? c.nom : r.meta.fileName)} — exercice ${esc(yearN)}</div></div>
+          <div class="note-date">${fmtDate(todayStr())}</div>
+        </header>
+        <h2>Chiffres clés</h2>
+        <table class="note-table"><thead><tr><th></th><th>Exercice</th>${prev ? '<th>Précédent</th><th>Variation</th>' : ''}</tr></thead><tbody>
+          ${line("Chiffre d'affaires", k.ca, kp.ca)}${rn.tauxMarge !== null ? line('Marge commerciale', k.marge, kp.marge) : ''}${line('Valeur ajoutée', k.va, kp.va)}
+          ${line("Excédent brut d'exploitation", k.ebe, kp.ebe)}${line("Résultat d'exploitation", k.rex, kp.rex)}${line('Résultat net', k.resultat, kp.resultat)}
+          ${line('Capitaux propres', rn.cp, rp && rp.cp)}${line('Dettes financières', rn.dettesFin, rp && rp.dettesFin)}${line('Trésorerie', k.tresorerie, kp.tresorerie)}
+        </tbody></table>
+        <h2>Indicateurs</h2>
+        <table class="note-table"><tbody>
+          ${rn.tauxMarge !== null ? line('Taux de marge commerciale', rn.tauxMarge, rp && rp.tauxMarge, pct) : ''}
+          ${line("EBE / chiffre d'affaires", rn.ebeCa, rp && rp.ebeCa, pct)}${line("Résultat / chiffre d'affaires", rn.resCa, rp && rp.resCa, pct)}
+          ${line('Délai moyen de paiement clients', rn.dso, rp && rp.dso, days)}${line('Délai moyen de paiement fournisseurs', rn.dpo, rp && rp.dpo, days)}
+          ${line('Dettes financières / capitaux propres', rn.endettement, rp && rp.endettement, pct)}
+        </tbody></table>
+        <h2>Faits marquants</h2>
+        <ul>${facts.map((x) => `<li>${esc(x)}</li>`).join('')}${justified.map((a) => `<li>${esc(a.lib)} : ${a.delta >= 0 ? '+' : ''}${eur(a.delta, 0)} € — ${esc(store.comments[a.compte])}</li>`).join('')}</ul>
+        ${attention.length ? `<h2>Points d'attention</h2><ul>${attention.map((x) => `<li><strong>${esc(x.label)}</strong>${x.detail ? ' — ' + esc(x.detail) : ''}</li>`).join('')}</ul>` : ''}
+        ${store.note ? `<h2>Commentaires du cabinet</h2><p class="note-free">${esc(store.note)}</p>` : ''}
+        <footer class="note-foot">Document établi à partir du fichier des écritures comptables, avant écritures d'inventaire éventuelles. Chiffres indicatifs.</footer>
+      </article>`;
+  }
+
+  function openNote() {
+    const store = revueComments();
+    modalRefresh = null;
+    openModal(`
+      <div class="sheet">
+        <header class="modal-head"><h2>Note de synthèse</h2><button type="button" class="icon-btn" data-action="close-modal" aria-label="Fermer">✕</button></header>
+        <div class="modal-body">
+          <label>Commentaires du cabinet (repris dans la note)<textarea data-revue="note" rows="3" spellcheck="false">${esc(store.note || '')}</textarea></label>
+          <div class="note-preview">${noteHtml()}</div>
+        </div>
+        <footer class="modal-foot"><button type="button" class="btn" data-action="close-modal">Fermer</button><button class="btn primary" data-action="note-print">Imprimer / PDF</button></footer>
+      </div>`, true);
+  }
+
+  function printNote() {
+    let area = $('#print-area');
+    if (!area) {
+      area = document.createElement('div');
+      area.id = 'print-area';
+      document.body.appendChild(area);
+    }
+    area.innerHTML = noteHtml();
+    document.body.classList.add('printing');
+    const done = () => {
+      document.body.classList.remove('printing');
+      area.innerHTML = '';
+      window.removeEventListener('afterprint', done);
+    };
+    window.addEventListener('afterprint', done);
+    window.print();
+  }
+
+  // ---------- Rapprochement bancaire ----------
+
+  // Apparie les opérations du relevé et les lignes du compte de banque du FEC (montant identique, date proche),
+  // puis tente des regroupements (remise de chèques, total de cartes bancaires…).
+  function reconcile(ops, lines, tol, opening) {
+    const cents = (x) => Math.round(x * 100);
+    const days = (a, b) => Math.abs(daysUntilFrom(a, b));
+    const start = ops.reduce((m, o) => (o.date < m ? o.date : m), '9999');
+    const end = ops.reduce((m, o) => (o.date > m ? o.date : m), '0000');
+    const bank = ops.map((o, i) => ({ i, ...o, match: null }));
+    const book = lines.map(([date, amount, label, piece, ref], i) => ({ i, date, amount, label, piece, ref, match: null }))
+      .filter((l) => l.date >= addDays(start, -tol - 31) && l.date <= addDays(end, tol));
+    const byAmount = new Map();
+    book.forEach((l) => {
+      const k = cents(l.amount);
+      if (!byAmount.has(k)) byAmount.set(k, []);
+      byAmount.get(k).push(l);
+    });
+    // 1. Une opération = une écriture (même montant, date la plus proche dans la tolérance).
+    bank.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach((o) => {
+      const cands = (byAmount.get(cents(o.amount)) || []).filter((l) => !l.match && days(l.date, o.date) <= tol);
+      if (!cands.length) return;
+      cands.sort((a, b) => days(a.date, o.date) - days(b.date, o.date));
+      o.match = [cands[0]];
+      cands[0].match = [o];
+    });
+    // 2. Regroupements : plusieurs lignes d'un côté pour une ligne de l'autre (jusqu'à 4, dates proches).
+    const subsetSum = (target, pool) => {
+      const items = pool.slice(0, 12);
+      const t = cents(target);
+      const rec = (k, from, acc, chosen) => {
+        if (chosen.length >= 2 && acc === t) return chosen;
+        if (chosen.length >= 4) return null;
+        for (let j = from; j < items.length; j++) {
+          const res = rec(k, j + 1, acc + cents(items[j].amount), chosen.concat(items[j]));
+          if (res) return res;
+        }
+        return null;
+      };
+      return rec(0, 0, 0, []);
+    };
+    const group = (singles, pool) => {
+      singles.filter((x) => !x.match).forEach((x) => {
+        const cand = pool.filter((y) => !y.match && Math.sign(y.amount) === Math.sign(x.amount) && Math.abs(y.amount) < Math.abs(x.amount) && days(y.date, x.date) <= Math.max(tol, 3));
+        const found = cand.length >= 2 ? subsetSum(x.amount, cand) : null;
+        if (found) {
+          x.match = found;
+          found.forEach((y) => { y.match = [x]; });
+        }
+      });
+    };
+    group(bank, book);
+    group(book, bank);
+    const inPeriod = (d) => d >= start && d <= end;
+    const bankOnly = bank.filter((o) => !o.match);
+    const bookOnly = book.filter((l) => !l.match && inPeriod(l.date));
+    const matched = bank.filter((o) => o.match).length;
+    // Solde comptable à une date (à-nouveaux + mouvements jusqu'à cette date).
+    const balanceAt = (date) => Math.round((opening + lines.filter(([d]) => d <= date).reduce((t, l) => t + l[1], 0)) * 100) / 100;
+    return { start, end, bank, bankOnly, bookOnly, matched, balanceAt };
+  }
+
+  function rapproState() {
+    const f = ui.fec;
+    if (!f.rappro) {
+      const accounts = Object.keys(f.result.bankLines || {}).sort();
+      f.rappro = { compte: accounts.find((a) => a.startsWith('512')) || accounts[0] || '', files: [], ops: [], opening: null, closing: null, tol: 5, include: true };
+    }
+    return f.rappro;
+  }
+
+  async function importStatement() {
+    const file = await pickFile('.txt,.csv,.xlsx,.ofx,.qfx,.xml,.cfonb,.dat,.120', true);
+    if (!file) return;
+    const st = rapproState();
+    try {
+      const res = await BankReader.read(file);
+      const key = (o) => `${o.date}|${o.amount}|${o.label}`;
+      const known = new Set(st.ops.map(key));
+      const added = res.operations.filter((o) => !known.has(key(o)));
+      st.ops = st.ops.concat(added).sort((a, b) => a.date.localeCompare(b.date));
+      st.files.push(`${file.name} (${res.format}, ${res.operations.length} op.)`);
+      if (res.opening && (!st.opening || res.opening.date < st.opening.date)) st.opening = res.opening;
+      if (res.closing && (!st.closing || res.closing.date > st.closing.date)) st.closing = res.closing;
+      toast(`${added.length} opération(s) importée(s)${added.length < res.operations.length ? ` (${res.operations.length - added.length} déjà présentes)` : ''}.`);
+    } catch (e) {
+      toast(e.message, true);
+    }
+    refresh();
+  }
+
+  function rapproResult() {
+    const f = ui.fec;
+    const st = rapproState();
+    if (!st.ops.length || !st.compte) return null;
+    const bal = f.result.balance.find((b) => b.compte === st.compte);
+    return reconcile(st.ops, f.result.bankLines[st.compte] || [], st.tol, bal ? bal.an : 0);
+  }
+
+  function viewRappro() {
+    const f = ui.fec;
+    const st = rapproState();
+    const accounts = Object.keys(f.result.bankLines || {}).sort();
+    const libOf = (c) => (f.result.balance.find((b) => b.compte === c) || {}).lib || c;
+    const head = `
+      <section class="card">
+        <h2>Rapprochement bancaire</h2>
+        <p class="muted small">Importez le relevé de la banque (CFONB 120 / EBICS, OFX, CAMT.053, ou export CSV / Excel de la banque en ligne). Chaque opération est recherchée dans le compte de banque du FEC ; plusieurs relevés peuvent être ajoutés à la suite.</p>
+        ${accounts.length ? `<div class="filters">
+          <select data-rappro="compte" aria-label="Compte de banque">${options(Object.fromEntries(accounts.map((a) => [a, `${a} — ${libOf(a)}`])), st.compte)}</select>
+          <label class="inline-label">Tolérance <input type="number" min="0" max="31" data-rappro="tol" value="${st.tol}"> jours</label>
+          <button class="btn primary" data-action="rappro-import">${st.ops.length ? 'Ajouter un relevé' : 'Importer le relevé'}</button>
+          ${st.ops.length ? '<button class="btn" data-action="rappro-reset">Recommencer</button>' : ''}
+        </div>
+        ${st.files.length ? `<p class="muted small">Relevés : ${st.files.map(esc).join(' · ')}</p>` : ''}` : '<p class="muted">Aucun compte de banque (51) dans ce FEC.</p>'}
+      </section>`;
+    const res = rapproResult();
+    if (!res) return head;
+    // Date de référence : solde de fin fourni par le relevé, sinon dernière opération.
+    const stmt = st.closing && st.closing.date >= res.start ? st.closing : null;
+    const ref = stmt ? stmt.date : res.end;
+    const upTo = (list) => list.filter((x) => x.date <= ref);
+    const sum = (list) => list.reduce((t, x) => t + x.amount, 0);
+    const nonCompta = sum(upTo(res.bankOnly)), nonReleve = sum(upTo(res.bookOnly));
+    const bookBalance = res.balanceAt(ref);
+    const theorique = bookBalance + nonCompta - nonReleve;
+    const ecart = stmt ? Math.round((stmt.amount - theorique) * 100) / 100 : null;
+    const tile = (label, value, cls) => `<div class="kpi ${cls || ''}"><strong>${value}</strong><span>${label}</span></div>`;
+    const opRow = (o) => `<tr><td>${fmtDate(o.date)}</td><td>${esc(o.label)}</td><td class="${o.amount < 0 ? 'cred' : ''}">${eur(o.amount)}</td></tr>`;
+    return `${head}
+      <div class="kpis fec-kpis">
+        ${tile('Opérations du relevé', res.bank.length)}
+        ${tile('Rapprochées', `${Math.round((res.matched * 100) / res.bank.length)} %`, res.matched === res.bank.length ? '' : '')}
+        ${tile('Non comptabilisées', res.bankOnly.length, res.bankOnly.length ? 'kpi-late' : '')}
+        ${tile('Absentes du relevé', res.bookOnly.length, res.bookOnly.length ? 'kpi-wait' : '')}
+      </div>
+      <section class="card"><h2>État de rapprochement au ${fmtDate(ref)}</h2>
+        <table class="dtable num sig"><tbody>
+          <tr><td>Solde comptable (${esc(st.compte)}) au ${fmtDate(ref)}</td><td>${eur(bookBalance)}</td></tr>
+          <tr><td>+ Opérations du relevé non comptabilisées (${upTo(res.bankOnly).length})</td><td>${eur(nonCompta)}</td></tr>
+          <tr><td>− Écritures non encore passées en banque (${upTo(res.bookOnly).length})</td><td>${eur(-nonReleve)}</td></tr>
+          <tr class="strong"><td>= Solde bancaire théorique</td><td>${eur(theorique)}</td></tr>
+          ${stmt ? `<tr><td>Solde du relevé au ${fmtDate(stmt.date)}</td><td>${eur(stmt.amount)}</td></tr>
+          <tr class="strong"><td>Écart inexpliqué</td><td class="${Math.abs(ecart) >= 0.01 ? 'cred' : ''}">${eur(ecart)}</td></tr>` : '<tr><td colspan="2" class="muted">Solde de fin non fourni par le relevé : comparez le solde théorique au relevé papier.</td></tr>'}
+        </tbody></table>
+        ${stmt && Math.abs(ecart) >= 0.01 ? '<p class="muted small">Un écart peut venir d\'à-nouveaux différents du solde bancaire d\'ouverture, ou d\'opérations antérieures au premier relevé importé.</p>' : ''}
+      </section>
+      <div class="grid2">
+        <section class="card"><h2>Opérations bancaires non comptabilisées <span class="count">${res.bankOnly.length}</span></h2>
+          ${res.bankOnly.length ? `<label class="check"><input type="checkbox" data-rappro="include"${st.include ? ' checked' : ''}><span>Les ajouter aux pièces à demander au client</span></label>
+          <div class="grid-wrap"><table class="dtable num"><thead><tr><th>Date</th><th>Libellé</th><th>Montant</th></tr></thead><tbody>${res.bankOnly.map(opRow).join('')}</tbody></table></div>` : '<p class="muted">Toutes les opérations du relevé sont comptabilisées. 👍</p>'}
+        </section>
+        <section class="card"><h2>Écritures absentes du relevé <span class="count">${res.bookOnly.length}</span></h2>
+          <p class="muted small">Chèques émis non encaissés, remises en cours, ou erreurs de saisie à corriger.</p>
+          ${res.bookOnly.length ? `<div class="grid-wrap"><table class="dtable num"><thead><tr><th>Date</th><th>Libellé</th><th>Montant</th></tr></thead><tbody>${res.bookOnly.map(opRow).join('')}</tbody></table></div>` : '<p class="muted">Aucune.</p>'}
+        </section>
+      </div>
+      <div class="pieces-actions"><button class="btn" data-action="rappro-xlsx">Exporter l'état de rapprochement (Excel)</button></div>`;
+  }
+
+  function exportRappro() {
+    const st = rapproState();
+    const res = rapproResult();
+    if (!res) return;
+    const t = (v, s) => ({ v, s: s === undefined ? 2 : s });
+    const n = (v, s) => ({ v: Number(v) || 0, s: s || 8 });
+    const opRows = (list) => list.map((o) => [t(fmtDate(o.date)), t(o.label || ''), n(o.amount)]);
+    const stmt = st.closing && st.closing.date >= res.start ? st.closing : null;
+    const ref = stmt ? stmt.date : res.end;
+    const upTo = (list) => list.filter((x) => x.date <= ref);
+    const nonCompta = upTo(res.bankOnly).reduce((a, o) => a + o.amount, 0), nonReleve = upTo(res.bookOnly).reduce((a, o) => a + o.amount, 0);
+    const book = res.balanceAt(ref);
+    const rows = [[{ v: `État de rapprochement — compte ${st.compte} au ${fmtDate(ref)}`, s: 10 }], [],
+      [t('Solde comptable', 1), n(book)], [t('+ Opérations du relevé non comptabilisées', 1), n(nonCompta)],
+      [t('− Écritures non passées en banque', 1), n(-nonReleve)], [t('= Solde bancaire théorique', 1), n(book + nonCompta - nonReleve, 9)],
+      ...(stmt ? [[t(`Solde du relevé au ${fmtDate(stmt.date)}`, 1), n(stmt.amount, 9)], [t('Écart inexpliqué', 1), n(stmt.amount - (book + nonCompta - nonReleve), 9)]] : [])];
+    const blob = XlsxWriter.build({ sheets: [
+      { name: 'État de rapprochement', rows, widths: [50, 18], filter: false },
+      { name: 'Non comptabilisées', rows: [[t('Date', 1), t('Libellé', 1), t('Montant', 1)]].concat(opRows(res.bankOnly)), widths: [12, 60, 16], freeze: { row: 1 } },
+      { name: 'Absentes du relevé', rows: [[t('Date', 1), t('Libellé', 1), t('Montant', 1)]].concat(opRows(res.bookOnly)), widths: [12, 60, 16], freeze: { row: 1 } },
+    ] });
+    download(`rapprochement-${st.compte}-${ref}.xlsx`, blob, blob.type);
   }
 
   function fecExport() {
@@ -2915,6 +3526,14 @@
         <li>Cliquez sur une mission pour cocher ses étapes : elle passe « en cours » à la première étape cochée, et « terminée » à la dernière. Le bouton <strong>✓ Terminée</strong> valide tout d'un coup.</li>
         <li>Les missions récurrentes (TVA, paie, acomptes…) créent automatiquement l'occurrence suivante lorsqu'elles sont terminées.</li>
       </ul>`)}
+      ${item('Importer le classeur du cabinet', `<p>Dossiers → <strong>Importer</strong>, puis choisissez votre classeur de suivi. S'il contient les onglets INFO DOSSIER, SUIVI TVA, SUIVI RÉVISION, SUIVI SITUATION, SUIVI DÉCLARATION ou SUIVI SAISIE, ils sont tous repris en une fois :</p>
+        <ul>
+          <li>filtre sur une colonne (ex. <strong>CJ = QUME</strong>), proposé automatiquement si votre prénom ou trigramme figure dans le fichier ;</li>
+          <li>les bilans reprennent vos propres étapes de révision (saisie, pointages… envoi EDI, BAT, FN), et une étape cochée coche les précédentes ;</li>
+          <li>OK ou montant = fait ; case hachurée, N/A, DISP ou EUX = non applicable ;</li>
+          <li>les onglets contenant des identifiants et mots de passe (DGFIP, URSSAF, EBICS) ne sont jamais lus ;</li>
+          <li>réimportez le classeur quand vous voulez : rien n'est dupliqué, et aucune case cochée dans l'application n'est décochée.</li>
+        </ul>`)}
       ${item('Suivi mensuel (grille)', `<ul>
         <li>Reproduit votre tableau Excel : un dossier par ligne, un mois par colonne. Filtrez par type de mission, régime de TVA (mensuel, trimestriel, CA12) et responsable.</li>
         <li><strong>Pointage rapide</strong> : un clic sur une case la passe à OK, un second clic annule, comme dans Excel.</li>
@@ -2934,6 +3553,8 @@
         <li><strong>Points de révision</strong> : caisse créditrice, comptes d'attente, clients créditeurs, fournisseurs débiteurs, compte courant d'associé débiteur, doublons, dimanches et jours fériés, loi de Benford.</li>
         <li>SIG, bilan simplifié, balance, graphiques mensuels, journaux et tiers ; export Excel complet.</li>
         <li><strong>Pièces à demander</strong> : choisissez « Situation » ou « Bilan » et la date d'arrêté ; l'application liste les relevés bancaires manquants, les factures récurrentes absentes, les paiements sans facture, les opérations à identifier (471), les acquisitions d'immobilisations, les mois de paie manquants et, pour un bilan, les documents de clôture et les questions sur les créances et dettes anciennes. « Créer la demande » prépare le mail et une mission dont chaque étape est une pièce : cochez-les à réception, la relance ne reprendra que ce qui manque.</li>
+        <li><strong>Revue N / N-1</strong> : chargez aussi le FEC de l'exercice précédent. Les postes et les comptes sont comparés, et les variations au-delà du seuil de signification sont listées pour que vous les justifiez. Contrôles de cohérence automatiques : TVA / CA, charges sociales / salaires, amortissements, intérêts, capitaux propres, points fiscaux. La <strong>note de synthèse</strong> s'imprime ou s'enregistre en PDF pour le rendez-vous bilan.</li>
+        <li><strong>Rapprochement</strong> : importez le relevé bancaire (CFONB / EBICS, OFX, CAMT.053, CSV ou Excel de la banque). L'application affiche les opérations non comptabilisées, les écritures absentes du relevé et l'état de rapprochement. Les opérations non comptabilisées s'ajoutent aux pièces à demander.</li>
         <li>Rattachez l'analyse au dossier (reconnu par son SIREN) pour en garder la synthèse, et créez en un clic une <strong>mission de revue</strong> dont les étapes sont les points relevés.</li>
       </ul>`)}
       ${item('Rappels dans votre agenda', `<p>Paramètres → <strong>Échéances dans mon agenda</strong> : téléchargez un fichier .ics et ouvrez-le avec votre agenda pour être prévenu même application fermée. Par défaut, seuls les numéros de dossier apparaissent dans l'agenda.</p>`)}
@@ -2944,6 +3565,409 @@
         <li>L'application se verrouille seule après quelques minutes d'inactivité. Sans le mot de passe, <strong>personne</strong> ne peut lire les données, pas même vous : notez-le en lieu sûr.</li>
         <li>Les exports Excel et CSV ne sont pas chiffrés : supprimez-les après usage.</li>
       </ul>`)}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Import du classeur de suivi du cabinet (tous les onglets)
+  // ---------------------------------------------------------------------------
+
+  const CAB_TABS = [
+    { key: 'info', re: /info\s*dossier/, label: 'INFO DOSSIER', desc: 'Fiches des dossiers' },
+    { key: 'tva', re: /suivi\s*tva/, label: 'SUIVI TVA', desc: 'Déclarations de TVA (mois cochés OK)' },
+    { key: 'revision', re: /suivi\s*revision/, label: 'SUIVI RÉVISION', desc: 'Bilans avec vos étapes de révision' },
+    { key: 'situation', re: /suivi\s*situation/, label: 'SUIVI SITUATION', desc: 'Situations intermédiaires' },
+    { key: 'declaration', re: /suivi\s*declaration/, label: 'SUIVI DÉCLARATION', desc: 'Acomptes et solde d\'IS, CA12, CFE, CVAE, DAS2…' },
+    { key: 'saisie', re: /suivi\s*saisie/, label: 'SUIVI SAISIE', desc: 'Saisie mensuelle' },
+  ];
+
+  const STAGE_LABELS = {
+    'saisie': 'Saisie', 'pointages': 'Pointages', 'en cours de revision': 'En cours de révision', 'questions client envoyees': 'Questions client envoyées',
+    'revise': 'Révisé', 'supervise': 'Supervisé', 'bilan image': 'Bilan image', 'rdv bilan': 'RDV bilan', 'fini / liasse faits': 'Fini / liasse faite',
+    'envoi edi': 'Envoi EDI', 'envoi bat': 'Envoi BAT', 'envoi fn': 'Envoi FN',
+  };
+  const prettyStage = (t) => {
+    const k = norm(t).replace(/\s+/g, ' ').trim();
+    return STAGE_LABELS[k] || (k.charAt(0).toUpperCase() + k.slice(1));
+  };
+
+  const cabFindTab = (book, re) => book.sheets.find((s) => re.test(norm(s.name)));
+
+  // Ligne d'en-tête : la dernière des 10 premières lignes contenant « N° DOSSIER » et « DOSSIERS ».
+  function cabHeader(rows) {
+    let idx = -1;
+    for (let i = 0; i < Math.min(10, rows.length); i++) {
+      const cells = rows[i].map((c) => norm(c.text));
+      if (cells.some((c) => /^n\W*\s*dossier/.test(c)) && cells.includes('dossiers')) idx = i;
+    }
+    return idx;
+  }
+
+  function cabTable(sheet) {
+    if (!sheet) return null;
+    const h = cabHeader(sheet.rows);
+    if (h < 0) return null;
+    const header = sheet.rows[h].map((c) => c.text);
+    const col = (re) => header.findIndex((t) => re.test(norm(t).replace(/\s+/g, ' ')));
+    const iCode = col(/^n\W*\s*dossier/), iNom = col(/^dossiers$/);
+    const rows = sheet.rows.slice(h + 1).filter((r) => r[iNom] && r[iNom].text).map((r) => {
+      const code = r[iCode] ? r[iCode].text : '';
+      return { cells: r, key: `${/^0+$/.test(code) ? '' : code.toUpperCase()}|${norm(r[iNom].text)}` };
+    });
+    return { sheet, h, header, col, rows, above: sheet.rows[h - 1] || [] };
+  }
+
+  const cellText = (r, i) => (i >= 0 && r.cells[i] ? r.cells[i].text.trim() : '');
+  const cellNa = (r, i) => i >= 0 && r.cells[i] && r.cells[i].na;
+
+  // État d'une case de suivi : 'done', 'todo' (vide), 'na' (hachurée ou non applicable) ou 'note' (autre texte).
+  function cabCell(r, i) {
+    const t = cellText(r, i);
+    if (!t) return { state: cellNa(r, i) ? 'na' : 'todo' };
+    if (DONE_RE.test(t) || /^\d{4}-\d{2}-\d{2}$/.test(t)) return { state: 'done' };
+    if (/^-?\d+([.,]\d+)?$/.test(t)) return { state: 'done', note: `montant ${eur(Number(t.replace(',', '.')), 0)} €` };
+    if (NA_VALUES.has(norm(t)) || /^disp/i.test(t)) return { state: 'na', note: /^disp/i.test(t) ? 'dispensé' : '' };
+    if (/^eux$/i.test(t)) return { state: 'na', note: 'fait par le client' };
+    if (/\bok\b/i.test(t)) return { state: 'done', note: t };
+    return { state: 'na', note: t };
+  }
+
+  // Étapes successives : une étape cochée implique que les précédentes sont faites.
+  function cascadeSteps(steps) {
+    let last = -1;
+    steps.forEach((s, i) => { if (s.done) last = i; });
+    for (let i = 0; i < last; i++) steps[i].done = true;
+  }
+
+  function cabinetPlan() {
+    const cab = ui.cab;
+    const book = cab.book;
+    const today = todayStr();
+    const plan = { clients: [], missions: [], counts: {}, unknown: 0 };
+    const info = cabTable(cabFindTab(book, CAB_TABS[0].re));
+    // Filtre sur une colonne de INFO DOSSIER (ex. CJ = QUME).
+    let keep = null;
+    if (info && cab.filterCol >= 0 && cab.filterVal !== '') {
+      keep = new Set(info.rows.filter((r) => cellText(r, cab.filterCol) === cab.filterVal).map((r) => r.key));
+    }
+    const allowed = (key) => !keep || keep.has(key);
+
+    // Dossiers
+    const infoByKey = new Map();
+    if (info) {
+      const used = new Set();
+      const mapping = info.header.map((h) => {
+        let f = guessField(h || '', used);
+        if (f) used.add(f);
+        else if (/associe|activite|logiciel|situation|comment/.test(norm(h))) f = 'notes';
+        return f;
+      });
+      info.rows.filter((r) => allowed(r.key)).forEach((r) => {
+        const get = (field) => { const i = mapping.indexOf(field); return cellText(r, i); };
+        const v = {
+          nom: get('nom'), code: /^0+$/.test(get('code')) ? '' : get('code').toUpperCase(),
+          forme: get('forme') ? normForme(get('forme')) : '', siren: get('siren').replace(/\s+/g, ''),
+          regimeTva: normRegimeTva(get('regimeTva')),
+          jourTva: (() => { const n = parseInt(get('jourTva'), 10); return n >= 1 && n <= 31 ? String(n) : ''; })(),
+          cloture: normCloture(get('cloture')), regimeFiscal: get('regimeFiscal'),
+          responsable: get('responsable'), collaborateur: get('collaborateur'), superviseur: get('superviseur'),
+        };
+        const notes = mapping.map((f, i) => (f === 'notes' && cellText(r, i) ? `${info.header[i]} : ${/^\d{4}-\d{2}-\d{2}$/.test(cellText(r, i)) ? fmtDate(cellText(r, i)) : cellText(r, i)}` : '')).filter(Boolean);
+        const jr = get('jourTva');
+        if (jr && !/^\d{1,2}$/.test(jr)) notes.push(`Jour TVA : ${jr}`);
+        infoByKey.set(r.key, v);
+        if (cab.tabs.info) plan.clients.push({ key: r.key, v, notes });
+      });
+    }
+    const existingFor = (key, v) => {
+      const [code, nom] = key.split('|');
+      return data.clients.find((c) => (code && c.code === code) || (!code && v && v.siren && c.siren === v.siren) || (!code && norm(c.nom) === nom));
+    };
+    plan.counts.clientsNew = plan.clients.filter((x) => !existingFor(x.key, x.v)).length;
+    plan.counts.clientsUpd = plan.clients.length - plan.counts.clientsNew;
+    const known = (key) => infoByKey.has(key) || !!existingFor(key);
+    const addMission = (tabKey, key, spec) => {
+      if (!allowed(key)) return;
+      if (!known(key)) { plan.unknown++; return; }
+      plan.missions.push({ tab: tabKey, key, spec });
+      plan.counts[tabKey] = (plan.counts[tabKey] || 0) + 1;
+      if (spec.done) plan.counts[tabKey + 'Done'] = (plan.counts[tabKey + 'Done'] || 0) + 1;
+    };
+    const infoOf = (key) => infoByKey.get(key) || existingFor(key) || {};
+    const horizon = addMonths(today, 1);
+
+    // SUIVI TVA
+    const tva = cab.tabs.tva && cabTable(cabFindTab(book, CAB_TABS[1].re));
+    if (tva) {
+      const yearCell = tva.above.find((c) => c && /^\d{4}-\d{2}-\d{2}$/.test(c.text));
+      const year = yearCell ? Number(yearCell.text.slice(0, 4)) : cab.year;
+      const months = tva.header.map((t, i) => (/^\d{1,2}$/.test(String(t).trim()) && +t >= 1 && +t <= 12 ? [i, +t] : null)).filter(Boolean);
+      tva.rows.forEach((r) => {
+        const c = infoOf(r.key);
+        const regime = norm(c.regimeTva || '');
+        const monthly = regime.includes('mensuel'), quarterly = regime.includes('trimestriel');
+        months.forEach(([i, n]) => {
+          const cell = cabCell(r, i);
+          if (cell.state === 'na') return;
+          const quarter = quarterly && n % 3 === 0;
+          const echeance = c.jourTva ? dayOfMonth(year, n, c.jourTva) : '';
+          if (cell.state === 'todo') {
+            if (!(monthly || quarter)) return;
+            if (echeance ? echeance > horizon : dayOfMonth(year, n, 1) > today) return;
+            if (!cab.pastTodo && echeance && echeance < today) return;
+          }
+          const label = quarter ? `T${n / 3} ${year}` : `${pad(n)}/${year}`;
+          addMission('tva', r.key, { type: 'tva', titre: `TVA ${label}`, exercice: label, echeance, recurrence: quarter ? 'trimestrielle' : 'mensuelle', done: cell.state === 'done', notes: cell.note ? [cell.note] : [] });
+        });
+      });
+    }
+
+    // SUIVI RÉVISION : un bilan par dossier, avec les étapes du cabinet
+    const rev = cab.tabs.revision && cabTable(cabFindTab(book, CAB_TABS[2].re));
+    if (rev) {
+      const iClo = rev.col(/cloture/);
+      const stages = rev.header.map((t, i) => (i > iClo && t ? [i, prettyStage(t)] : null)).filter(Boolean);
+      rev.rows.forEach((r) => {
+        const c = infoOf(r.key);
+        const cloText = cellText(r, iClo);
+        const clo = normCloture(cloText) || c.cloture || '31/12';
+        const year = Number(lastClosedYear({ cloture: clo }));
+        const steps = [], notes = [];
+        stages.forEach(([i, label]) => {
+          const cell = cabCell(r, i);
+          if (cell.note) notes.push(`${label} : ${cell.note}`);
+          if (cell.state !== 'na') steps.push({ label, done: cell.state === 'done' });
+        });
+        if (!steps.length) return;
+        cascadeSteps(steps);
+        // Liasse envoyée : l'échéance suivante est le dépôt des comptes (7 mois après la clôture).
+        const closing = closingDate({ cloture: clo }, year);
+        const edi = steps.findIndex((s) => /edi|liasse/i.test(s.label) && s.done);
+        addMission('revision', r.key, {
+          type: 'bilan', titre: `${tplName('bilan')} ${year}`, exercice: String(year), recurrence: 'annuelle', replaceSteps: true,
+          echeance: edi >= 0 ? nextWorkingDay(endOfMonth(addMonths(closing, 7))) : liasseDate(closing), steps, notes, done: steps.every((s) => s.done),
+        });
+      });
+    }
+
+    // SUIVI SITUATION
+    const sit = cab.tabs.situation && cabTable(cabFindTab(book, CAB_TABS[3].re));
+    if (sit) {
+      const iDate = sit.col(/date situation/);
+      const stages = sit.header.map((t, i) => (i > iDate && t ? [i, prettyStage(t)] : null)).filter(Boolean);
+      sit.rows.forEach((r) => {
+        const t = cellText(r, iDate);
+        if (!t) return;
+        const iso = /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : '';
+        const steps = [], notes = [];
+        stages.forEach(([i, label]) => {
+          const cell = cabCell(r, i);
+          if (cell.note) notes.push(`${label} : ${cell.note}`);
+          if (cell.state !== 'na') steps.push({ label, done: cell.state === 'done' });
+        });
+        cascadeSteps(steps);
+        addMission('situation', r.key, {
+          type: 'situation', titre: iso ? `Situation au ${fmtDate(iso)}` : `Situation ${t}`, exercice: iso ? iso.slice(0, 4) : '', recurrence: 'aucune', replaceSteps: true,
+          echeance: iso ? endOfMonth(addMonths(iso, 1)) : '', steps, notes, done: steps.length > 0 && steps.every((s) => s.done),
+        });
+      });
+    }
+
+    // SUIVI DÉCLARATION : une colonne par échéance (« 15/03/2026 ACPTE IS »)
+    const decl = cab.tabs.declaration && cabTable(cabFindTab(book, CAB_TABS[4].re));
+    if (decl) {
+      const iClo = decl.col(/cloture/);
+      const cols = decl.header.map((t, i) => {
+        const m = String(t || '').match(/(\d{2})\/(\d{2})\/(\d{4})\s*([\s\S]*)/);
+        return i > iClo && m ? { i, date: `${m[3]}-${m[2]}-${m[1]}`, raw: m[4].replace(/\s+/g, ' ').trim() } : null;
+      }).filter(Boolean);
+      decl.rows.forEach((r) => {
+        const c = infoOf(r.key);
+        const isIS = norm(c.regimeFiscal || '') === 'is';
+        cols.forEach(({ i, date, raw }) => {
+          const k = norm(raw);
+          const y = date.slice(0, 4), mm = date.slice(5, 7);
+          let spec;
+          if (/^acpte is/.test(k)) spec = { type: 'acompte_is', titre: `Acompte IS ${mm}/${y}`, exercice: `${mm}/${y}`, applies: isIS };
+          else if (/^solde is/.test(k)) spec = { type: 'solde_is', titre: `Solde IS ${y - 1}`, exercice: String(y - 1), applies: isIS };
+          else if (/^ca12/.test(k)) spec = { type: 'ca12', titre: `TVA CA12 ${y - 1}`, exercice: String(y - 1), applies: /simplifi/i.test(c.regimeTva || '') };
+          else if (/^cfe/.test(k)) spec = { type: 'cfe', titre: `CFE ${(raw.match(/\d{4}/) || [y])[0]}`, exercice: (raw.match(/\d{4}/) || [y])[0], applies: true };
+          else {
+            const nice = raw.replace(/^ACPTE /i, 'Acompte ').replace(/^DEC LOYER/i, 'Déclaration des loyers');
+            const hasYear = /\d{4}/.test(nice);
+            spec = { type: 'declaration', titre: hasYear ? nice : `${nice} ${mm}/${y}`, exercice: hasYear ? nice.match(/\d{4}/)[0] : `${mm}/${y}`, applies: false };
+          }
+          const cell = cabCell(r, i);
+          if (cell.state === 'na') return;
+          if (cell.state === 'todo' && (!spec.applies || (!cab.pastTodo && date < today))) return;
+          addMission('declaration', r.key, Object.assign(spec, {
+            echeance: nextWorkingDay(date), recurrence: 'aucune', done: cell.state === 'done', notes: cell.note ? [cell.note] : [],
+          }));
+        });
+      });
+    }
+
+    // SUIVI SAISIE : une colonne par mois
+    const sai = cab.tabs.saisie && cabTable(cabFindTab(book, CAB_TABS[5].re));
+    if (sai) {
+      const months = sai.header.map((t, i) => (/^\d{4}-\d{2}-\d{2}$/.test(String(t)) ? [i, t.slice(0, 7)] : null)).filter(Boolean);
+      sai.rows.forEach((r) => months.forEach(([i, ym]) => {
+        const t = cellText(r, i);
+        if (!t) return;
+        const cell = cabCell(r, i);
+        if (cell.state === 'na' && !cell.note) return;
+        const label = `${ym.slice(5)}/${ym.slice(0, 4)}`;
+        addMission('saisie', r.key, { type: 'saisie', titre: `Saisie ${label}`, exercice: label, echeance: '', recurrence: 'aucune', done: cell.state === 'done', notes: cell.note && cell.state !== 'done' ? [cell.note] : [] });
+      }));
+    }
+    return plan;
+  }
+
+  function upsertMission(c, spec, stamp, res) {
+    const tpl = templateById(spec.type) || DEFAULT_TEMPLATES.find((t) => t.id === spec.type) || templateById('libre');
+    if (!templateById(tpl.id)) data.templates.push(clone(tpl));
+    const labels = spec.steps ? spec.steps : tpl.etapes.map((label) => ({ label, done: !!spec.done }));
+    let m = data.missions.find((x) => x.clientId === c.id && x.titre === spec.titre);
+    if (!m) {
+      m = {
+        id: uid(), clientId: c.id, type: tpl.id, titre: spec.titre, exercice: spec.exercice, echeance: spec.echeance, statut: 'a_faire',
+        priorite: 'normale', responsable: c.responsable || c.collaborateur || '', recurrence: spec.recurrence, notes: '', suiteCreee: false,
+        termineLe: null, createdAt: stamp, updatedAt: stamp,
+        etapes: labels.map((s) => ({ id: uid(), label: s.label, done: !!s.done, doneAt: s.done ? stamp : null })),
+      };
+      data.missions.push(m);
+      res.created++;
+    } else {
+      // Étapes : le fichier ne fait qu'ajouter des étapes ou en cocher, jamais en décocher.
+      if (spec.replaceSteps && !m.etapes.some((e) => e.done)) {
+        m.etapes = labels.map((s) => ({ id: uid(), label: s.label, done: !!s.done, doneAt: s.done ? stamp : null }));
+      } else {
+        labels.forEach((s) => {
+          const e = m.etapes.find((x) => x.label === s.label);
+          if (!e) m.etapes.push({ id: uid(), label: s.label, done: !!s.done, doneAt: s.done ? stamp : null });
+          else if (s.done && !e.done) Object.assign(e, { done: true, doneAt: stamp });
+        });
+      }
+      if (!m.echeance && spec.echeance) m.echeance = spec.echeance;
+      m.updatedAt = stamp;
+      res.updated++;
+    }
+    const add = (spec.notes || []).filter((n) => !(m.notes || '').includes(n));
+    if (add.length) m.notes = [m.notes, ...add].filter(Boolean).join('\n');
+    const allDone = spec.done || (m.etapes.length > 0 && m.etapes.every((e) => e.done));
+    if (allDone && isOpen(m)) {
+      m.statut = 'termine';
+      m.termineLe = spec.echeance && spec.echeance < todayStr() ? spec.echeance : todayStr();
+      m.etapes.forEach((e) => { if (!e.done) Object.assign(e, { done: true, doneAt: stamp }); });
+      res.done++;
+    } else if (isOpen(m) && m.statut === 'a_faire' && m.etapes.some((e) => e.done)) m.statut = 'en_cours';
+  }
+
+  function applyCabinet() {
+    const cab = ui.cab;
+    const plan = cabinetPlan();
+    const stamp = nowIso();
+    const res = { clientsNew: 0, clientsUpd: 0, created: 0, updated: 0, done: 0 };
+    const byKey = new Map();
+    plan.clients.forEach(({ key, v, notes }) => {
+      const [code, nom] = key.split('|');
+      let c = data.clients.find((x) => (code && x.code === code) || (!code && v.siren && x.siren === v.siren) || (!code && norm(x.nom) === nom));
+      if (c) {
+        if (!cab.update) { byKey.set(key, c); return; }
+        Object.keys(v).forEach((k) => { if (v[k]) c[k] = v[k]; });
+        const add = notes.filter((n) => !(c.notes || '').includes(n));
+        if (add.length) c.notes = [c.notes, ...add].filter(Boolean).join('\n');
+        c.updatedAt = stamp;
+        res.clientsUpd++;
+      } else {
+        c = Object.assign({ id: uid(), archive: false, vigilance: 'standard', createdAt: stamp, updatedAt: stamp }, v, { notes: notes.join('\n') });
+        if (!c.code) c.code = genCode(c.nom, c.id);
+        data.clients.push(c);
+        log(c.id, 'Dossier importé depuis le classeur du cabinet.', true);
+        res.clientsNew++;
+      }
+      addCollaborateurs([c.responsable, c.collaborateur, c.superviseur]);
+      byKey.set(key, c);
+    });
+    plan.missions.forEach(({ key, spec }) => {
+      const [code, nom] = key.split('|');
+      const c = byKey.get(key) || data.clients.find((x) => (code && x.code === code) || (!code && norm(x.nom) === nom));
+      if (c) upsertMission(c, spec, stamp, res);
+    });
+    return res;
+  }
+
+  function openCabinetImport(book, fileName) {
+    const info = cabTable(cabFindTab(book, CAB_TABS[0].re));
+    const tabs = {};
+    CAB_TABS.forEach((t) => { tabs[t.key] = !!cabTable(cabFindTab(book, t.re)); });
+    // Filtre proposé : la colonne où figure le prénom / trigramme de l'utilisateur.
+    let filterCol = -1, filterVal = '';
+    const me = (data.settings.utilisateur || '').trim().toUpperCase();
+    if (info && me) {
+      info.header.forEach((h, i) => {
+        if (filterCol < 0 && /^(m|cs|cj|responsable|collaborateur)$/i.test(norm(h)) && info.rows.some((r) => cellText(r, i).toUpperCase() === me)) {
+          filterCol = i;
+          filterVal = info.rows.find((r) => cellText(r, i).toUpperCase() === me).cells[i].text.trim();
+        }
+      });
+    }
+    ui.cab = { book, fileName, tabs, filterCol, filterVal, update: true, pastTodo: false, year: new Date().getFullYear() };
+    renderCabinetImport();
+  }
+
+  function renderCabinetImport() {
+    const cab = ui.cab;
+    const info = cabTable(cabFindTab(cab.book, CAB_TABS[0].re));
+    const plan = cabinetPlan();
+    const cols = info ? info.header.map((h, i) => [String(i), h]).filter(([, h]) => h) : [];
+    const values = {};
+    if (info && cab.filterCol >= 0) info.rows.forEach((r) => { const v = cellText(r, cab.filterCol); if (v) values[v] = (values[v] || 0) + 1; });
+    const n = (k) => plan.counts[k] || 0;
+    const line = {
+      info: `${plan.clients.length} dossier(s) : ${n('clientsNew')} nouveau(x), ${n('clientsUpd')} déjà présent(s)`,
+      tva: `${n('tva')} déclaration(s), dont ${n('tvaDone')} faite(s)`,
+      revision: `${n('revision')} bilan(s), dont ${n('revisionDone')} terminé(s)`,
+      situation: `${n('situation')} situation(s)`,
+      declaration: `${n('declaration')} échéance(s), dont ${n('declarationDone')} faite(s)`,
+      saisie: `${n('saisie')} mois de saisie`,
+    };
+    modalRefresh = null;
+    openModal(`
+      <div class="sheet">
+        <header class="modal-head"><div><div class="muted small">${esc(cab.fileName)}</div><h2>Importer le classeur du cabinet</h2></div><button type="button" class="icon-btn" data-action="close-modal" aria-label="Fermer">✕</button></header>
+        <div class="modal-body">
+          <div class="info-box small">Le classeur est lu <strong>uniquement sur cet appareil</strong>. Les onglets DGFIP, URSSAF et EBICS (identifiants et mots de passe) ne sont <strong>jamais</strong> repris.</div>
+          ${info ? `<h3>Dossiers à importer</h3>
+          <div class="form-grid">
+            <label>Filtrer sur la colonne<select data-cab="filterCol">${options(Object.fromEntries(cols), String(cab.filterCol), 'Tous les dossiers')}</select></label>
+            ${cab.filterCol >= 0 ? `<label>Valeur<select data-cab="filterVal">${options(Object.fromEntries(Object.entries(values).sort().map(([v, k]) => [v, `${v} (${k})`])), cab.filterVal, '— Choisir —')}</select></label>` : ''}
+          </div>` : '<p class="muted">Onglet INFO DOSSIER absent : les missions seront rattachées aux dossiers déjà présents.</p>'}
+          <h3>Onglets</h3>
+          <div class="cal-obs">${CAB_TABS.filter((t) => cabTable(cabFindTab(cab.book, t.re))).map((t) => `
+            <label class="check cal-ob"><input type="checkbox" data-cab="tab" value="${t.key}"${cab.tabs[t.key] ? ' checked' : ''}>
+              <span><strong>${esc(t.label)}</strong> <span class="muted small">— ${esc(t.desc)}</span><br><span class="small">${cab.tabs[t.key] ? esc(line[t.key]) : '<span class="muted">non importé</span>'}</span></span></label>`).join('')}
+          </div>
+          <label class="check"><input type="checkbox" data-cab="pastTodo"${cab.pastTodo ? ' checked' : ''}><span>Créer aussi les échéances <strong>passées</strong> non cochées (elles apparaîtront en retard)</span></label>
+          <label class="check"><input type="checkbox" data-cab="update"${cab.update ? ' checked' : ''}><span>Mettre à jour les dossiers déjà présents</span></label>
+          ${plan.unknown ? `<p class="muted small">${plan.unknown} ligne(s) de suivi ignorée(s) : dossier absent de l'application et de INFO DOSSIER.</p>` : ''}
+          <p class="muted small">Le fichier ne fait que compléter : il ne décoche jamais une étape déjà cochée dans l'application et ne crée pas de doublon (réimport possible à tout moment). Cases hachurées, N/A, DISP et EUX = non applicable ; OK ou montant = fait.</p>
+          <button class="link-btn small" data-action="cab-classic">Importer plutôt une seule feuille (assistant classique)</button>
+        </div>
+        <footer class="modal-foot"><button type="button" class="btn" data-action="close-modal">Annuler</button><button class="btn primary" data-action="cab-apply"${plan.clients.length || plan.missions.length ? '' : ' disabled'}>Importer</button></footer>
+      </div>`, true);
+  }
+
+  function onCabChange(t) {
+    const cab = ui.cab;
+    const k = t.dataset.cab;
+    if (k === 'filterCol') { cab.filterCol = t.value === '' ? -1 : Number(t.value); cab.filterVal = ''; }
+    else if (k === 'filterVal') cab.filterVal = t.value;
+    else if (k === 'tab') cab.tabs[t.value] = t.checked;
+    else cab[k] = t.checked;
+    const body = $('#modal .modal-body');
+    const scroll = body ? body.scrollTop : 0;
+    renderCabinetImport();
+    if ($('#modal .modal-body')) $('#modal .modal-body').scrollTop = scroll;
   }
 
   // ---------------------------------------------------------------------------
@@ -3202,6 +4226,22 @@
 
   let lastActivity = Date.now();
 
+  // Efface de la mémoire et de l'écran tout ce qui concerne les dossiers (verrouillage, réinitialisation).
+  function forgetSession() {
+    ui.fec = null;
+    ui.imp = null;
+    ui.cab = null;
+    ui.cal = null;
+    ui.msg = null;
+    modalRefresh = null;
+    const t = $('#toast');
+    if (t) { t.textContent = ''; t.className = ''; }
+    const area = $('#print-area');
+    if (area) area.innerHTML = '';
+    const tip = $('#viz-tip');
+    if (tip) { tip.textContent = ''; tip.style.display = 'none'; }
+  }
+
   async function lock(message) {
     if (!data) return;
     if (autoBackupTimer) await writeAutoBackup();
@@ -3212,7 +4252,7 @@
     ui.autoBackup = null;
     if (fecWorker) fecWorker.terminate();
     fecWorker = null;
-    ui.fec = null;
+    forgetSession();
     data = null;
     closeModal();
     const ask = $('#ask');
@@ -3326,6 +4366,10 @@
       persist();
       refresh();
     },
+    'missions-more': () => {
+      ui.mfLimit = (ui.mfLimit || 300) + 300;
+      renderMissionList();
+    },
     'filter-missions': (el) => {
       ui.mf = { q: '', statut: el.dataset.statut || 'ouvertes', resp: '', periode: el.dataset.periode || 'toutes', type: '' };
     },
@@ -3342,6 +4386,20 @@
       refresh();
     },
     'import-sheet': () => startImport(),
+    'cab-apply': async () => {
+      const res = applyCabinet();
+      await persist();
+      closeModal();
+      ui.cab = null;
+      toast(`Classeur importé : ${res.clientsNew} dossier(s) créé(s), ${res.clientsUpd} mis à jour, ${res.created} mission(s) créée(s), ${res.updated} mise(s) à jour.`);
+      if (location.hash === '#/dossiers') refresh();
+      else location.hash = '#/dossiers';
+    },
+    'cab-classic': () => {
+      const { book, fileName } = ui.cab;
+      ui.cab = null;
+      startImport({ book, file: { name: fileName }, classic: true });
+    },
     'open-cal': (el) => openCalendar(el.dataset.client),
     'open-msg': (el) => openMessage(el.dataset.client, el.dataset.mission),
     'msg-model': (el) => {
@@ -3384,6 +4442,7 @@
     'grille-toggle': (el) => {
       const m = missionById(el.dataset.id);
       if (!m) return;
+      const count = data.missions.length;
       if (isOpen(m)) {
         m.etapes.forEach((e) => { if (!e.done) Object.assign(e, { done: true, doneAt: nowIso() }); });
         toast(`${m.titre} — ${clientLabel(clientById(m.clientId))} : OK`);
@@ -3394,9 +4453,9 @@
         toast(`${m.titre} — ${clientLabel(clientById(m.clientId))} : annulé`);
       }
       persist();
-      refresh();
-      const again = $(`.grille td[data-id="${m.id}"]`);
-      if (again) again.focus({ preventScroll: true });
+      // Occurrence suivante créée : la grille change de forme, on la redessine.
+      if (data.missions.length !== count) refresh();
+      else updateGrilleCell(m);
     },
     'export-grille': () => exportGrille(),
     'fec-pick': async () => startFec(await pickFile('.txt,.csv,.tsv,text/plain', true)),
@@ -3409,6 +4468,15 @@
       if (ok) fecExport();
     },
     'fec-save': () => fecSave(),
+    'fec-prev': async () => startFec(await pickFile('.txt,.csv,.tsv,text/plain', true), 'prev'),
+    'fec-note': () => openNote(),
+    'rappro-import': () => importStatement(),
+    'rappro-reset': () => {
+      ui.fec.rappro = null;
+      refresh();
+    },
+    'rappro-xlsx': () => exportRappro(),
+    'note-print': () => printNote(),
     'pieces-mode': (el) => {
       const st = piecesState();
       st.mode = el.dataset.mode;
@@ -3474,6 +4542,9 @@
       autoBackupHandle = null;
       ui.autoBackup = null;
       await Vault.destroy();
+      if (fecWorker) fecWorker.terminate();
+      fecWorker = null;
+      forgetSession();
       data = null;
       closeModal();
       location.hash = '';
@@ -3500,11 +4571,31 @@
     if (!data) return;
     if (t.dataset.imp && ui.imp) {
       onImportChange(t);
+    } else if (t.dataset.cab && ui.cab) {
+      onCabChange(t);
     } else if (t.dataset.cal && ui.cal) {
       onCalChange(t);
     } else if (t.dataset.msg === 'mission' && ui.msg) {
       t.checked ? ui.msg.selected.add(t.value) : ui.msg.selected.delete(t.value);
       renderMessage();
+    } else if (t.dataset.rappro && ui.fec) {
+      const st = rapproState();
+      const k = t.dataset.rappro;
+      if (k === 'tol') st.tol = Math.max(0, Math.min(31, Number(t.value) || 0));
+      else if (k === 'include') st.include = t.checked;
+      else st[k] = t.value;
+      refresh();
+    } else if (t.dataset.comment !== undefined && ui.fec) {
+      const store = revueComments();
+      store.comments[t.dataset.comment] = t.value.trim();
+      if (clientById(ui.fec.clientId)) persist();
+    } else if (t.dataset.revue === 'seuil' && ui.fec) {
+      ui.fec.seuil = Math.max(0, Number(t.value) || 0);
+      refresh();
+    } else if (t.dataset.revue === 'note' && ui.fec) {
+      revueComments().note = t.value.trim();
+      if (clientById(ui.fec.clientId)) persist();
+      $('#modal .note-preview').innerHTML = noteHtml();
     } else if (t.dataset.piece && ui.fec) {
       const st = piecesState();
       t.checked ? st.excluded.delete(t.dataset.piece) : st.excluded.add(t.dataset.piece);
@@ -3576,7 +4667,7 @@
       const value = t.type === 'checkbox' ? t.checked : t.value;
       if (path.length === 2) ui[path[0]][path[1]] = value;
       else ui[path[0]] = value;
-      if (path[0] === 'mf') renderMissionList();
+      if (path[0] === 'mf') { ui.mfLimit = 300; renderMissionList(); }
       else renderDossierList();
     }
     if (t.dataset.fec === 'q' && ui.fec) {

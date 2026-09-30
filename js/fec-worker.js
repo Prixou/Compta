@@ -155,6 +155,7 @@ function analyse(buffer, fileName) {
   const supInv = new Map();
   const payroll = {};
   const attenteLines = [], immoLines = [], ccaLines = [], chargeLines = [];
+  const bankLines = {}; // lignes des comptes 51 (hors à-nouveaux) pour le rapprochement bancaire
   const flags = {};
   const start = closing ? (() => { const d = new Date(Date.UTC(+closing.slice(0, 4) - 1, +closing.slice(5, 7) - 1, +closing.slice(8, 10) + 1)); return d.toISOString().slice(0, 10); })() : null;
 
@@ -290,6 +291,7 @@ function analyse(buffer, fileName) {
       if (date < minOp) minOp = date;
       if (date > maxOp) maxOp = date;
       if (compte.startsWith('51')) {
+        (bankLines[compte] = bankLines[compte] || []).push([date, round2(d - c), elib, piece, jc + ' ' + num]);
         let bk = bankMonths.get(compte);
         if (!bk) bankMonths.set(compte, (bk = { compte, lib: clib, months: {}, first: date, last: date }));
         bk.months[ym] = (bk.months[ym] || 0) + 1;
@@ -412,7 +414,7 @@ function analyse(buffer, fileName) {
 
   // ---------- Balance, SIG, bilan ----------
   const balance = Array.from(accounts.values())
-    .map((x) => ({ compte: x.compte, lib: x.lib, d: round2(x.d), c: round2(x.c), s: round2(x.d - x.c), an: round2(x.dAN - x.cAN) }))
+    .map((x) => ({ compte: x.compte, lib: x.lib, d: round2(x.d), c: round2(x.c), s: round2(x.d - x.c), an: round2(x.dAN - x.cAN), dm: round2(x.d - x.dAN), cm: round2(x.c - x.cAN) }))
     .sort((x, y) => x.compte.localeCompare(y.compte));
   const sum = (pref, excl, fn) => balance.reduce((t, x) => (pref.some((p) => x.compte.startsWith(p)) && !(excl || []).some((p) => x.compte.startsWith(p)) ? t + fn(x) : t), 0);
   const D = (pref, excl) => round2(sum(pref, excl, (x) => x.s));
@@ -590,6 +592,7 @@ function analyse(buffer, fileName) {
     tiers,
     benford: { rows: benfordRows, n: nB, mad, level: benfordLevel },
     pieces,
+    bankLines,
     kpi: {
       ca: P(['70']), marge, va, ebe, rex, resultat,
       tresorerie: round2(balance.filter((x) => /^5[1-3]/.test(x.compte)).reduce((t, x) => t + x.s, 0)),
