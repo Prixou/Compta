@@ -621,3 +621,15 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
 .dtable.sig td:first-child { white-space: normal; }
 @media (max-width: 760px) { .dtable.sig td { padding: .45rem .4rem; } }
 .more-btn { margin-top: .6rem; }
+
+/* ---------- Analyseurs FEC : classique / pharmacie ---------- */
+
+.fec-profiles { margin: -.4rem 0 1rem; }
+.fec-profiles a { display: inline-flex; align-items: center; gap: .45rem; padding: .55rem 1rem; font-weight: 700; color: var(--muted); text-decoration: none; background: var(--surface); min-height: 40px; }
+.fec-profiles a + a { border-left: 1px solid var(--border); }
+.fec-profiles a.on { background: var(--primary); color: var(--primary-ink); }
+.fec-profiles a .ico { width: 16px; height: 16px; }
+.dtable.tp tr.flag td { background: var(--warn-soft); }
+.tp-detail { border-top: 1px solid var(--border); padding: .5rem 0; }
+.tp-detail summary { cursor: pointer; }
+@media (max-width: 760px) { .fec-profiles { display: flex; } .fec-profiles a { flex: 1; justify-content: center; font-size: .82rem; padding: .5rem .4rem; } }

@@ -247,9 +247,11 @@ function analyse(buffer, fileName) {
     if (/^4[01]/.test(compte)) {
       const k = compte.slice(0, 3) + '|' + (auxNum || compte);
       let t = aux.get(k);
-      if (!t) aux.set(k, (t = { racine: compte.slice(0, 3), num: auxNum || compte, lib: auxLib || clib, d: 0, c: 0 }));
+      if (!t) aux.set(k, (t = { racine: compte.slice(0, 3), compte, num: auxNum || compte, lib: auxLib || clib, clib, d: 0, c: 0, lines: [] }));
       t.d += d;
       t.c += c;
+      // Lignes conservées pour la balance âgée : date, débit, crédit, lettrage, libellé, à-nouveau.
+      if (date || an) t.lines.push([date || '0000-00-00', d, c, g('EcritureLet'), elib, an ? 1 : 0]);
       if (date && !an) {
         if (d > 0 && date > (t.lastD || '')) t.lastD = date;
         if (c > 0 && date > (t.lastC || '')) t.lastC = date;
@@ -290,7 +292,8 @@ function analyse(buffer, fileName) {
       const ym = date.slice(0, 7);
       if (date < minOp) minOp = date;
       if (date > maxOp) maxOp = date;
-      if (compte.startsWith('51')) {
+      // Comptes bancaires (512 et suivants) ; les 511 « valeurs à l'encaissement » (CB, chèques) sont des comptes de transit.
+      if (/^51[2-9]/.test(compte)) {
         (bankLines[compte] = bankLines[compte] || []).push([date, round2(d - c), elib, piece, jc + ' ' + num]);
         let bk = bankMonths.get(compte);
         if (!bk) bankMonths.set(compte, (bk = { compte, lib: clib, months: {}, first: date, last: date }));
@@ -506,7 +509,41 @@ function analyse(buffer, fileName) {
   const attente = balance.filter((x) => /^47[1-8]/.test(x.compte) && Math.abs(x.s) >= 0.01);
   if (attente.length) alert('warn', 'Comptes d\'attente non soldés', `${attente.length} compte(s) 471 à 478 à régulariser avant la clôture.`, attente.slice(0, MAX_EXAMPLES).map((x) => `${x.compte} ${x.lib} : ${fmt(x.s)} €`));
 
-  const auxList = Array.from(aux.values()).map((t) => ({ ...t, d: round2(t.d), c: round2(t.c), s: round2(t.d - t.c) }));
+  const auxList = Array.from(aux.values()).map(({ lines: _l, ...t }) => ({ ...t, d: round2(t.d), c: round2(t.c), s: round2(t.d - t.c) }));
+
+  // Balance âgée des tiers (411 clients, 401 fournisseurs) : pièces non soldées et leur date.
+  // Avec lettrage dans le FEC : lignes non lettrées. Sinon : règlements imputés sur les factures les plus anciennes (FIFO).
+  const aging = [];
+  aux.forEach((t) => {
+    if (!['411', '401'].includes(t.racine) || Math.abs(t.d - t.c) < 0.01) return;
+    const sign = t.racine === '401' ? -1 : 1;
+    const items = t.lines.map(([date, d, c, let_, lib, an]) => ({ date, amt: round2(sign * (d - c)), let: let_, lib, an: !!an })).filter((x) => x.amt !== 0);
+    const lettered = items.some((x) => x.let);
+    let open;
+    if (lettered) {
+      open = items.filter((x) => !x.let);
+    } else {
+      const invoices = items.filter((x) => x.amt > 0).sort((a, b) => a.date.localeCompare(b.date));
+      const payments = items.filter((x) => x.amt < 0);
+      let credit = -payments.reduce((s, x) => s + x.amt, 0);
+      open = [];
+      invoices.forEach((x) => {
+        if (credit >= x.amt - 0.005) { credit -= x.amt; return; }
+        open.push({ ...x, amt: round2(x.amt - credit) });
+        credit = 0;
+      });
+      if (credit > 0.005) {
+        const last = payments.sort((a, b) => b.date.localeCompare(a.date))[0];
+        open.push({ date: last ? last.date : '', amt: round2(-credit), lib: 'Règlements non imputés (trop-perçu)', an: false });
+      }
+    }
+    open.sort((a, b) => a.date.localeCompare(b.date));
+    aging.push({
+      racine: t.racine, compte: t.compte, num: t.num, lib: t.lib, clib: t.clib, s: round2(t.d - t.c), method: lettered ? 'lettrage' : 'fifo',
+      billed: round2(items.filter((x) => x.amt > 0 && !x.an).reduce((s, x) => s + x.amt, 0)), openCount: open.length,
+      open: open.slice(0, 200).map(({ date, amt, lib, an }) => ({ date, amt, lib, an })),
+    });
+  });
   const clientsCred = auxList.filter((t) => t.racine === '411' && t.s <= -0.01).sort((x, y) => x.s - y.s);
   if (clientsCred.length) alert('warn', 'Clients créditeurs', `${clientsCred.length} client(s) au solde créditeur : avoir, double règlement ou facture non saisie ?`, clientsCred.slice(0, MAX_EXAMPLES).map((t) => `${t.num} ${t.lib} : ${fmt(t.s)} €`));
   const fournDeb = auxList.filter((t) => t.racine === '401' && t.s >= 0.01).sort((x, y) => y.s - x.s);
@@ -593,6 +630,7 @@ function analyse(buffer, fileName) {
     benford: { rows: benfordRows, n: nB, mad, level: benfordLevel },
     pieces,
     bankLines,
+    aging,
     kpi: {
       ca: P(['70']), marge, va, ebe, rex, resultat,
       tresorerie: round2(balance.filter((x) => /^5[1-3]/.test(x.compte)).reduce((t, x) => t + x.s, 0)),

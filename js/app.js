@@ -560,6 +560,8 @@
   // Structure principale et navigation
   // ---------------------------------------------------------------------------
 
+  const fecHref = () => (data && data.settings.fecProfile === 'pharmacie' ? '#/fec/pharma' : '#/fec');
+
   function renderShell() {
     const discret = data.settings.discret;
     $('#app').innerHTML = `
@@ -574,7 +576,7 @@
             <a href="#/dossiers" data-nav="dossiers">${icon('folder')}<span>Dossiers</span></a>
             <a href="#/missions" data-nav="missions">${icon('list')}<span>Missions</span></a>
             <a href="#/grille" data-nav="grille">${icon('grid')}<span>Suivi mensuel</span></a>
-            <a href="#/fec" data-nav="fec">${icon('chart')}<span>Analyse FEC</span></a>
+            <a href="${fecHref()}" data-nav="fec">${icon('chart')}<span>Analyse FEC</span></a>
             <a href="#/parametres" data-nav="parametres">${icon('gear')}<span>Paramètres</span></a>
           </nav>
           <div class="side-actions">
@@ -601,8 +603,14 @@
     mf: { q: '', statut: 'ouvertes', resp: '', periode: 'toutes', type: '' },
     grille: { annee: new Date().getFullYear(), type: 'tva', resp: '', regime: '' },
     imp: null,
-    fec: null,
+    fecProfile: 'classique',
+    fecStates: { classique: null, pharmacie: null },
   };
+  // ui.fec désigne l'analyse de l'analyseur affiché (classique ou pharmacie).
+  Object.defineProperty(ui, 'fec', {
+    get() { return this.fecStates[this.fecProfile]; },
+    set(v) { this.fecStates[this.fecProfile] = v; },
+  });
 
   function route() {
     if (!data) return;
@@ -617,7 +625,15 @@
       case 'missions': main.innerHTML = viewMissions(); renderMissionList(); break;
       case 'grille': main.innerHTML = viewGrille(); scrollGrilleToMonth(); break;
       case 'aide': main.innerHTML = viewAide(); break;
-      case 'fec': main.innerHTML = viewFec(); break;
+      case 'fec':
+        ui.fecProfile = parts[1] === 'pharma' ? 'pharmacie' : 'classique';
+        if (data.settings.fecProfile !== ui.fecProfile) {
+          data.settings.fecProfile = ui.fecProfile;
+          const link = $('a[data-nav="fec"]');
+          if (link) link.setAttribute('href', fecHref());
+        }
+        main.innerHTML = viewFec();
+        break;
       case 'parametres': main.innerHTML = viewSettings(); break;
       default: main.innerHTML = viewDashboard();
     }
@@ -2050,7 +2066,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '8';
+  const ASSET_VERSION = '9';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -2078,37 +2094,46 @@
     lettrage: 'Lettrage incomplet', devise: 'Devise incomplète', negatif: 'Montants négatifs', debcred: 'Lignes au débit et au crédit',
   };
 
+  // Points de révision du profil affiché (officine : alertes adaptées + contrôles spécifiques).
+  function fecPoints(r) {
+    return ui.fecProfile === 'pharmacie' ? fecAlerts(r).concat(pharmaChecks(r).filter((x) => x.level !== 'ok')) : r.alerts;
+  }
+
   function fecCounts(r) {
-    const all = r.checks.concat(r.alerts);
+    const all = r.checks.concat(fecPoints(r));
     return { errors: all.filter((c) => c.level === 'error').length, warnings: all.filter((c) => c.level === 'warn').length };
   }
 
   // Analyse d'un FEC : principal (target 'main') ou exercice précédent pour la revue analytique ('prev').
+  // Chaque analyseur (classique, pharmacie) garde son propre état : le résultat revient toujours à l'analyseur qui l'a lancé.
   function startFec(file, target) {
     if (!file) return;
     if (fecWorker) fecWorker.terminate();
     if (target === 'prev') {
-      Object.assign(ui.fec, { prevStatus: 'loading', prevName: file.name, prev: null, prevError: '' });
+      const st = ui.fec;
+      Object.assign(st, { prevStatus: 'loading', prevName: file.name, prev: null, prevError: '' });
       refresh();
-      return runFecWorker(file, (res, err) => {
-        if (!ui.fec) return;
-        Object.assign(ui.fec, err ? { prevStatus: 'error', prevError: err } : { prevStatus: 'done', prev: res });
+      return runFecWorker(file, st, (res, err) => {
+        Object.assign(st, err ? { prevStatus: 'error', prevError: err } : { prevStatus: 'done', prev: res });
         refresh();
       });
     }
     ui.fec = { status: 'loading', pct: 0, fileName: file.name, section: 'synthese', q: '', classe: '' };
     refresh();
-    runFecWorker(file, null);
+    runFecWorker(file, ui.fec, null);
   }
 
-  function runFecWorker(file, onDone) {
+  const fecAlive = (st) => !!data && (ui.fecStates.classique === st || ui.fecStates.pharmacie === st);
+
+  function runFecWorker(file, st, onDone) {
     file.arrayBuffer().then((buffer) => {
       fecWorker = new Worker('js/fec-worker.js?v=' + ASSET_VERSION);
       fecWorker.onmessage = (e) => {
         const m = e.data;
-        if (!ui.fec) return;
+        if (!fecAlive(st)) return;
         if (m.type === 'progress') {
-          ui.fec.pct = m.pct;
+          st.pct = m.pct;
+          if (ui.fec !== st) return;
           const bar = $('.fec-progress span');
           if (bar) bar.style.width = m.pct + '%';
           const label = $('.fec-progress-label');
@@ -2118,24 +2143,26 @@
         fecWorker.terminate();
         fecWorker = null;
         if (onDone) return onDone(m.type === 'done' ? m.result : null, m.type === 'error' ? m.message : '');
-        if (m.type === 'error') Object.assign(ui.fec, { status: 'error', message: m.message });
+        if (m.type === 'error') Object.assign(st, { status: 'error', message: m.message });
         else {
           const siren = m.result.meta.siren;
           const match = siren && data.clients.find((c) => (c.siren || '').replace(/\s/g, '').slice(0, 9) === siren);
-          Object.assign(ui.fec, { status: 'done', result: m.result, clientId: match ? match.id : '' });
+          Object.assign(st, { status: 'done', result: m.result, clientId: match ? match.id : '' });
         }
-        if (location.hash === '#/fec') refresh();
+        if (location.hash.startsWith('#/fec') && ui.fec === st) refresh();
         else toast(m.type === 'error' ? 'Analyse du FEC impossible.' : 'Analyse du FEC terminée.');
       };
       fecWorker.onerror = (err) => {
+        if (!fecAlive(st)) return;
         if (onDone) return onDone(null, err.message || 'Erreur pendant l\'analyse.');
-        Object.assign(ui.fec, { status: 'error', message: err.message || 'Erreur pendant l\'analyse.' });
+        Object.assign(st, { status: 'error', message: err.message || 'Erreur pendant l\'analyse.' });
         refresh();
       };
       fecWorker.postMessage({ buffer, fileName: file.name }, [buffer]);
     }, (err) => {
+      if (!fecAlive(st)) return;
       if (onDone) return onDone(null, err.message);
-      Object.assign(ui.fec, { status: 'error', message: err.message });
+      Object.assign(st, { status: 'error', message: err.message });
       refresh();
     });
   }
@@ -2249,21 +2276,29 @@
 
   function viewFec() {
     const f = ui.fec;
-    const head = `<div class="page-head"><h1>Analyse FEC</h1>
+    const pharma = ui.fecProfile === 'pharmacie';
+    const profiles = `<div class="seg fec-profiles" role="tablist" aria-label="Analyseur">
+        <a role="tab" aria-selected="${!pharma}" class="${pharma ? '' : 'on'}" href="#/fec">${icon('chart')}Structure classique</a>
+        <a role="tab" aria-selected="${pharma}" class="${pharma ? 'on' : ''}" href="#/fec/pharma">${icon('shield')}Pharmacie (officine)</a>
+      </div>`;
+    const head = `<div class="page-head"><h1>Analyse FEC${pharma ? ' — Pharmacie' : ' — Structure classique'}</h1>
       <div class="head-actions">${f && f.status === 'done' ? `<button class="btn" data-action="fec-export">Exporter en Excel</button>` : ''}
-        <button class="btn primary" data-action="fec-pick">${f ? 'Analyser un autre FEC' : 'Choisir un FEC'}</button></div></div>`;
+        <button class="btn primary" data-action="fec-pick">${f ? 'Analyser un autre FEC' : 'Choisir un FEC'}</button></div></div>${profiles}`;
     if (!f) {
       return `${head}
         <div class="fec-drop card" data-action="fec-pick" role="button" tabindex="0">
           ${icon('chart', 'fec-drop-ico')}
-          <p><strong>Déposez un fichier FEC ici</strong> ou cliquez pour le choisir</p>
-          <p class="muted small">Fichier .txt ou .csv au format de l'article A47 A-1 du LPF (tabulation ou « | », UTF-8 ou ISO-8859-15), y compris BNC / BA.</p>
+          <p><strong>Déposez le FEC ${pharma ? 'd\'une pharmacie' : 'd\'une entreprise'} ici</strong> ou cliquez pour le choisir</p>
+          <p class="muted small">Fichier .txt ou .csv au format de l'article A47 A-1 du LPF (tabulation ou « | », UTF-8 ou ISO-8859-15)${pharma ? '' : ', y compris BNC / BA'}.</p>
         </div>
         <div class="grid2">
           <section class="card"><h2>Ce que l'analyse vérifie</h2><ul class="bullets">
             <li><strong>Conformité du fichier</strong> : nom, séparateur, 18 colonnes, zones obligatoires, dates, montants, équilibre de chaque écriture et de la balance, numérotation, dates hors exercice…</li>
-            <li><strong>Points de révision</strong> : caisse créditrice, comptes d'attente, clients créditeurs, fournisseurs débiteurs, compte courant d'associé débiteur, doublons, écritures du dimanche ou d'un jour férié, loi de Benford.</li>
-            <li><strong>Chiffres</strong> : soldes intermédiaires de gestion, bilan simplifié, balance générale, CA et charges par mois, trésorerie, journaux, principaux clients et fournisseurs.</li>
+            ${pharma ? `<li><strong>Tiers payant</strong> : balance âgée par organisme (régime obligatoire, complémentaires), rejets et impayés probables, trop-perçus, créances patients.</li>
+            <li><strong>CA et TVA</strong> : contrôle de la TVA collectée taux par taux (2,1 %, 5,5 %, 10 %, 20 %), honoraires de dispensation, ROSP et rémunérations forfaitaires.</li>
+            <li><strong>Officine</strong> : taux de marque, remises grossistes et laboratoires, comptes de transit CB et chèques, écarts et solde de caisse, pièces à demander propres à la pharmacie.</li>`
+            : `<li><strong>Points de révision</strong> : caisse créditrice, comptes d'attente, clients créditeurs, fournisseurs débiteurs, compte courant d'associé débiteur, doublons, écritures du dimanche ou d'un jour férié, loi de Benford.</li>
+            <li><strong>Chiffres</strong> : soldes intermédiaires de gestion, bilan simplifié, balance générale, CA et charges par mois, trésorerie, journaux, principaux clients et fournisseurs.</li>`}
           </ul></section>
           <section class="card"><h2>${icon('shield')} Confidentialité</h2>
             <p>Le FEC est analysé <strong>sur cet appareil uniquement</strong>, dans un processus isolé : il n'est ni envoyé, ni conservé. Seule la synthèse (chiffres clés et nombre d'anomalies) peut être enregistrée, chiffrée, dans le dossier si vous le demandez.</p>
@@ -2285,7 +2320,14 @@
     const dmy = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
     const clients = data.clients.filter((c) => !c.archive).sort((a, b) => clientLabel(a).localeCompare(clientLabel(b), 'fr'));
     const nbPieces = r.pieces ? computePieces(r, piecesState().mode, piecesState().arrete).length : 0;
-    const tabs = { synthese: 'Synthèse', pieces: `Pièces à demander${nbPieces ? ` (${nbPieces})` : ''}`, revue: 'Revue N / N-1', rappro: 'Rapprochement', conformite: `Conformité${errors ? ` (${errors})` : ''}`, sig: 'SIG et bilan', balance: 'Balance', details: 'Détails' };
+    const tabs = Object.assign({ synthese: 'Synthèse' }, pharma ? { tp: 'Tiers payant', catva: 'CA & TVA' } : {},
+      { pieces: `Pièces à demander${nbPieces ? ` (${nbPieces})` : ''}`, revue: 'Revue N / N-1', rappro: 'Rapprochement', conformite: `Conformité${errors ? ` (${errors})` : ''}`, sig: 'SIG et bilan', balance: 'Balance', details: 'Détails' });
+    if (!tabs[f.section]) f.section = 'synthese';
+    // Suggestion de l'autre analyseur selon le contenu du FEC.
+    const isPh = looksLikePharmacy(r);
+    const suggest = isPh && !pharma
+      ? `<div class="banner info"><span>Ce FEC ressemble à celui d'une <strong>pharmacie</strong> (tiers payant, TVA à 2,1 %, honoraires) : l'analyseur Pharmacie est plus adapté.</span><button class="btn small" data-action="fec-switch" data-to="pharmacie">Analyser comme une pharmacie</button></div>`
+      : !isPh && pharma ? `<div class="banner info"><span>Ce FEC ne ressemble pas à celui d'une pharmacie.</span><button class="btn small" data-action="fec-switch" data-to="classique">Utiliser l'analyseur classique</button></div>` : '';
     let body = '';
 
     if (f.section === 'synthese') {
@@ -2297,9 +2339,14 @@
           ${tile('Anomalies', errors, errors ? 'kpi-late' : '')}
           ${tile('Points à vérifier', warnings, warnings ? 'kpi-wait' : '')}
           ${tile('Chiffre d\'affaires', eurK(k.ca))}
-          ${tile('Résultat', eurK(k.resultat), k.resultat < 0 ? 'kpi-late' : '')}
+          ${pharma ? (() => {
+            const ph = pharmaData(r, pharmaRef(r));
+            return `${tile('Taux de marque', ph.tauxMarque === null ? '—' : (ph.tauxMarque * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' %')}
+              ${tile('Encours tiers payant', eurK(ph.encoursAmo + ph.encoursAmc))}
+              ${tile(`Rejets probables${ph.lettrage ? '' : ' (estim.)'}`, eurK(ph.rejets), ph.rejets > 0 ? 'kpi-late' : '')}`;
+          })() : `${tile('Résultat', eurK(k.resultat), k.resultat < 0 ? 'kpi-late' : '')}
           ${tile('EBE', eurK(k.ebe))}
-          ${tile('Trésorerie', eurK(k.tresorerie), k.tresorerie < 0 ? 'kpi-late' : '')}
+          ${tile('Trésorerie', eurK(k.tresorerie), k.tresorerie < 0 ? 'kpi-late' : '')}`}
         </div>
         ${r.monthly.length ? `
         <section class="card"><h2>Chiffre d'affaires et charges par mois</h2>
@@ -2313,8 +2360,12 @@
             <tbody>${r.monthly.map((x) => `<tr><td>${x.mois.slice(5)}/${x.mois.slice(0, 4)}</td><td>${eur(x.ca)}</td><td>${eur(x.charges)}</td><td>${eur(x.tvaCollectee)}</td><td>${eur(x.tvaDeductible)}</td><td>${eur(x.tresorerie)}</td></tr>`).join('')}</tbody></table></div>
           </details>
         </section>` : ''}
-        <section class="card"><h2>Points de révision <span class="count">${r.alerts.length}</span></h2>${checkList(r.alerts, true)}</section>
+        <section class="card"><h2>Points de révision <span class="count">${fecPoints(r).length}</span></h2>${checkList(fecPoints(r), true)}</section>
         ${errors ? `<section class="card"><h2>Anomalies de conformité du fichier</h2>${checkList(r.checks.filter((c) => c.level === 'error'))}<button class="btn small" data-action="fec-tab" data-tab="conformite">Voir tous les contrôles</button></section>` : ''}`;
+    } else if (f.section === 'tp') {
+      body = viewTiersPayant();
+    } else if (f.section === 'catva') {
+      body = viewCaTva();
     } else if (f.section === 'rappro') {
       body = viewRappro();
     } else if (f.section === 'revue') {
@@ -2381,6 +2432,7 @@
           <button class="btn" data-action="fec-mission"${f.clientId && (errors || warnings) ? '' : ' disabled'}>Créer une mission de revue</button>
         </div>
       </section>
+      ${suggest}
       <div class="seg fec-tabs" role="tablist">${Object.entries(tabs).map(([k, l]) => `<button role="tab" aria-selected="${k === f.section}" class="${k === f.section ? 'on' : ''}" data-action="fec-tab" data-tab="${k}">${esc(l)}</button>`).join('')}</div>
       ${body}`;
   }
@@ -2392,6 +2444,7 @@
     achats: 'Factures fournisseurs',
     justif: 'Justificatifs de dépenses payées directement',
     ventes: 'Ventes et encaissements',
+    tp: 'Tiers payant et patients',
     attente: 'Opérations à identifier',
     releve: 'Opérations bancaires non comptabilisées',
     immo: 'Immobilisations',
@@ -2485,11 +2538,13 @@
       push('achats', s.num, `Factures ${s.lib} : ${fmtMonths(missing)} (habituellement ${eur(median(months.map((ym) => s.months[ym])), 0)} € par mois)`);
     });
 
-    // Tiers : fournisseurs débiteurs, clients créditeurs
+    // Tiers : fournisseurs débiteurs, clients créditeurs (en officine, le tiers payant est traité à part)
+    const pharma = ui.fecProfile === 'pharmacie';
     p.tiers.forEach((t) => {
       if (t.racine === '401' && t.s > 0) push('achats', 'deb:' + t.num, `Facture ${t.lib} correspondant au paiement de ${eur(t.s)} € (compte fournisseur débiteur : payé mais non facturé)`);
-      if (t.racine === '411' && t.s < 0) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} : règlement de ${eur(-t.s)} € reçu sans facture correspondante`);
+      if (t.racine === '411' && t.s < 0 && !pharma) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} : règlement de ${eur(-t.s)} € reçu sans facture correspondante`);
     });
+    if (pharma && r.aging) pharmaPieces(r, mode, arrete, push);
 
     // Dépenses payées directement (banque ou caisse → charge, sans compte fournisseur)
     p.direct.filter((g) => g.first <= arrete).forEach((g, i) => {
@@ -2535,8 +2590,8 @@
     if (bilan) {
       const f = p.flags;
       push('cloture', 'fnp', `Factures fournisseurs reçues après le ${d(arrete)} mais concernant l'exercice (factures non parvenues)`);
-      push('cloture', 'fae', `Prestations réalisées ou marchandises livrées avant le ${d(arrete)} et non encore facturées`);
-      if (f.stock) push('cloture', 'stock', `Inventaire des stocks et en-cours valorisé au ${d(arrete)}`);
+      if (!pharma) push('cloture', 'fae', `Prestations réalisées ou marchandises livrées avant le ${d(arrete)} et non encore facturées`);
+      if (f.stock && !pharma) push('cloture', 'stock', `Inventaire des stocks et en-cours valorisé au ${d(arrete)}`);
       if (f.emprunt) push('cloture', 'emprunt', `Tableaux d'amortissement des emprunts (capital restant dû au ${d(arrete)})`);
       if (f.leasing) push('cloture', 'leasing', 'Contrats de crédit-bail ou de location financière en cours');
       if (f.salaires) push('cloture', 'cp', `Journal de paie annuel et état des congés payés acquis non pris au ${d(arrete)}`);
@@ -2549,7 +2604,7 @@
 
       // Questions sur les créances et dettes anciennes
       const limit = addDays(arrete, -90);
-      p.tiers.filter((t) => t.racine === '411' && t.s >= 50 && (t.lastC || t.lastD || '0') < limit).sort((a, b) => b.s - a.s).slice(0, 15).forEach((t) => {
+      p.tiers.filter((t) => t.racine === '411' && !pharma && t.s >= 50 && (t.lastC || t.lastD || '0') < limit).sort((a, b) => b.s - a.s).slice(0, 15).forEach((t) => {
         push('questions', 'cli:' + t.num, `Créance ${t.lib} de ${eur(t.s)} € sans règlement depuis ${t.lastC ? 'le ' + d(t.lastC) : 'le début de l\'exercice'} : toujours recouvrable ?`);
       });
       p.tiers.filter((t) => t.racine === '401' && t.s <= -50 && (t.lastD || t.lastC || '0') < limit).sort((a, b) => a.s - b.s).slice(0, 15).forEach((t) => {
@@ -2748,7 +2803,7 @@
     const collectee = -mv(['4457']);
     const deductible = mv(['4456']);
     const franchise = client && /franchise|non assujetti/i.test(client.regimeTva || '');
-    if (ca > 1000 && !franchise) {
+    if (ca > 1000 && !franchise && ui.fecProfile !== 'pharmacie') {
       const taux = collectee / ca;
       if (collectee <= 0) add('warn', 'Aucune TVA collectée', `CA de ${eur(ca, 0)} € sans TVA collectée (4457) : activité exonérée, autoliquidation, ou TVA non comptabilisée ?`);
       else if (taux < 0.04 || taux > 0.205) add('warn', 'Taux apparent de TVA collectée atypique', `TVA collectée ${eur(collectee, 0)} € pour un CA de ${eur(ca, 0)} € (${pctTxt(taux)}) : vérifier les taux appliqués et les opérations exonérées.`);
@@ -2929,7 +2984,7 @@
     }
     const rd = prev ? revueData(r, prev, f.seuil || defaultSeuil(r), 0.2) : null;
     const justified = rd ? rd.flagged.filter((a) => store.comments[a.compte]).slice(0, 8) : [];
-    const attention = coherenceChecks(r, prev, c).concat(r.alerts).filter((x) => x.level === 'error' || x.level === 'warn');
+    const attention = coherenceChecks(r, prev, c).concat(fecPoints(r)).filter((x) => x.level === 'error' || x.level === 'warn');
     return `
       <article class="note">
         <header class="note-head">
@@ -3174,6 +3229,240 @@
     download(`rapprochement-${st.compte}-${ref}.xlsx`, blob, blob.type);
   }
 
+  // ---------- Analyseur Pharmacie (officine) ----------
+
+  const RE_AMO = /cpam|caisse prim|c\.?p\.?a\.?m|msa|mutualite sociale agricole|\bamo\b|regime oblig|securite sociale|\bsecu\b|cnmss|\bssi\b|\brsi\b|camieg|enim|cavimac|cnam|caisse nationale|sncf|ratp|banque de france|assurance maladie|\bro\b/;
+  const RE_AMC = /mutuel|\bamc\b|complementaire|viamedis|almerys|santeclair|isante|sp ?sante|harmonie|mgen|malakoff|axa|allianz|ag2r|apicil|swiss ?life|generali|groupama|macif|maif|matmut|pro ?btp|klesia|humanis|\bmnh\b|cetip|actil|seveane|kalivia|itelis|carte blanche|noemie|tiers payant|\btp\b|\brc\b|alan\b|april\b|henner|gras savoye|unéo|uneo|mnt\b|mfp|mutuelle/;
+  const RE_PATIENT = /patient|particulier|ardoise|compte client|clients? divers|clients? comptoir/;
+
+  function tiersCat(t) {
+    const txt = norm(`${t.lib} ${t.clib || ''} ${t.num}`);
+    if (RE_PATIENT.test(norm(t.lib))) return 'patient';
+    if (RE_AMO.test(txt)) return 'amo';
+    if (RE_AMC.test(txt)) return 'amc';
+    return 'patient';
+  }
+  const CAT_LABEL = { amo: 'Régime obligatoire', amc: 'Complémentaire', patient: 'Patient / autre' };
+  const NORMAL_DAYS = { amo: 10, amc: 30 };
+
+  // Indices qu'un FEC est celui d'une pharmacie.
+  function looksLikePharmacy(r) {
+    let score = 0;
+    if (r.balance.some((b) => /^(70|4457)/.test(b.compte) && /2[,.]10?\b|2[,.]1 ?%/.test(b.lib))) score++;
+    if ((r.aging || []).filter((t) => t.racine === '411' && ['amo', 'amc'].includes(tiersCat(t))).length >= 2) score++;
+    if (r.balance.some((b) => /honoraires? de dispensation|dispensation|rosp|honoraire.*ordonnance/i.test(b.lib))) score++;
+    const c = clientById(ui.fec && ui.fec.clientId);
+    if (c && /pharmac/i.test(`${c.nom} ${c.notes || ''}`)) score++;
+    return score >= 2;
+  }
+
+  function rateOf(lib) {
+    const m = norm(lib).match(/(?:^|[^\d])(2[,.]10?|5[,.]50?|10|20|8[,.]50?|13|0)(?:[,.]0+)?\s*%?(?:[^\d]|$)/);
+    if (!m) return null;
+    const v = parseFloat(m[1].replace(',', '.'));
+    return [2.1, 5.5, 10, 20, 8.5, 13, 0].includes(v) ? v : null;
+  }
+
+  function pharmaData(r, ref) {
+    const days = Math.max(30, daysUntilFrom(r.meta.start && r.meta.start < ref ? r.meta.start : (r.pieces.minOp || ref), ref) + 1);
+    const tiers = (r.aging || []).filter((t) => t.racine === '411').map((t) => {
+      const cat = tiersCat(t);
+      const open = t.open.filter((o) => o.date <= ref || o.an);
+      const age = (o) => (o.an ? 999 : daysUntilFrom(o.date, ref));
+      const bucket = (min, max) => open.filter((o) => o.amt > 0 && age(o) >= min && age(o) <= max).reduce((s, o) => s + o.amt, 0);
+      const perDay = t.billed / days;
+      const encoursJours = perDay > 0 ? Math.max(t.s, 0) / perDay : null;
+      let rejets = 0, rejetsMode = '';
+      if (cat !== 'patient' && t.s > 0) {
+        if (t.method === 'lettrage') { rejets = bucket(61, 99999); rejetsMode = 'lettrage'; }
+        else if (perDay > 0) { rejets = Math.max(0, t.s - perDay * NORMAL_DAYS[cat]); rejetsMode = 'estimation'; }
+      }
+      return {
+        ...t, cat, perDay, encoursJours, rejets: Math.round(rejets * 100) / 100, rejetsMode,
+        b30: bucket(0, 30), b60: bucket(31, 60), b90: bucket(61, 90), bOld: bucket(91, 99999),
+        oldest: (open.find((o) => o.amt > 0) || {}).date || '',
+        oldItems: open.filter((o) => o.amt > 0 && age(o) > 60),
+      };
+    }).sort((a, b) => b.s - a.s);
+    const sumBy = (cat, key) => tiers.filter((t) => t.cat === cat).reduce((s, t) => s + (t[key] || 0), 0);
+    // CA par taux de TVA (libellés des comptes 70 et 4457)
+    const mv = (b) => b.cm - b.dm;
+    const rates = {};
+    r.balance.forEach((b) => {
+      if (/^70/.test(b.compte) && !/^706/.test(b.compte)) {
+        const rt = rateOf(b.lib);
+        const k = rt === null ? '?' : rt;
+        (rates[k] = rates[k] || { rate: rt, ht: 0, tva: 0, accounts: [] }).ht += mv(b);
+        rates[k].accounts.push(b.compte);
+      } else if (/^4457/.test(b.compte)) {
+        const rt = rateOf(b.lib);
+        const k = rt === null ? '?' : rt;
+        (rates[k] = rates[k] || { rate: rt, ht: 0, tva: 0, accounts: [] }).tva += mv(b);
+      }
+    });
+    const incomeLines = r.balance.filter((b) => /^7[0-5]/.test(b.compte) && (/^706/.test(b.compte) || /honorair|dispens|rosp|forfait|garde|astreinte|vaccin|entretien|bilan partage|trod|teleconsult|remuneration|prime|aide|subvention/.test(norm(b.lib))))
+      .map((b) => ({ compte: b.compte, lib: b.lib, montant: mv(b) })).filter((x) => Math.abs(x.montant) >= 0.01);
+    const tpBilled = tiers.filter((t) => t.cat !== 'patient').reduce((s, t) => s + t.billed, 0);
+    const caTtc = r.kpi.ca + Object.values(rates).reduce((s, x) => s + x.tva, 0);
+    const transit = r.balance.filter((b) => /^(511|517|58)/.test(b.compte) && Math.abs(b.s) >= 0.01)
+      .map((b) => ({ compte: b.compte, lib: b.lib, s: b.s, perDay: (b.dm || 0) / days }));
+    const ventesMarch = r.balance.filter((b) => /^707|^7097/.test(b.compte)).reduce((s, b) => s + mv(b), 0) || r.kpi.ca;
+    const remises = r.balance.filter((b) => /^609/.test(b.compte)).reduce((s, b) => s + mv(b), 0);
+    const achats = r.balance.filter((b) => /^607/.test(b.compte)).reduce((s, b) => s + (b.dm - b.cm), 0);
+    const variationStock = r.balance.filter((b) => /^6037/.test(b.compte)).reduce((s, b) => s + (b.dm - b.cm), 0);
+    const ecartsCaisse = r.balance.filter((b) => /^(658|758|6718|7718)/.test(b.compte) && /ecart|caisse/.test(norm(b.lib))).reduce((s, b) => s + (b.dm - b.cm), 0);
+    return {
+      days, tiers, rates, incomeLines, tpBilled, caTtc, transit, ventesMarch, remises, achats, variationStock, ecartsCaisse,
+      partTp: caTtc > 0 ? tpBilled / caTtc : null,
+      tauxMarque: ventesMarch > 0 ? r.kpi.marge / ventesMarch : null,
+      encoursAmo: sumBy('amo', 's'), encoursAmc: sumBy('amc', 's'), encoursPatients: tiers.filter((t) => t.cat === 'patient' && t.s > 0).reduce((s, t) => s + t.s, 0),
+      rejets: tiers.reduce((s, t) => s + t.rejets, 0),
+      tropPercus: tiers.filter((t) => t.cat !== 'patient' && t.s < 0),
+      lettrage: tiers.some((t) => t.method === 'lettrage'),
+    };
+  }
+
+  function pharmaRef(r) {
+    return (ui.fec.pieces && ui.fec.pieces.arrete) || r.meta.closing || (r.pieces && r.pieces.maxOp) || todayStr();
+  }
+
+  function pharmaChecks(r) {
+    const ph = pharmaData(r, pharmaRef(r));
+    const out = [];
+    const add = (level, label, detail) => out.push({ level, label, detail, examples: [], count: 0 });
+    const pct = (x) => (x * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' %';
+    // TVA par taux
+    const known = Object.values(ph.rates).filter((x) => x.rate !== null && (x.ht || x.tva));
+    if (!known.length) add('info', 'Contrôle de la TVA par taux impossible', 'Les libellés des comptes 707 et 4457 n\'indiquent pas le taux (2,1 %, 5,5 %, 10 %, 20 %).');
+    known.forEach((x) => {
+      const theo = (x.ht * x.rate) / 100;
+      const ecart = x.tva - theo;
+      if (x.ht > 0 && Math.abs(ecart) > Math.max(50, Math.abs(theo) * 0.01)) add('warn', `TVA collectée à ${String(x.rate).replace('.', ',')} % incohérente`, `Ventes HT ${eur(x.ht, 0)} € → TVA théorique ${eur(theo, 0)} €, comptabilisée ${eur(x.tva, 0)} € (écart ${eur(ecart, 0)} €) : ventilation du LGO ou taux à vérifier.`);
+      else if (x.ht > 0) add('ok', `TVA à ${String(x.rate).replace('.', ',')} % cohérente`, `${eur(x.tva, 0)} € pour ${eur(x.ht, 0)} € de ventes HT.`);
+    });
+    if (ph.rates['?'] && ph.rates['?'].ht > 1000) add('info', 'Ventes sans taux identifiable', `${eur(ph.rates['?'].ht, 0)} € sur des comptes dont le libellé ne précise pas le taux (${ph.rates['?'].accounts.slice(0, 4).join(', ')}).`);
+    // Marge
+    if (ph.tauxMarque !== null) {
+      const lvl = ph.tauxMarque < 0.22 || ph.tauxMarque > 0.38 ? 'warn' : 'ok';
+      add(lvl, `Taux de marque ${pct(ph.tauxMarque)}`, lvl === 'ok' ? 'Dans la fourchette habituelle d\'une officine (environ 22 à 38 % remises comprises).' : `Hors de la fourchette habituelle d'une officine (22 à 38 %)${ph.variationStock ? '' : ' — sans variation de stock (6037), le taux n\'est pas significatif en cours d\'exercice'}.`);
+    }
+    if (ph.achats > 0 && ph.remises <= 0) add('warn', 'Aucune remise fournisseur comptabilisée (609)', 'Remises grossistes et laboratoires, coopération commerciale : à comptabiliser ou à demander.');
+    else if (ph.achats > 0) add('ok', 'Remises fournisseurs comptabilisées', `${eur(ph.remises, 0)} €, soit ${pct(ph.remises / ph.achats)} des achats.`);
+    // Tiers payant
+    if (ph.rejets > 0) add('warn', `Rejets et impayés de tiers payant : ${eur(ph.rejets, 0)} €${ph.lettrage ? '' : ' (estimation)'}`, ph.lettrage ? 'Factures non lettrées de plus de 60 jours (détail dans l\'onglet Tiers payant).' : 'Encours supérieur au délai normal de règlement (10 jours pour le régime obligatoire, 30 jours pour les complémentaires) : état des rejets à demander, provision éventuelle.');
+    else if (ph.tiers.some((t) => t.cat !== 'patient')) add('ok', 'Encours de tiers payant cohérent', 'Pas d\'encours anormal au regard des délais de règlement habituels.');
+    if (ph.tropPercus.length) add('info', 'Trop-perçus d\'organismes', `${ph.tropPercus.length} organisme(s) au solde créditeur (${eur(-ph.tropPercus.reduce((s, t) => s + t.s, 0), 0)} €) : paiements à affecter.`);
+    if (ph.encoursPatients > 0) {
+      const old = ph.tiers.filter((t) => t.cat === 'patient').reduce((s, t) => s + t.b90 + t.bOld, 0);
+      add(old > 0 ? 'warn' : 'info', `Créances patients : ${eur(ph.encoursPatients, 0)} €`, old > 0 ? `dont ${eur(old, 0)} € de plus de 60 jours : relances ou dépréciation.` : 'Ardoises récentes.');
+    }
+    // Transit
+    ph.transit.forEach((x) => {
+      const jours = x.perDay > 0 ? x.s / x.perDay : null;
+      if (x.s > 0 && (jours === null || jours > 4)) add('warn', `Compte de transit ${x.compte} non soldé`, `${x.lib} : ${eur(x.s, 0)} € en attente${jours ? ` (≈ ${Math.round(jours)} jours de remises)` : ''} : remises CB ou chèques non comptabilisées en banque ?`);
+    });
+    if (Math.abs(ph.ecartsCaisse) >= 1) add('info', `Écarts de caisse : ${eur(ph.ecartsCaisse, 0)} €`, 'Montant net des écarts de caisse comptabilisés.');
+    if (!ph.incomeLines.some((x) => /honorair|dispens/.test(norm(x.lib)))) add('info', 'Honoraires de dispensation non identifiés', 'Aucun compte « honoraires » : vérifier la ventilation du chiffre d\'affaires transmise par le LGO.');
+    return out;
+  }
+
+  // Points de révision génériques adaptés à l'officine.
+  function fecAlerts(r) {
+    if (ui.fecProfile !== 'pharmacie') return r.alerts;
+    return r.alerts
+      .filter((a) => !/Benford|Clients créditeurs/.test(a.label))
+      .map((a) => (/dimanche/.test(a.label) ? { ...a, level: 'info', detail: `${a.detail} Habituel pour une pharmacie de garde.` } : a));
+  }
+
+  function viewTiersPayant() {
+    const f = ui.fec;
+    const r = f.result;
+    const ref = pharmaRef(r);
+    const ph = pharmaData(r, ref);
+    const tile = (label, value, cls) => `<div class="kpi ${cls || ''}"><strong>${value}</strong><span>${label}</span></div>`;
+    const jours = (t) => (t.encoursJours === null ? '—' : `${Math.round(t.encoursJours)} j`);
+    return `
+      <div class="kpis fec-kpis">
+        ${tile('Encours régime obligatoire', eurK(ph.encoursAmo))}
+        ${tile('Encours complémentaires', eurK(ph.encoursAmc))}
+        ${tile(`Rejets probables${ph.lettrage ? '' : ' (estim.)'}`, eurK(ph.rejets), ph.rejets > 0 ? 'kpi-late' : '')}
+        ${tile('Créances patients', eurK(ph.encoursPatients), ph.encoursPatients > 0 ? 'kpi-wait' : '')}
+        ${tile('Part du tiers payant', ph.partTp === null ? '—' : `${Math.round(ph.partTp * 100)} %`)}
+        ${tile('Trop-perçus', ph.tropPercus.length)}
+      </div>
+      <section class="card">
+        <h2>Balance âgée du tiers payant au ${fmtDate(ref)}</h2>
+        <p class="muted small">${ph.lettrage ? 'Calculée à partir du <strong>lettrage</strong> du FEC : chaque facture non lettrée est datée.' : 'Comptes 411 <strong>non lettrés</strong> : les règlements sont imputés sur les factures les plus anciennes, et les rejets sont <strong>estimés</strong> à partir de l\'encours au-delà du délai normal (10 jours pour le régime obligatoire, 30 jours pour les complémentaires). L\'état des rejets du LGO donnera le détail exact.'}</p>
+        <div class="grid-wrap"><table class="dtable num tp"><thead><tr><th>Organisme</th><th>Type</th><th>Solde</th><th>≤ 30 j</th><th>31–60 j</th><th>61–90 j</th><th>&gt; 90 j</th><th>Encours</th><th>Rejets probables</th></tr></thead>
+        <tbody>${ph.tiers.map((t) => `<tr class="${t.rejets > 0 ? 'flag' : ''}">
+          <td>${esc(t.lib)} <span class="muted small">${esc(t.num)}</span></td><td>${CAT_LABEL[t.cat]}</td>
+          <td class="${t.s < 0 ? 'cred' : ''}">${eur(t.s)}</td><td>${eur(t.b30, 0)}</td><td>${eur(t.b60, 0)}</td><td>${eur(t.b90, 0)}</td><td>${eur(t.bOld, 0)}</td>
+          <td>${t.cat === 'patient' ? '—' : jours(t)}</td><td>${t.rejets > 0 ? eur(t.rejets, 0) + (t.rejetsMode === 'estimation' ? ' *' : '') : ''}</td></tr>`).join('')}</tbody></table></div>
+        ${ph.lettrage ? '' : '<p class="muted small">* estimation</p>'}
+      </section>
+      ${ph.lettrage && ph.tiers.some((t) => t.oldItems.length) ? `<section class="card"><h2>Factures de tiers payant non réglées depuis plus de 60 jours</h2>
+        ${ph.tiers.filter((t) => t.oldItems.length && t.cat !== 'patient').map((t) => `<details class="tp-detail"><summary><strong>${esc(t.lib)}</strong> — ${t.oldItems.length} facture(s), ${eur(t.oldItems.reduce((s, o) => s + o.amt, 0))} €</summary>
+          <div class="grid-wrap"><table class="dtable num"><thead><tr><th>Date</th><th>Libellé</th><th>Montant</th></tr></thead><tbody>${t.oldItems.slice(0, 100).map((o) => `<tr><td>${o.an ? 'À-nouveau' : fmtDate(o.date)}</td><td>${esc(o.lib)}</td><td>${eur(o.amt)}</td></tr>`).join('')}</tbody></table></div></details>`).join('')}
+      </section>` : ''}`;
+  }
+
+  function viewCaTva() {
+    const r = ui.fec.result;
+    const ph = pharmaData(r, pharmaRef(r));
+    const rows = Object.values(ph.rates).filter((x) => x.ht || x.tva).sort((a, b) => (a.rate === null ? 99 : a.rate) - (b.rate === null ? 99 : b.rate));
+    return `
+      <section class="card"><h2>Chiffre d'affaires et TVA par taux</h2>
+        <div class="grid-wrap"><table class="dtable num sig"><thead><tr><th>Taux</th><th>Ventes HT</th><th>Part</th><th>TVA théorique</th><th>TVA comptabilisée</th><th>Écart</th></tr></thead>
+        <tbody>${rows.map((x) => {
+          const theo = x.rate === null ? null : (x.ht * x.rate) / 100;
+          const ecart = theo === null ? null : x.tva - theo;
+          return `<tr><td>${x.rate === null ? 'Taux non identifié' : String(x.rate).replace('.', ',') + ' %'}</td><td>${eur(x.ht, 0)}</td><td>${r.kpi.ca > 0 ? Math.round((x.ht / r.kpi.ca) * 100) + ' %' : ''}</td>
+            <td>${theo === null ? '—' : eur(theo, 0)}</td><td>${eur(x.tva, 0)}</td><td class="${ecart !== null && Math.abs(ecart) > Math.max(50, Math.abs(theo) * 0.01) ? 'cred' : ''}">${ecart === null ? '—' : eur(Math.round(ecart) || 0, 0)}</td></tr>`;
+        }).join('')}</tbody></table></div>
+        <p class="muted small">Le taux est lu dans le libellé des comptes 707 et 4457 (ex. « Ventes TVA 2,1 % »).</p>
+      </section>
+      <section class="card"><h2>Honoraires et autres rémunérations</h2>
+        ${ph.incomeLines.length ? `<table class="dtable num sig"><tbody>${ph.incomeLines.map((x) => `<tr><td>${esc(x.compte)} — ${esc(x.lib)}</td><td>${eur(x.montant, 0)}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">Aucun compte d\'honoraires, de ROSP ou de rémunération forfaitaire identifié.</p>'}
+      </section>
+      <section class="card"><h2>Marge et achats</h2>
+        <table class="dtable num sig"><tbody>
+          <tr><td>Ventes de marchandises</td><td>${eur(ph.ventesMarch, 0)}</td></tr>
+          <tr><td>Achats de marchandises (607)</td><td>${eur(ph.achats, 0)}</td></tr>
+          <tr><td>Remises obtenues (609)</td><td>${eur(ph.remises, 0)}</td></tr>
+          <tr><td>Variation de stock (6037)</td><td>${eur(ph.variationStock, 0)}</td></tr>
+          <tr class="strong"><td>Marge commerciale</td><td>${eur(r.kpi.marge, 0)}</td></tr>
+          <tr class="strong"><td>Taux de marque</td><td>${ph.tauxMarque === null ? '—' : (ph.tauxMarque * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' %'}</td></tr>
+        </tbody></table>
+      </section>`;
+  }
+
+  // Pièces à demander propres à l'officine.
+  function pharmaPieces(r, mode, arrete, push) {
+    const ph = pharmaData(r, arrete);
+    const d = fmtDate;
+    ph.tiers.forEach((t) => {
+      if (t.cat === 'patient') return;
+      if (t.rejets > 0) push('tp', 'rej:' + t.num, `État des rejets et impayés ${t.lib} : ${eur(t.rejets)} € ${t.rejetsMode === 'lettrage' ? `de factures de plus de 60 jours (la plus ancienne du ${d(t.oldItems[0].date)})` : `d'encours au-delà du délai normal (${Math.round(t.encoursJours)} jours de facturation en attente)`}`);
+      if (t.s < 0) push('tp', 'trop:' + t.num, `Relevé de paiement ${t.lib} : trop-perçu ou règlement non affecté de ${eur(-t.s)} €`);
+    });
+    const patients = ph.tiers.filter((t) => t.cat === 'patient' && t.s > 0);
+    const old = patients.reduce((s, t) => s + t.b90 + t.bOld, 0);
+    if (patients.length) push('tp', 'patients', `Point sur les créances patients (ardoises) : ${eur(ph.encoursPatients)} € pour ${patients.length} patient(s)${old > 0 ? `, dont ${eur(old)} € de plus de 60 jours` : ''}`);
+    ph.transit.forEach((x) => {
+      const jours = x.perDay > 0 ? x.s / x.perDay : null;
+      if (x.s > 0 && (jours === null || jours > 4)) push('banque', 'transit:' + x.compte, `Relevés de remises (${x.lib}) : ${eur(x.s)} € en attente de remise au ${d(arrete)}`);
+    });
+    if (mode === 'bilan') {
+      push('cloture', 'ph-inv', `Inventaire valorisé des stocks édité par le LGO au ${d(arrete)} (prix d'achat, hors périmés)`);
+      push('cloture', 'ph-rfa', 'Remises de fin d\'année, avoirs et coopération commerciale à recevoir des grossistes et laboratoires');
+      push('cloture', 'ph-tp', `Balance âgée et état des rejets du tiers payant édités par le LGO au ${d(arrete)}`);
+      push('cloture', 'ph-z', 'Récapitulatif annuel du chiffre d\'affaires par taux de TVA (LGO)');
+      push('cloture', 'ph-rosp', 'Décomptes de l\'Assurance maladie : ROSP, rémunérations forfaitaires, gardes et astreintes');
+    } else {
+      push('cloture', 'ph-tp-sit', `Balance âgée du tiers payant éditée par le LGO au ${d(arrete)}`);
+    }
+  }
+
   function fecExport() {
     const r = ui.fec.result;
     const m = r.meta;
@@ -3188,7 +3477,7 @@
     const lvl = (l) => (LEVEL[l] || LEVEL.info).label;
     const controls = [[t('Type', 1), t('Statut', 1), t('Contrôle', 1), t('Nombre', 1), t('Détail', 1), t('Exemples', 1)]]
       .concat(r.checks.map((c) => [t('Conformité'), t(lvl(c.level)), t(c.label), n(c.count, 2), t(c.detail), t(c.examples.join('\n'))]))
-      .concat(r.alerts.map((c) => [t('Révision'), t(lvl(c.level)), t(c.label), t(''), t(c.detail), t(c.examples.join('\n'))]));
+      .concat(fecPoints(r).map((c) => [t('Révision'), t(lvl(c.level)), t(c.label), t(''), t(c.detail), t((c.examples || []).join('\n'))]));
     const balance = [[t('Compte', 1), t('Libellé', 1), t('Débit', 1), t('Crédit', 1), t('Solde débiteur', 1), t('Solde créditeur', 1)]]
       .concat(r.balance.map((b) => [t(b.compte), t(b.lib), n(b.d), n(b.c), n(b.s > 0 ? b.s : 0), n(b.s < 0 ? -b.s : 0)]));
     const monthly = [[t('Mois', 1), t('Chiffre d\'affaires', 1), t('Produits', 1), t('Charges', 1), t('TVA collectée', 1), t('TVA déductible', 1), t('Trésorerie fin de mois', 1)]]
@@ -3202,7 +3491,11 @@
         { name: 'Balance', rows: balance, widths: [12, 40, 16, 16, 16, 16], freeze: { row: 1 } },
         { name: 'Mensuel', rows: monthly, widths: [10, 18, 16, 16, 16, 16, 22], freeze: { row: 1 } },
         { name: 'Journaux', rows: journals, widths: [10, 30, 12, 12, 16, 16], freeze: { row: 1 } },
-      ],
+      ].concat(ui.fecProfile === 'pharmacie' && r.aging ? [{
+        name: 'Tiers payant', freeze: { row: 1 }, widths: [34, 14, 20, 14, 12, 12, 12, 12, 12, 16],
+        rows: [[t('Organisme', 1), t('Compte', 1), t('Type', 1), t('Solde', 1), t('≤ 30 j', 1), t('31-60 j', 1), t('61-90 j', 1), t('> 90 j', 1), t('Encours (j)', 1), t('Rejets probables', 1)]]
+          .concat(pharmaData(r, pharmaRef(r)).tiers.map((x) => [t(x.lib), t(x.num), t(CAT_LABEL[x.cat]), n(x.s), n(x.b30), n(x.b60), n(x.b90), n(x.bOld), n(x.encoursJours === null ? 0 : Math.round(x.encoursJours), 2), n(x.rejets)])),
+      }] : []),
     });
     download(`analyse-${(m.fileName || 'fec').replace(/\.[^.]+$/, '')}.xlsx`, blob, blob.type);
   }
@@ -3215,7 +3508,7 @@
     const { errors, warnings } = fecCounts(r);
     c.fec = (c.fec || []).filter((x) => x.fileName !== r.meta.fileName).concat({
       id: uid(), date: nowIso(), fileName: r.meta.fileName, closing: r.meta.closing, lines: r.meta.lines, entries: r.meta.entries,
-      errors, warnings, kpi: r.kpi, points: r.alerts.filter((a) => a.level !== 'ok').map((a) => a.label),
+      errors, warnings, kpi: r.kpi, points: fecPoints(r).filter((a) => a.level !== 'ok').map((a) => a.label), profil: ui.fecProfile,
     });
     log(c.id, `Analyse FEC ${r.meta.closing ? 'au ' + r.meta.closing.split('-').reverse().join('/') : r.meta.fileName} : ${errors} anomalie(s), ${warnings} point(s) à vérifier.`, true);
     persist();
@@ -3228,7 +3521,7 @@
     if (!c) return;
     const r = f.result;
     const year = r.meta.closing ? r.meta.closing.slice(0, 4) : (r.meta.maxDate || '').slice(0, 4);
-    const items = r.checks.concat(r.alerts).filter((x) => x.level === 'error' || x.level === 'warn')
+    const items = r.checks.concat(fecPoints(r)).filter((x) => x.level === 'error' || x.level === 'warn')
       .sort((a, b) => (a.level === 'error' ? 0 : 1) - (b.level === 'error' ? 0 : 1))
       .map((x) => `${FEC_FAIL[x.id] || x.label}${x.count ? ` (${x.count})` : ''}`);
     const titre = `Revue FEC ${year}`;
@@ -3240,7 +3533,7 @@
       existing.updatedAt = stamp;
     } else {
       data.missions.push({
-        id: uid(), clientId: c.id, type: 'libre', titre, exercice: year, echeance: addDays(todayStr(), 14), statut: 'a_faire', priorite: items.length && r.checks.concat(r.alerts).some((x) => x.level === 'error') ? 'haute' : 'normale',
+        id: uid(), clientId: c.id, type: 'libre', titre, exercice: year, echeance: addDays(todayStr(), 14), statut: 'a_faire', priorite: items.length && r.checks.concat(fecPoints(r)).some((x) => x.level === 'error') ? 'haute' : 'normale',
         responsable: c.responsable || c.collaborateur || data.settings.utilisateur, recurrence: 'aucune', notes: `Points relevés par l'analyse du fichier ${r.meta.fileName} le ${fmtDate(todayStr())}.`,
         suiteCreee: false, termineLe: null, createdAt: stamp, updatedAt: stamp, etapes,
       });
@@ -3296,7 +3589,7 @@
 
   // Glisser-déposer d'un FEC sur la page d'analyse.
   document.addEventListener('dragover', (e) => {
-    if (data && location.hash === '#/fec') {
+    if (data && location.hash.startsWith('#/fec')) {
       e.preventDefault();
       const zone = $('.fec-drop');
       if (zone) zone.classList.add('over');
@@ -3304,7 +3597,7 @@
   });
   document.addEventListener('dragleave', () => { const zone = $('.fec-drop'); if (zone) zone.classList.remove('over'); });
   document.addEventListener('drop', (e) => {
-    if (data && location.hash === '#/fec') {
+    if (data && location.hash.startsWith('#/fec')) {
       e.preventDefault();
       if (e.dataTransfer.files[0]) startFec(e.dataTransfer.files[0]);
     }
@@ -3555,6 +3848,8 @@
         <li><strong>Pièces à demander</strong> : choisissez « Situation » ou « Bilan » et la date d'arrêté ; l'application liste les relevés bancaires manquants, les factures récurrentes absentes, les paiements sans facture, les opérations à identifier (471), les acquisitions d'immobilisations, les mois de paie manquants et, pour un bilan, les documents de clôture et les questions sur les créances et dettes anciennes. « Créer la demande » prépare le mail et une mission dont chaque étape est une pièce : cochez-les à réception, la relance ne reprendra que ce qui manque.</li>
         <li><strong>Revue N / N-1</strong> : chargez aussi le FEC de l'exercice précédent. Les postes et les comptes sont comparés, et les variations au-delà du seuil de signification sont listées pour que vous les justifiez. Contrôles de cohérence automatiques : TVA / CA, charges sociales / salaires, amortissements, intérêts, capitaux propres, points fiscaux. La <strong>note de synthèse</strong> s'imprime ou s'enregistre en PDF pour le rendez-vous bilan.</li>
         <li><strong>Rapprochement</strong> : importez le relevé bancaire (CFONB / EBICS, OFX, CAMT.053, CSV ou Excel de la banque). L'application affiche les opérations non comptabilisées, les écritures absentes du relevé et l'état de rapprochement. Les opérations non comptabilisées s'ajoutent aux pièces à demander.</li>
+        <li><strong>Deux analyseurs</strong> : « Structure classique » et « Pharmacie », chacun avec son propre FEC en cours (passer de l'un à l'autre ne perd rien). Si un FEC d'officine est déposé dans l'analyseur classique, l'application propose de basculer.</li>
+        <li><strong>Pharmacie</strong> : onglet <strong>Tiers payant</strong> (encours AMO, AMC et patients, ancienneté, rejets probables : précis si les comptes 411 sont lettrés, estimés d'après les délais normaux de paiement sinon), onglet <strong>CA et TVA</strong> par taux (2,1 %, 5,5 %, 10 %, 20 %), taux de marque, remises fournisseurs, écarts de caisse. Les comptes 511 (CB, chèques à encaisser) sont traités comme des comptes de transit, et les alertes inadaptées à une officine (Benford, clients créditeurs, ouverture le dimanche) sont retirées. Les pièces à demander ajoutent l'inventaire du LGO, les relevés de tiers payant et de rejets, les RFA et la ROSP.</li>
         <li>Rattachez l'analyse au dossier (reconnu par son SIREN) pour en garder la synthèse, et créez en un clic une <strong>mission de revue</strong> dont les étapes sont les points relevés.</li>
       </ul>`)}
       ${item('Rappels dans votre agenda', `<p>Paramètres → <strong>Échéances dans mon agenda</strong> : téléchargez un fichier .ics et ouvrez-le avec votre agenda pour être prévenu même application fermée. Par défaut, seuls les numéros de dossier apparaissent dans l'agenda.</p>`)}
@@ -4228,7 +4523,7 @@
 
   // Efface de la mémoire et de l'écran tout ce qui concerne les dossiers (verrouillage, réinitialisation).
   function forgetSession() {
-    ui.fec = null;
+    ui.fecStates = { classique: null, pharmacie: null };
     ui.imp = null;
     ui.cab = null;
     ui.cal = null;
@@ -4468,6 +4763,14 @@
       if (ok) fecExport();
     },
     'fec-save': () => fecSave(),
+    'fec-switch': (el) => {
+      // Le FEC déjà analysé passe dans l'autre analyseur, sans relecture du fichier.
+      const st = ui.fec;
+      ui.fecStates[el.dataset.to] = st;
+      ui.fecStates[ui.fecProfile] = null;
+      if (st) st.section = 'synthese';
+      location.hash = el.dataset.to === 'pharmacie' ? '#/fec/pharma' : '#/fec';
+    },
     'fec-prev': async () => startFec(await pickFile('.txt,.csv,.tsv,text/plain', true), 'prev'),
     'fec-note': () => openNote(),
     'rappro-import': () => importStatement(),
