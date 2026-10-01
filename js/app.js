@@ -626,6 +626,10 @@
       case 'grille': main.innerHTML = viewGrille(); scrollGrilleToMonth(); break;
       case 'aide': main.innerHTML = viewAide(); break;
       case 'fec':
+        if (parts[1] === 'lot') {
+          main.innerHTML = viewBatch();
+          break;
+        }
         ui.fecProfile = parts[1] === 'pharma' ? 'pharmacie' : 'classique';
         if (data.settings.fecProfile !== ui.fecProfile) {
           data.settings.fecProfile = ui.fecProfile;
@@ -909,6 +913,10 @@
               <div class="muted small">CA ${eur(x.kpi.ca, 0)} € · Résultat ${eur(x.kpi.resultat, 0)} € · EBE ${eur(x.kpi.ebe, 0)} € · Trésorerie ${eur(x.kpi.tresorerie, 0)} €</div>
             </li>`).join('')}</ul>
             <a class="btn small" href="#/fec">Nouvelle analyse</a></section>` : ''}
+          ${c.revisionMemo && Object.keys(c.revisionMemo).length ? `<section class="card"><h2>Mémoire de révision <span class="count">${Object.keys(c.revisionMemo).length}</span></h2>
+            <p class="muted small">Éléments justifiés lors d'une revue, qui ne sont plus signalés par l'analyse FEC de ce dossier.</p>
+            <ul class="memo-list">${Object.entries(c.revisionMemo).map(([k, m]) => `<li><div><strong>${discret ? hidden : esc(m.label)}</strong>${m.note ? `<div class="muted small">${discret ? '' : esc(m.note)}</div>` : ''}<div class="muted small">${esc(m.by || '')} ${m.at ? fmtDate(m.at.slice(0, 10)) : ''}</div></div>
+              <button class="link-btn danger" data-action="memo-del" data-id="${c.id}" data-k="${esc(k)}">Signaler à nouveau</button></li>`).join('')}</ul></section>` : ''}
           ${c.notes ? `<section class="card"><h2>Notes</h2><div class="notes">${discret ? hidden : esc(c.notes)}</div></section>` : ''}
           <section class="card">
             <h2>Gestion du dossier</h2>
@@ -2066,7 +2074,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '10';
+  const ASSET_VERSION = '11';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -2099,8 +2107,11 @@
     return ui.fecProfile === 'pharmacie' ? fecAlerts(r).concat(pharmaChecks(r).filter((x) => x.level !== 'ok')) : r.alerts;
   }
 
+  // Points généraux après application de la mémoire du dossier (éléments déjà justifiés).
+  const genPoints = (r) => applyMemo(fecPoints(r), 'gen');
+
   function fecCounts(r) {
-    const all = r.checks.concat(fecPoints(r), cyclePoints(r));
+    const all = r.checks.concat(genPoints(r), cyclePoints(r));
     return { errors: all.filter((c) => c.level === 'error').length, warnings: all.filter((c) => c.level === 'warn').length };
   }
 
@@ -2111,10 +2122,11 @@
     if (fecWorker) fecWorker.terminate();
     if (target === 'prev') {
       const st = ui.fec;
-      Object.assign(st, { prevStatus: 'loading', prevName: file.name, prev: null, prevError: '' });
+      Object.assign(st, { prevStatus: 'loading', prevName: file.name, prev: null, prevError: '', prevSame: null, prevSameStatus: '' });
       refresh();
       return runFecWorker(file, st, (res, err) => {
         Object.assign(st, err ? { prevStatus: 'error', prevError: err } : { prevStatus: 'done', prev: res });
+        if (!err) startSamePeriod(file, st, res);
         refresh();
       });
     }
@@ -2123,9 +2135,33 @@
     runFecWorker(file, ui.fec, null);
   }
 
+  // Situation intermédiaire : dernière écriture à plus de 20 jours de la clôture.
+  const isSituation = (r) => !!(r && r.meta.closing && r.pieces && r.pieces.maxOp && r.pieces.maxOp < addDays(r.meta.closing, -20));
+
+  // Pour une situation, le FEC N-1 est aussi analysé jusqu'à la même date, pour comparer des périodes identiques.
+  function startSamePeriod(file, st, full) {
+    const r = st.result;
+    if (!isSituation(r)) return;
+    const shift = full.meta.closing && r.meta.closing ? daysUntilFrom(full.meta.closing, r.meta.closing) : 365;
+    st.prevUntil = addDays(r.pieces.maxOp, -shift);
+    st.prevSameStatus = 'loading';
+    runFecWorker(file, st, (res, err) => {
+      Object.assign(st, err ? { prevSameStatus: 'error' } : { prevSameStatus: 'done', prevSame: res });
+      if (!st.prevMode) st.prevMode = 'same';
+      refresh();
+    }, st.prevUntil);
+  }
+
+  // FEC N-1 utilisé pour les comparaisons : même période pour une situation (si disponible), sinon exercice complet.
+  function cmpPrev() {
+    const f = ui.fec;
+    if (!f || !f.prev) return null;
+    return f.prevMode !== 'full' && f.prevSame ? f.prevSame : f.prev;
+  }
+
   const fecAlive = (st) => !!data && (ui.fecStates.classique === st || ui.fecStates.pharmacie === st);
 
-  function runFecWorker(file, st, onDone) {
+  function runFecWorker(file, st, onDone, until) {
     file.arrayBuffer().then((buffer) => {
       fecWorker = new Worker('js/fec-worker.js?v=' + ASSET_VERSION);
       fecWorker.onmessage = (e) => {
@@ -2158,7 +2194,7 @@
         Object.assign(st, { status: 'error', message: err.message || 'Erreur pendant l\'analyse.' });
         refresh();
       };
-      fecWorker.postMessage({ buffer, fileName: file.name }, [buffer]);
+      fecWorker.postMessage({ buffer, fileName: file.name, until: until || '' }, [buffer]);
     }, (err) => {
       if (!fecAlive(st)) return;
       if (onDone) return onDone(null, err.message);
@@ -2274,13 +2310,17 @@
       </li>`).join('')}</ul>`;
   }
 
+  function fecProfilesNav(active) {
+    const a = (key, href, ico, label) => `<a role="tab" aria-selected="${active === key}" class="${active === key ? 'on' : ''}" href="${href}">${icon(ico)}${label}</a>`;
+    return `<div class="seg fec-profiles" role="tablist" aria-label="Analyseur">
+        ${a('classique', '#/fec', 'chart', 'Structure classique')}${a('pharma', '#/fec/pharma', 'shield', 'Pharmacie (officine)')}${a('lot', '#/fec/lot', 'grid', 'Portefeuille')}
+      </div>`;
+  }
+
   function viewFec() {
     const f = ui.fec;
     const pharma = ui.fecProfile === 'pharmacie';
-    const profiles = `<div class="seg fec-profiles" role="tablist" aria-label="Analyseur">
-        <a role="tab" aria-selected="${!pharma}" class="${pharma ? '' : 'on'}" href="#/fec">${icon('chart')}Structure classique</a>
-        <a role="tab" aria-selected="${pharma}" class="${pharma ? 'on' : ''}" href="#/fec/pharma">${icon('shield')}Pharmacie (officine)</a>
-      </div>`;
+    const profiles = fecProfilesNav(pharma ? 'pharma' : 'classique');
     const head = `<div class="page-head"><h1>Analyse FEC${pharma ? ' — Pharmacie' : ' — Structure classique'}</h1>
       <div class="head-actions">${f && f.status === 'done' ? `<button class="btn" data-action="fec-export">Exporter en Excel</button>` : ''}
         <button class="btn primary" data-action="fec-pick">${f ? 'Analyser un autre FEC' : 'Choisir un FEC'}</button></div></div>${profiles}`;
@@ -2322,11 +2362,12 @@
     const nbPieces = r.pieces ? computePieces(r, piecesState().mode, piecesState().arrete).length : 0;
     const cc = cycleChecks(r);
     const cyc = (k, label) => {
-      const n = cc ? cc[k].filter((x) => !x.linked && (x.level === 'error' || x.level === 'warn')).length : 0;
+      const n = cc ? wpProgress(k, cc[k]).left : 0;
       return { [k]: `${label}${n ? ` (${n})` : ''}` };
     };
     const tabs = Object.assign({ synthese: 'Synthèse' }, pharma ? { tp: 'Tiers payant', catva: 'CA & TVA' } : {},
       cc ? Object.assign(cyc('achats', 'Achats'), cyc('charges', 'Charges externes'), pharma ? {} : cyc('clients', 'Clients'), cyc('treso', 'Trésorerie')) : {},
+      r.cycles ? (() => { const n = ecrProposals(r).filter((p) => p.on).length; return { ecritures: `Écritures${n ? ` (${n})` : ''}` }; })() : {},
       { pieces: `Pièces à demander${nbPieces ? ` (${nbPieces})` : ''}`, revue: 'Revue N / N-1', rappro: 'Rapprochement', conformite: `Conformité${errors ? ` (${errors})` : ''}`, sig: 'SIG et bilan', balance: 'Balance', details: 'Détails' });
     if (!tabs[f.section]) f.section = 'synthese';
     // Suggestion de l'autre analyseur selon le contenu du FEC.
@@ -2367,8 +2408,10 @@
             <tbody>${r.monthly.map((x) => `<tr><td>${x.mois.slice(5)}/${x.mois.slice(0, 4)}</td><td>${eur(x.ca)}</td><td>${eur(x.charges)}</td><td>${eur(x.tvaCollectee)}</td><td>${eur(x.tvaDeductible)}</td><td>${eur(x.tresorerie)}</td></tr>`).join('')}</tbody></table></div>
           </details>
         </section>` : ''}
-        <section class="card"><h2>Points de révision <span class="count">${fecPoints(r).length}</span></h2>${checkList(fecPoints(r), true)}</section>
+        <section class="card"><h2>Points de révision <span class="count">${genPoints(r).filter((x) => x.level !== 'ok').length}</span></h2>${wpCycleBar('gen', genPoints(r))}${wpCheckList(genPoints(r), 'gen')}</section>
         ${errors ? `<section class="card"><h2>Anomalies de conformité du fichier</h2>${checkList(r.checks.filter((c) => c.level === 'error'))}<button class="btn small" data-action="fec-tab" data-tab="conformite">Voir tous les contrôles</button></section>` : ''}`;
+    } else if (f.section === 'ecritures') {
+      body = viewEcritures();
     } else if (f.section === 'achats') {
       body = viewAchats();
     } else if (f.section === 'charges') {
@@ -2924,10 +2967,62 @@
     return `<td class="${p > 0 ? 'up' : p < 0 ? 'down' : ''}">${p > 0 ? '+' : ''}${(p * 100).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} %</td>`;
   }
 
+  // Situation : projection de fin d'exercice (reste à courir N-1) et charges annuelles absentes à étaler.
+  function projection(r) {
+    const f = ui.fec;
+    if (!isSituation(r) || !f.prev || !f.prevSame || !r.meta.start) return null;
+    const full = f.prev, same = f.prevSame;
+    const val = (res) => {
+      const m = new Map();
+      res.balance.forEach((b) => { if (/^[67]/.test(b.compte)) m.set(b.compte, { lib: b.lib, v: acctValue(b) }); });
+      return m;
+    };
+    const N = val(r), F = val(full), S = val(same);
+    const rub = {};
+    const addR = (map, k) => map.forEach((x, c) => {
+      const code = c.slice(0, 2);
+      (rub[code] = rub[code] || { code, label: RUBRIQUES[code] || '', n: 0, s: 0, f: 0 })[k] += x.v;
+    });
+    addR(N, 'n'); addR(S, 's'); addR(F, 'f');
+    const rows = Object.values(rub).sort((a, b) => a.code.localeCompare(b.code)).map((x) => Object.assign(x, { reste: x.f - x.s, proj: x.n + x.f - x.s }));
+    const span = daysUntilFrom(r.meta.start, r.meta.closing) + 1;
+    const ratio = Math.min(1, Math.max(0, (daysUntilFrom(r.meta.start, r.pieces.maxOp) + 1) / span));
+    const totalCh = Array.from(F.entries()).filter(([c]) => c[0] === '6').reduce((t, [, x]) => t + Math.max(0, x.v), 0);
+    const annual = [];
+    F.forEach((x, c) => {
+      if (c[0] !== '6' || /^69/.test(c) || x.v < Math.max(500, totalCh * 0.005)) return;
+      const sv = (S.get(c) || {}).v || 0, nv = (N.get(c) || {}).v || 0;
+      if (sv <= x.v * 0.1 && nv <= x.v * 0.1) annual.push({ compte: c, lib: x.lib, full: round2(x.v), n: round2(nv), prorata: round2(x.v * ratio - nv) });
+    });
+    annual.sort((a, b) => b.full - a.full);
+    const proj = r.kpi.resultat + full.kpi.resultat - same.kpi.resultat;
+    return { rows, annual: annual.filter((a) => a.prorata >= 1), ratio, until: f.prevUntil, full, same, proj, apresProrata: r.kpi.resultat - annual.reduce((t, a) => t + Math.max(0, a.prorata), 0) };
+  }
+
+  function projectionCard(r) {
+    const pj = projection(r);
+    if (!pj) return '';
+    const yN = (r.meta.closing || '').slice(0, 4), yP = (pj.full.meta.closing || '').slice(0, 4);
+    return `<section class="card"><h2>Projection de fin d'exercice</h2>
+      <p class="muted small">Situation au ${fmtDate(r.pieces.maxOp)} (${Math.round(pj.ratio * 100)} % de l'exercice). Projection = situation + ce que l'exercice ${yP} a enregistré entre le ${fmtDate(addDays(pj.until, 1))} et la clôture (reste à courir N-1). Indicatif : à corriger des événements connus de l'exercice.</p>
+      <div class="kpis fec-kpis">
+        ${kpiTile('Résultat de la situation', eurK(r.kpi.resultat), r.kpi.resultat < 0 ? 'kpi-late' : '', eurK(pj.same.kpi.resultat))}
+        ${kpiTile('Après charges annuelles au prorata', eurK(pj.apresProrata), pj.apresProrata < 0 ? 'kpi-late' : '')}
+        ${kpiTile(`Résultat ${yN} projeté`, eurK(pj.proj), pj.proj < 0 ? 'kpi-late' : '', eurK(pj.full.kpi.resultat))}
+      </div>
+      <div class="grid-wrap"><table class="dtable num revue"><thead><tr><th>Poste</th><th>Libellé</th><th>Situation ${yN}</th><th>${yP} même période</th><th>${yP} complet</th><th>Reste à courir ${yP}</th><th>Projection ${yN}</th></tr></thead>
+        <tbody>${pj.rows.map((x) => `<tr><td>${x.code}</td><td>${esc(x.label)}</td><td>${eur(x.n, 0)}</td><td>${eur(x.s, 0)}</td><td>${eur(x.f, 0)}</td><td>${eur(x.reste, 0)}</td><td>${eur(x.proj, 0)}</td></tr>`).join('')}</tbody></table></div>
+      ${pj.annual.length ? `<h3>Charges annuelles absentes de la situation</h3>
+        <p class="muted small">Comptabilisées en ${yP} après le ${fmtDate(pj.until)} (dotations, impôts et taxes, assurances, primes…) : à étaler dans la situation. Les écritures au prorata sont proposées dans l'onglet Écritures.</p>
+        <div class="grid-wrap"><table class="dtable num"><thead><tr><th>Compte</th><th>Libellé</th><th>${yP} complet</th><th>Déjà en ${yN}</th><th>Prorata à passer</th></tr></thead>
+        <tbody>${pj.annual.map((a) => `<tr><td>${esc(a.compte)}</td><td>${esc(a.lib)}</td><td>${eur(a.full, 0)}</td><td>${eur(a.n, 0)}</td><td>${eur(a.prorata, 0)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    </section>`;
+  }
+
   function viewRevue() {
     const f = ui.fec;
     const r = f.result;
-    const prev = f.prev;
+    const prev = cmpPrev();
     f.seuil = f.seuil || defaultSeuil(r);
     const rd = revueData(r, prev, f.seuil, 0.2);
     const checks = coherenceChecks(r, prev, clientById(f.clientId));
@@ -2940,7 +3035,14 @@
           : f.prevStatus === 'loading' ? `<span class="muted">Analyse du FEC N-1 en cours…</span>`
           : `<span>${f.prevStatus === 'error' ? `<span class="late">${esc(f.prevError)}</span> ` : ''}Ajoutez le FEC de l'exercice précédent pour comparer les comptes et repérer les variations à justifier.</span><button class="btn primary small" data-action="fec-prev">Charger le FEC N-1</button>`}
         <button class="btn small" data-action="fec-note">Note de synthèse</button>
-      </div>`;
+      </div>
+      ${f.prev && isSituation(r) ? `<div class="filters revue-mode">
+        <div class="seg" role="group" aria-label="Période de comparaison">
+          <button class="${f.prevMode !== 'full' ? 'on' : ''}" data-action="prev-mode" data-mode="same"${f.prevSame ? '' : ' disabled'}>Même période N-1${f.prevUntil ? ` (au ${fmtDate(f.prevUntil)})` : ''}</button>
+          <button class="${f.prevMode === 'full' ? 'on' : ''}" data-action="prev-mode" data-mode="full">Exercice N-1 complet</button>
+        </div>
+        <span class="muted small">${f.prevSameStatus === 'loading' ? 'Analyse du FEC N-1 à la même date en cours…' : f.prevSameStatus === 'error' ? 'Analyse à la même date impossible.' : `Situation au ${fmtDate(r.pieces.maxOp)} : comparée ${f.prevMode === 'full' ? "à l'exercice précédent entier" : 'à la même période de l\'exercice précédent'}.`}</span>
+      </div>` : ''}`;
     const sigRows = r.sig.filter((x) => x.strong || x.label === 'Chiffre d\'affaires net').map((x) => {
       const p = prev && prev.sig.find((y) => y.label === x.label);
       const v1 = p ? p.value : null;
@@ -2948,6 +3050,7 @@
     }).join('');
     return `
       <section class="card">${loadCard}</section>
+      ${projectionCard(r)}
       <section class="card"><h2>Contrôles de cohérence</h2>${checkList(checks, true)}</section>
       <section class="card"><h2>Chiffres clés ${prev ? `${yearN} / ${yearP}` : yearN}</h2>
         <div class="grid-wrap"><table class="dtable num sig"><thead><tr><th>Solde</th><th>${yearN}</th>${prev ? `<th>${yearP}</th><th>Variation</th><th>%</th>` : ''}</tr></thead><tbody>${sigRows}</tbody></table></div>
@@ -2976,7 +3079,7 @@
   function noteHtml() {
     const f = ui.fec;
     const r = f.result;
-    const prev = f.prev;
+    const prev = cmpPrev();
     const c = clientById(f.clientId);
     const s = data.settings;
     const store = revueComments();
@@ -3044,21 +3147,7 @@
   }
 
   function printNote() {
-    let area = $('#print-area');
-    if (!area) {
-      area = document.createElement('div');
-      area.id = 'print-area';
-      document.body.appendChild(area);
-    }
-    area.innerHTML = noteHtml();
-    document.body.classList.add('printing');
-    const done = () => {
-      document.body.classList.remove('printing');
-      area.innerHTML = '';
-      window.removeEventListener('afterprint', done);
-    };
-    window.addEventListener('afterprint', done);
-    window.print();
+    printHtml(noteHtml());
   }
 
   // ---------- Rapprochement bancaire ----------
@@ -3484,7 +3573,7 @@
   const CYCLES = { achats: 'Achats et fournisseurs', charges: 'Charges externes', clients: 'Ventes et clients', treso: 'Trésorerie' };
   const pctFr = (x, dec) => (x * 100).toLocaleString('fr-FR', { maximumFractionDigits: dec === undefined ? 1 : dec }) + ' %';
   const fecTerme = () => Math.max(0, Math.min(180, Math.round(Number(ui.fec.terme) || 30)));
-  const fecPrev = () => (ui.fec && ui.fec.prev && ui.fec.prev.cycles ? ui.fec.prev : null);
+  const fecPrev = () => { const p = cmpPrev(); return p && p.cycles ? p : null; };
   const yearEnd = (r) => !!r.meta.closing && !!r.pieces.maxOp && r.pieces.maxOp >= addDays(r.meta.closing, -10);
   const RUB3 = {
     611: 'Sous-traitance générale', 612: 'Redevances de crédit-bail', 613: 'Locations', 614: 'Charges locatives et de copropriété',
@@ -3515,8 +3604,8 @@
   }
 
   function cutCheck(out, cut, what) {
-    if (cut.after.n) out.add('warn', `${what} : pièces datées après la clôture`, `${cut.after.n} ligne(s), ${eur(cut.after.total, 0)} € : pièces de l'exercice suivant comptabilisées dans l'exercice (séparation des exercices).`, cut.after.ex);
-    if (cut.before.n) out.add('info', `${what} : pièces de l'exercice précédent`, `${cut.before.n} ligne(s), ${eur(cut.before.total, 0)} € datées avant l'ouverture : auraient dû être rattachées à l'exercice précédent (charges à payer ou produits à recevoir) ?`, cut.before.ex);
+    if (cut.after.n) out.add('warn', `${what} : pièces datées après la clôture`, `${cut.after.n} ligne(s), ${eur(cut.after.total, 0)} € : pièces de l'exercice suivant comptabilisées dans l'exercice (séparation des exercices).`, cut.after.ex, { full: cut.after.ex.length >= cut.after.n });
+    if (cut.before.n) out.add('info', `${what} : pièces de l'exercice précédent`, `${cut.before.n} ligne(s), ${eur(cut.before.total, 0)} € datées avant l'ouverture : auraient dû être rattachées à l'exercice précédent (charges à payer ou produits à recevoir) ?`, cut.before.ex, { full: cut.before.ex.length >= cut.before.n });
     if (!cut.after.n && !cut.before.n) out.add('ok', `${what} : séparation des exercices`, 'Aucune pièce datée hors de l\'exercice.');
   }
 
@@ -3551,15 +3640,15 @@
     const { mv, solde } = sums(r);
     const pharma = ui.fecProfile === 'pharmacie';
     linkedAlerts(r, out, ['Fournisseurs débiteurs']);
-    if (a.dupStrong.n) out.add('warn', 'Factures fournisseurs en double', `${a.dupStrong.n} facture(s) saisie(s) deux fois (même fournisseur, même montant, même n° de pièce) : ${eur(a.dupStrong.total)} € de charges et de TVA déductible en trop ?`, a.dupStrong.ex);
+    if (a.dupStrong.n) out.add('warn', 'Factures fournisseurs en double', `${a.dupStrong.n} facture(s) saisie(s) deux fois (même fournisseur, même montant, même n° de pièce) : ${eur(a.dupStrong.total)} € de charges et de TVA déductible en trop ?`, a.dupStrong.ex, { full: a.dupStrong.ex.length >= a.dupStrong.n });
     else if (a.invoices) out.add('ok', 'Aucune facture fournisseur en double', `${a.invoices.toLocaleString('fr-FR')} factures contrôlées (fournisseur, montant et n° de pièce).`);
-    if (a.dupPossible.n) out.add('info', "Factures de même montant à quelques jours d'intervalle", `${a.dupPossible.n} cas chez un même fournisseur (3 jours au plus) : livraisons distinctes ou doublon ?`, a.dupPossible.ex);
+    if (a.dupPossible.n) out.add('info', "Factures de même montant à quelques jours d'intervalle", `${a.dupPossible.n} cas chez un même fournisseur (3 jours au plus) : livraisons distinctes ou doublon ?`, a.dupPossible.ex, { full: a.dupPossible.ex.length >= a.dupPossible.n });
     const od = overdue(r, '401', ref, terme);
     if (od.b91[1] > 0) out.add('warn', 'Dettes fournisseurs échues depuis plus de 90 jours', `${eur(od.b91[1], 0)} € (${od.b91[0]} facture(s)) : litige, avoir attendu, ou facture déjà réglée par un autre moyen ?`, od.tiers.filter((t) => t.b91 > 0).slice(0, 10).map((t) => `${t.lib} : ${eur(t.b91)} € (${oldestTxt(t)})`));
     if (a.delay.lateN) out.add(a.delay.lateAmt > a.delay.paidAmt * 0.2 ? 'warn' : 'info', 'Factures fournisseurs réglées à plus de 60 jours', `${a.delay.lateN} facture(s), ${eur(a.delay.lateAmt, 0)} € : au-delà du délai légal maximal (art. L441-10 du code de commerce), amende administrative possible.`, a.suppliers.filter((s) => s.lateN).slice(0, 10).map((s) => `${s.lib} : ${s.lateN} facture(s), délai moyen ${s.delay} j`));
     else if (a.delay.paidN) out.add('ok', 'Délais de paiement fournisseurs', `Délai moyen constaté : ${a.delay.avg} jours, aucune facture réglée au-delà de 60 jours.`);
-    if (a.overVat.n) out.add('warn', 'TVA déductible supérieure à 20 %', `${a.overVat.n} facture(s), ${eur(a.overVat.total, 0)} € de TVA : erreur de saisie ou TVA déduite en double ?`, a.overVat.ex);
-    if (a.autoliq.n) out.add('warn', 'Autoliquidation incomplète', `${a.autoliq.n} facture(s) : TVA autoliquidée (4452) non déduite en totalité (4456).`, a.autoliq.ex);
+    if (a.overVat.n) out.add('warn', 'TVA déductible supérieure à 20 %', `${a.overVat.n} facture(s), ${eur(a.overVat.total, 0)} € de TVA : erreur de saisie ou TVA déduite en double ?`, a.overVat.ex, { full: a.overVat.ex.length >= a.overVat.n });
+    if (a.autoliq.n) out.add('warn', 'Autoliquidation incomplète', `${a.autoliq.n} facture(s) : TVA autoliquidée (4452) non déduite en totalité (4456).`, a.autoliq.ex, { full: a.autoliq.ex.length >= a.autoliq.n });
     const nv = a.noVat.reduce((s, g) => s + g.total, 0);
     if (nv > 0) out.add('info', 'Factures sans TVA déductible', `${a.noVat.reduce((s, g) => s + g.n, 0)} facture(s) de plus de 150 € HT, ${eur(nv, 0)} € : fournisseur non assujetti, opération exonérée, ou TVA oubliée ?`, a.noVat.slice(0, 10).map((g) => `${g.compte} ${g.lib} : ${g.n} facture(s), ${eur(g.total, 0)} € — ex. ${g.ex[0]}`));
     else if (a.invoices && !a.overVat.n) out.add('ok', 'TVA déductible des factures', 'Chaque facture de plus de 150 € HT porte une TVA déductible cohérente (20 % au plus).');
@@ -3603,12 +3692,12 @@
     regulCheck(r, out, ['486'], "Charges constatées d'avance de l'exercice précédent non extournées");
     regulCheck(r, out, ['4286', '4386', '4486', '4686'], "Charges à payer de l'exercice précédent non extournées");
     if (ch.das2.length) out.add('info', `DAS2 : ${ch.das2.length} bénéficiaire(s) de plus de 1 200 €`, "Honoraires, commissions et droits d'auteur à déclarer (DAS2) avec la liasse ou au plus tard début mai ; montants TTC estimés.", ch.das2.slice(0, 15).map((b) => `${b.benef} : ${eur(b.total, 0)} € (${b.comptes.join(', ')})`));
-    if (ch.perso.n) out.add('warn', 'Dépenses à caractère personnel possibles', `${ch.perso.n} dépense(s), ${eur(ch.perso.total, 0)} € (grandes surfaces, loisirs, abonnements…) : intérêt de l'entreprise à justifier, sinon réintégration et avantage en nature.`, ch.perso.ex);
-    if (ch.amendes.n) out.add('warn', 'Amendes et pénalités en charges déductibles', `${ch.amendes.n} dépense(s), ${eur(ch.amendes.total, 0)} € : non déductibles (art. 39-2 du CGI), à isoler en 6712 et à réintégrer ; désignation du conducteur pour les contraventions.`, ch.amendes.ex);
-    if (ch.weekend.n) out.add('info', 'Frais de réception ou de déplacement le week-end', `${ch.weekend.n} dépense(s), ${eur(ch.weekend.total, 0)} € : caractère professionnel à justifier.`, ch.weekend.ex);
-    if (ch.giftVat.n) out.add('warn', 'TVA déduite sur des cadeaux de plus de 73 €', `${ch.giftVat.n} écriture(s), ${eur(ch.giftVat.total, 0)} € de TVA : non récupérable au-delà de 73 € TTC par bénéficiaire et par an.`, ch.giftVat.ex);
-    else if (ch.gifts.n) out.add('info', `Cadeaux de plus de 73 € : ${eur(ch.gifts.total, 0)} €`, 'TVA non récupérable au-delà de 73 € TTC par bénéficiaire et par an ; relevé des frais généraux (2067) si le total dépasse 3 000 €.', ch.gifts.ex);
-    if (ch.notesFrais.n) out.add('info', "Dépenses avancées par l'associé", `${ch.notesFrais.n} écriture(s), ${eur(ch.notesFrais.total, 0)} € portées au crédit du compte courant : notes de frais et justificatifs à obtenir.`, ch.notesFrais.ex);
+    if (ch.perso.n) out.add('warn', 'Dépenses à caractère personnel possibles', `${ch.perso.n} dépense(s), ${eur(ch.perso.total, 0)} € (grandes surfaces, loisirs, abonnements…) : intérêt de l'entreprise à justifier, sinon réintégration et avantage en nature.`, ch.perso.ex, { full: ch.perso.ex.length >= ch.perso.n });
+    if (ch.amendes.n) out.add('warn', 'Amendes et pénalités en charges déductibles', `${ch.amendes.n} dépense(s), ${eur(ch.amendes.total, 0)} € : non déductibles (art. 39-2 du CGI), à isoler en 6712 et à réintégrer ; désignation du conducteur pour les contraventions.`, ch.amendes.ex, { full: ch.amendes.ex.length >= ch.amendes.n });
+    if (ch.weekend.n) out.add('info', 'Frais de réception ou de déplacement le week-end', `${ch.weekend.n} dépense(s), ${eur(ch.weekend.total, 0)} € : caractère professionnel à justifier.`, ch.weekend.ex, { full: ch.weekend.ex.length >= ch.weekend.n });
+    if (ch.giftVat.n) out.add('warn', 'TVA déduite sur des cadeaux de plus de 73 €', `${ch.giftVat.n} écriture(s), ${eur(ch.giftVat.total, 0)} € de TVA : non récupérable au-delà de 73 € TTC par bénéficiaire et par an.`, ch.giftVat.ex, { full: ch.giftVat.ex.length >= ch.giftVat.n });
+    else if (ch.gifts.n) out.add('info', `Cadeaux de plus de 73 € : ${eur(ch.gifts.total, 0)} €`, 'TVA non récupérable au-delà de 73 € TTC par bénéficiaire et par an ; relevé des frais généraux (2067) si le total dépasse 3 000 €.', ch.gifts.ex, { full: ch.gifts.ex.length >= ch.gifts.n });
+    if (ch.notesFrais.n) out.add('info', "Dépenses avancées par l'associé", `${ch.notesFrais.n} écriture(s), ${eur(ch.notesFrais.total, 0)} € portées au crédit du compte courant : notes de frais et justificatifs à obtenir.`, ch.notesFrais.ex, { full: ch.notesFrais.ex.length >= ch.notesFrais.n });
     cutCheck(out, ch.cut, 'Charges externes');
     const ext = mv(['61', '62']);
     const direct = ch.accounts.reduce((s, a) => s + Math.max(0, a.direct), 0);
@@ -3643,8 +3732,8 @@
     if (douteux > 0.01 && dep < 0.01) out.add('warn', 'Clients douteux sans dépréciation', `${eur(douteux, 0)} € en 416 sans dépréciation (491).`);
     if (cl.delay.lateN) out.add('info', 'Factures clients réglées à plus de 60 jours', `${cl.delay.lateN} facture(s), ${eur(cl.delay.lateAmt, 0)} € : relances et pénalités de retard (art. L441-10 du code de commerce).`, cl.customers.filter((c) => c.lateN).slice(0, 10).map((c) => `${c.lib} : ${c.lateN} facture(s), délai moyen ${c.delay} j`));
     else if (cl.delay.paidN) out.add('ok', 'Délais de paiement clients', `Délai moyen d'encaissement constaté : ${cl.delay.avg} jours.`);
-    if (cl.overVat.n) out.add('warn', 'TVA collectée supérieure à 20 %', `${cl.overVat.n} facture(s) : erreur de saisie ?`, cl.overVat.ex);
-    if (cl.noVat.n) out.add('info', 'Factures de vente sans TVA', `${cl.noVat.n} facture(s), ${eur(cl.noVat.total, 0)} € HT : export, livraison intracommunautaire, autoliquidation ou exonération ? La mention correspondante doit figurer sur la facture.`, cl.noVat.ex);
+    if (cl.overVat.n) out.add('warn', 'TVA collectée supérieure à 20 %', `${cl.overVat.n} facture(s) : erreur de saisie ?`, cl.overVat.ex, { full: cl.overVat.ex.length >= cl.overVat.n });
+    if (cl.noVat.n) out.add('info', 'Factures de vente sans TVA', `${cl.noVat.n} facture(s), ${eur(cl.noVat.total, 0)} € HT : export, livraison intracommunautaire, autoliquidation ou exonération ? La mention correspondante doit figurer sur la facture.`, cl.noVat.ex, { full: cl.noVat.ex.length >= cl.noVat.n });
     cutCheck(out, cl.cut, 'Ventes');
     if (cl.lastWeek >= 5000 && cl.avgWeek > 0 && cl.lastWeek > 2.5 * cl.avgWeek) out.add('info', "Facturation inhabituelle en fin d'exercice", `${eur(cl.lastWeek, 0)} € TTC facturés les 7 derniers jours, contre ${eur(cl.avgWeek, 0)} € par semaine en moyenne : prestations achevées et livraisons effectuées à la clôture ?`);
     regulCheck(r, out, ['418'], "Factures à établir de l'exercice précédent non extournées");
@@ -3673,7 +3762,7 @@
     const banks = t.accounts.filter((a) => /^51[2-9]/.test(a.compte));
     banks.filter((a) => a.negDays > 0).forEach((a) => out.add(a.negDays > 30 ? 'warn' : 'info', `Découvert : ${a.lib || a.compte}`, `${a.negDays} jour(s) à découvert en comptabilité, plus bas ${eur(a.min)} € le ${fmtDate(a.minDate)} : autorisation de découvert, agios et rapprochement à vérifier.`));
     if (banks.length && !banks.some((a) => a.negDays)) out.add('ok', 'Aucun découvert bancaire en comptabilité', `${banks.length} compte(s) bancaire(s) toujours créditeurs.`);
-    if (t.cash.n) out.add('warn', 'Opérations en espèces de 1 000 € ou plus', `${t.cash.n} opération(s), ${eur(t.cash.total, 0)} € : paiement en espèces limité à 1 000 € entre professionnels et avec les particuliers résidents (art. L112-6 et D112-3 du code monétaire et financier), amende jusqu'à 5 % des sommes.`, t.cash.ex);
+    if (t.cash.n) out.add('warn', 'Opérations en espèces de 1 000 € ou plus', `${t.cash.n} opération(s), ${eur(t.cash.total, 0)} € : paiement en espèces limité à 1 000 € entre professionnels et avec les particuliers résidents (art. L112-6 et D112-3 du code monétaire et financier), amende jusqu'à 5 % des sommes.`, t.cash.ex, { full: t.cash.ex.length >= t.cash.n });
     else if (t.accounts.some((a) => a.compte.startsWith('53'))) out.add('ok', 'Pas de paiement en espèces de 1 000 € ou plus', '');
     const caisses = t.accounts.filter((a) => a.compte.startsWith('53'));
     const totCaisse = caisses.reduce((s, a) => s + a.solde, 0);
@@ -3703,13 +3792,13 @@
     const ref = pharmaRef(r);
     const prev = fecPrev();
     const terme = fecTerme();
-    const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', terme, r.alerts.length].join('|');
+    const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', terme, r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length].join('|');
     if (r._cc && r._cc.key === key) return r._cc.val;
     const val = {
-      achats: chkAchats(r, ref, prev, terme),
-      charges: chkCharges(r, ref, prev),
-      clients: ui.fecProfile === 'pharmacie' ? [] : chkClients(r, ref, prev, terme),
-      treso: chkTreso(r, ref),
+      achats: applyMemo(chkAchats(r, ref, prev, terme), 'achats'),
+      charges: applyMemo(chkCharges(r, ref, prev), 'charges'),
+      clients: ui.fecProfile === 'pharmacie' ? [] : applyMemo(chkClients(r, ref, prev, terme), 'clients'),
+      treso: applyMemo(chkTreso(r, ref), 'treso'),
     };
     Object.defineProperty(r, '_cc', { value: { key, val }, configurable: true, writable: true, enumerable: false });
     return val;
@@ -3728,8 +3817,8 @@
   function cycleHead(key, intro) {
     const list = cycleChecks(ui.fec.result)[key];
     const n = (lvl) => list.filter((x) => x.level === lvl).length;
-    return `<section class="card"><h2>Contrôles — ${esc(CYCLES[key])} <span class="count">${n('error') + n('warn')}</span></h2>
-      <p class="muted small">${intro}</p>${checkList(list, true)}</section>`;
+    return `<section class="card"><h2>Contrôles — ${esc(CYCLES[key])} <span class="count">${wpProgress(key, list).left}</span></h2>
+      <p class="muted small">${intro}</p>${wpCycleBar(key, list)}${wpCheckList(list, key)}</section>`;
   }
 
   function terminput() {
@@ -3918,10 +4007,10 @@
     const cc = cycleChecks(r);
     if (!cc) return '';
     const keys = Object.keys(CYCLES).filter((k) => k !== 'clients' || ui.fecProfile !== 'pharmacie');
-    return `<section class="card"><h2>Cycles de révision</h2><div class="kpis fec-kpis cycle-tiles">${keys.map((k) => {
-      const own = cc[k].filter((x) => !x.linked);
-      const e = own.filter((x) => x.level === 'error').length, w = own.filter((x) => x.level === 'warn').length, i = own.filter((x) => x.level === 'info').length;
-      return `<button class="kpi cycle-tile ${e ? 'kpi-late' : w ? 'kpi-wait' : ''}" data-action="fec-tab" data-tab="${k}"><strong>${e + w}</strong><span>${esc(CYCLES[k])}</span><em>${e + w ? `${e ? `${e} anomalie(s) · ` : ''}${w} à vérifier` : 'rien à signaler'}${i ? ` · ${i} info.` : ''}</em></button>`;
+    return `<section class="card"><div class="card-head"><h2>Cycles de révision</h2><button class="btn small" data-action="wp-print">Dossier de travail (PDF)</button></div><div class="kpis fec-kpis cycle-tiles">${keys.map((k) => {
+      const pg = wpProgress(k, cc[k]);
+      const rev = wpStore().cycles[k];
+      return `<button class="kpi cycle-tile ${pg.left ? 'kpi-wait' : ''}" data-action="fec-tab" data-tab="${k}"><strong>${pg.left}</strong><span>${esc(CYCLES[k])}</span><em>${pg.total ? `${pg.done} / ${pg.total} traité(s)${pg.wait ? ` · ${pg.wait} en attente` : ''}` : 'rien à signaler'}${rev ? ` · revu ✓` : ''}</em></button>`;
     }).join('')}</div></section>`;
   }
 
@@ -3937,16 +4026,672 @@
         : `Liste des factures de vente de la série ${g.prefix} (${g.missing} numéros absents de la comptabilité entre ${g.first} et ${g.last})`);
     });
     const item = (x) => `« ${x.lib} » du ${d(x.date)} (${eur(Math.abs(x.amt))} €)`;
-    cy.treso.cash.items.filter((x) => x.date <= arrete).slice(0, 10).forEach((x, i) => push('caisse', 'esp:' + i, `Justificatif de l'opération en espèces ${item(x)} : paiement en espèces limité à 1 000 €`));
-    (cy.charges.perso.groups || []).filter((g) => g.first <= arrete).slice(0, 10).forEach((g, i) => push('questions', 'perso:' + i, g.n === 1
+    const OPS = 'Opérations en espèces de 1 000 € ou plus', PERSO = 'Dépenses à caractère personnel possibles';
+    cy.treso.cash.items.filter((x) => x.date <= arrete && !memoHas('treso', OPS, x.lib)).slice(0, 10).forEach((x, i) => push('caisse', 'esp:' + i, `Justificatif de l'opération en espèces ${item(x)} : paiement en espèces limité à 1 000 €`));
+    (cy.charges.perso.groups || []).filter((g) => g.first <= arrete && !memoHas('charges', PERSO, g.lib)).slice(0, 10).forEach((g, i) => push('questions', 'perso:' + i, g.n === 1
       ? `Caractère professionnel de la dépense « ${g.lib} » du ${d(g.first)} (${eur(g.total)} €)`
       : `Caractère professionnel des dépenses « ${g.lib} » : ${g.n} paiements du ${d(g.first)} au ${d(g.last)} (${eur(g.total)} €)`));
-    if (cy.charges.amendes.n) push('questions', 'amendes', `Avis de contravention ou de pénalité réglés par l'entreprise (${cy.charges.amendes.n}, ${eur(cy.charges.amendes.total)} €) : nature et, pour les contraventions, désignation du conducteur`);
-    if (cy.charges.notesFrais.n) push('justif', 'ndf', `Notes de frais et justificatifs des ${cy.charges.notesFrais.n} dépense(s) avancée(s) par l'associé (${eur(cy.charges.notesFrais.total)} €)`);
+    if (cy.charges.amendes.n && !memoHas('charges', 'Amendes et pénalités en charges déductibles', '*')) push('questions', 'amendes', `Avis de contravention ou de pénalité réglés par l'entreprise (${cy.charges.amendes.n}, ${eur(cy.charges.amendes.total)} €) : nature et, pour les contraventions, désignation du conducteur`);
+    if (cy.charges.notesFrais.n && !memoHas('charges', "Dépenses avancées par l'associé", '*')) push('justif', 'ndf', `Notes de frais et justificatifs des ${cy.charges.notesFrais.n} dépense(s) avancée(s) par l'associé (${eur(cy.charges.notesFrais.total)} €)`);
     if (bilan) {
       cy.charges.cca.slice(0, 8).forEach((x, i) => push('cloture', 'cca:' + i, `Facture « ${x.label} » du ${d(x.date)} (${eur(x.amt)} €) : période couverte, pour les charges constatées d'avance`));
-      if (cy.charges.das2.length) push('questions', 'das2', `Pour la DAS2 : SIRET et adresse de ${cy.charges.das2.slice(0, 8).map((b) => b.benef).join(', ')}${cy.charges.das2.length > 8 ? '…' : ''}`);
+      if (cy.charges.das2.length && !memoHas('charges', 'DAS2 : 0 bénéficiaire(s) de plus de 1 200 €', '*')) push('questions', 'das2', `Pour la DAS2 : SIRET et adresse de ${cy.charges.das2.slice(0, 8).map((b) => b.benef).join(', ')}${cy.charges.das2.length > 8 ? '…' : ''}`);
     }
+  }
+
+  // ---------- Portefeuille : analyse de plusieurs FEC en une fois ----------
+
+  // Exécute `fn` comme si l'analyse `st` était ouverte dans l'analyseur `profile`.
+  function withFec(st, profile, fn) {
+    const saveProfile = ui.fecProfile, saveState = ui.fecStates[profile];
+    ui.fecProfile = profile;
+    ui.fecStates[profile] = st;
+    try {
+      return fn();
+    } finally {
+      ui.fecProfile = saveProfile;
+      ui.fecStates[profile] = saveState;
+    }
+  }
+
+  // Analyse d'un fichier dans son propre Web Worker (indépendant de l'analyse affichée).
+  function analyseFile(file) {
+    return file.arrayBuffer().then((buffer) => new Promise((resolve) => {
+      const w = new Worker('js/fec-worker.js?v=' + ASSET_VERSION);
+      w.onmessage = (e) => {
+        if (e.data.type === 'progress') return;
+        w.terminate();
+        resolve(e.data.type === 'done' ? { result: e.data.result } : { error: e.data.message });
+      };
+      w.onerror = (err) => {
+        w.terminate();
+        resolve({ error: err.message || "Erreur pendant l'analyse." });
+      };
+      w.postMessage({ buffer, fileName: file.name }, [buffer]);
+    }), (err) => ({ error: err.message }));
+  }
+
+  function batchSummary(it) {
+    return withFec(it.st, it.profile, () => {
+      const r = it.st.result;
+      const { errors, warnings } = fecCounts(r);
+      const cc = cycleChecks(r);
+      const left = {};
+      Object.keys(cc).forEach((k) => { left[k] = wpProgress(k, cc[k]).left; });
+      left.gen = wpProgress('gen', genPoints(r)).left;
+      const mode = isSituation(r) ? 'situation' : 'bilan';
+      const pieces = computePieces(r, mode, defaultArrete(r, mode)).length;
+      const props = ecrProposals(r).filter((p) => p.on);
+      return {
+        errors, warnings, left, total: Object.values(left).reduce((s, v) => s + v, 0), pieces, mode,
+        ecr: props.length, impact: props.reduce((s, p) => s + ecrImpact(p.lines), 0),
+        ca: r.kpi.ca, resultat: r.kpi.resultat, treso: r.kpi.tresorerie,
+      };
+    });
+  }
+
+  async function batchRun(files) {
+    const list = files.filter((f) => /\.(txt|csv|tsv)$/i.test(f.name));
+    if (!list.length) return toast('Aucun fichier FEC (.txt, .csv) sélectionné.', true);
+    const b = (ui.batch = { items: [], total: list.length, done: 0, running: true });
+    refresh();
+    for (const file of list) {
+      if (ui.batch !== b) return; // verrouillage ou nouveau lot
+      b.current = file.name;
+      refresh();
+      const res = await analyseFile(file);
+      if (ui.batch !== b) return;
+      const it = { fileName: file.name };
+      if (res.error) Object.assign(it, { error: res.error });
+      else {
+        const r = res.result;
+        const siren = r.meta.siren;
+        const c = siren && data.clients.find((x) => (x.siren || '').replace(/\s/g, '').slice(0, 9) === siren);
+        it.st = { status: 'done', result: r, clientId: c ? c.id : '', section: 'synthese', q: '', classe: '', fileName: file.name, pct: 100 };
+        it.profile = withFec(it.st, 'classique', () => looksLikePharmacy(r)) ? 'pharmacie' : 'classique';
+        it.sum = batchSummary(it);
+      }
+      b.items.push(it);
+      b.done++;
+    }
+    b.running = false;
+    b.current = '';
+    refresh();
+    toast(`${b.done} FEC analysé(s).`);
+  }
+
+  function batchItems() {
+    const b = ui.batch;
+    if (!b) return [];
+    return b.items.map((it, i) => Object.assign({ i }, it)).sort((x, y) => (x.error ? 1 : 0) - (y.error ? 1 : 0) || (y.sum ? y.sum.errors * 3 + y.sum.total : 0) - (x.sum ? x.sum.errors * 3 + x.sum.total : 0));
+  }
+
+  function viewBatch() {
+    const b = ui.batch;
+    const head = `<div class="page-head"><h1>Analyse FEC — Portefeuille</h1>
+      <div class="head-actions">${b && !b.running && b.items.length ? '<button class="btn" data-action="batch-xlsx">Exporter en Excel</button>' : ''}
+        <button class="btn primary" data-action="batch-pick"${b && b.running ? ' disabled' : ''}>${b ? 'Analyser d\'autres FEC' : 'Choisir les FEC'}</button></div></div>${fecProfilesNav('lot')}`;
+    if (!b) {
+      return `${head}
+        <div class="fec-drop card" data-action="batch-pick" role="button" tabindex="0">
+          ${icon('chart', 'fec-drop-ico')}
+          <p><strong>Sélectionnez les FEC de plusieurs dossiers</strong> (par exemple tous les dossiers d'un collaborateur)</p>
+          <p class="muted small">Chaque fichier est analysé sur cet appareil, l'un après l'autre, puis rattaché à son dossier par le SIREN du nom de fichier. Rien n'est envoyé ni conservé.</p>
+        </div>
+        <section class="card"><h2>À quoi ça sert</h2><ul class="bullets">
+          <li>Voir d'un coup d'œil <strong>par quels dossiers commencer</strong> : anomalies, points à traiter par cycle, pièces à demander, écritures à passer.</li>
+          <li>Ouvrir chaque dossier dans le bon analyseur (classique ou pharmacie, détecté automatiquement) pour la révision détaillée.</li>
+          <li>Enregistrer en une fois la synthèse de chaque analyse dans son dossier.</li>
+        </ul></section>`;
+    }
+    const items = batchItems();
+    const ok = items.filter((x) => x.sum);
+    const linked = ok.filter((x) => x.st.clientId);
+    const tot = (k) => ok.reduce((s, x) => s + x.sum[k], 0);
+    const name = (x) => {
+      const c = x.st && clientById(x.st.clientId);
+      return c ? `${c.code ? esc(c.code) + ' — ' : ''}${esc(clientLabel(c))}` : `<span class="muted">${esc(x.fileName)}</span>`;
+    };
+    const cyc = (x) => ['achats', 'charges', 'clients', 'treso'].filter((k) => x.sum.left[k]).map((k) => `${{ achats: 'Ach.', charges: 'Ch. ext.', clients: 'Cli.', treso: 'Tréso.' }[k]} ${x.sum.left[k]}`).join(' · ');
+    return `${head}
+      ${b.running ? `<section class="card fec-loading"><p><strong>Analyse ${b.done + 1} / ${b.total}</strong> : ${esc(b.current || '')}</p>
+        <div class="fec-progress"><span data-w="${Math.round((b.done / b.total) * 100)}"></span></div></section>` : ''}
+      <div class="kpis fec-kpis">
+        ${kpiTile('FEC analysés', `${ok.length}${b.total ? ` / ${b.total}` : ''}`)}
+        ${kpiTile('Rattachés à un dossier', linked.length, linked.length < ok.length ? 'kpi-wait' : '')}
+        ${kpiTile('Anomalies', tot('errors'), tot('errors') ? 'kpi-late' : '')}
+        ${kpiTile('Points à traiter', tot('total'), tot('total') ? 'kpi-wait' : '')}
+        ${kpiTile('Pièces à demander', tot('pieces'))}
+        ${kpiTile('Écritures proposées', tot('ecr'))}
+      </div>
+      <section class="card"><div class="card-head"><h2>Dossiers par charge de révision</h2>
+        ${!b.running && linked.length ? `<button class="btn small" data-action="batch-save">Enregistrer les synthèses dans les dossiers (${linked.length})</button>` : ''}</div>
+        <div class="grid-wrap"><table class="dtable num batch"><thead><tr><th>Dossier</th><th>Travail</th><th>Anomalies</th><th>À traiter</th><th>Détail par cycle</th><th>Pièces</th><th>Écritures</th><th>Impact résultat</th><th>CA</th><th>Résultat</th><th></th></tr></thead>
+        <tbody>${items.map((x) => x.error ? `<tr><td>${esc(x.fileName)}</td><td colspan="9" class="late">${esc(x.error)}</td><td></td></tr>` : `<tr>
+          <td>${name(x)}</td><td>${x.sum.mode === 'situation' ? 'Situation' : 'Bilan'}${x.profile === 'pharmacie' ? ' · officine' : ''}</td>
+          <td class="${x.sum.errors ? 'late' : ''}">${x.sum.errors}</td><td>${x.sum.total}</td><td class="small">${cyc(x) || '—'}</td><td>${x.sum.pieces}</td><td>${x.sum.ecr}</td>
+          <td class="${x.sum.impact < 0 ? 'cred' : ''}">${x.sum.ecr ? eur(x.sum.impact, 0) : ''}</td><td>${eurK(x.sum.ca)}</td><td class="${x.sum.resultat < 0 ? 'cred' : ''}">${eurK(x.sum.resultat)}</td>
+          <td><button class="btn small" data-action="batch-open" data-i="${x.i}">Ouvrir</button></td></tr>`).join('')}</tbody></table></div>
+        <p class="muted small">Classement : anomalies de conformité d'abord, puis nombre de points de révision restant à traiter. Les FEC sans dossier correspondant (SIREN) peuvent être ouverts et rattachés manuellement.</p>
+      </section>`;
+  }
+
+  function batchExport() {
+    const t = (v, s) => ({ v, s: s === undefined ? 2 : s });
+    const n = (v, s) => ({ v: Number(v) || 0, s: s || 8 });
+    const rows = [['Dossier', 'Fichier', 'Travail', 'Profil', 'Anomalies', 'Points à traiter', 'Achats', 'Charges externes', 'Clients', 'Trésorerie', 'Généraux', 'Pièces à demander', 'Écritures proposées', 'Impact résultat', 'CA', 'Résultat', 'Trésorerie fin'].map((c) => t(c, 1))]
+      .concat(batchItems().filter((x) => x.sum).map((x) => {
+        const c = clientById(x.st.clientId);
+        return [t(c ? clientLabel(c) : ''), t(x.fileName), t(x.sum.mode === 'situation' ? 'Situation' : 'Bilan'), t(x.profile === 'pharmacie' ? 'Pharmacie' : 'Classique'),
+          n(x.sum.errors, 2), n(x.sum.total, 2), n(x.sum.left.achats || 0, 2), n(x.sum.left.charges || 0, 2), n(x.sum.left.clients || 0, 2), n(x.sum.left.treso || 0, 2), n(x.sum.left.gen || 0, 2),
+          n(x.sum.pieces, 2), n(x.sum.ecr, 2), n(x.sum.impact), n(x.sum.ca), n(x.sum.resultat), n(x.sum.treso)];
+      }));
+    const blob = XlsxWriter.build({ sheets: [{ name: 'Portefeuille', rows, widths: [34, 30, 11, 11, 11, 13, 9, 11, 9, 11, 10, 12, 12, 14, 14, 14, 14], freeze: { row: 1 } }] });
+    download(`portefeuille-fec-${todayStr()}.xlsx`, blob, blob.type);
+  }
+
+  function pickFiles(accept) {
+    return new Promise((resolve) => {
+      const input = $('#file-input');
+      input.value = '';
+      input.accept = accept;
+      input.multiple = true;
+      input.onchange = () => {
+        const files = Array.from(input.files || []);
+        input.multiple = false;
+        resolve(files);
+      };
+      input.click();
+    });
+  }
+
+  // ---------- Feuille de travail de révision (statuts, commentaires, mémoire du dossier) ----------
+
+  const WP_ST = { '': 'À traiter', justifie: 'Justifié', corrige: 'Corrigé', piece: 'Pièce demandée', na: 'Sans objet' };
+  const WP_DONE = ['justifie', 'corrige', 'na'];
+  const wpKey = (cycle, label) => `${cycle}:${norm(label).replace(/[\d\s.,€%:()'’-]+/g, ' ').trim()}`;
+  // Signature d'un exemple, sans dates ni montants : « CB NETFLIX.COM » reste reconnu d'une année sur l'autre.
+  const exSig = (s) => norm(s).replace(/\d+/g, ' ').replace(/[^a-z]+/g, ' ').trim().slice(0, 120);
+
+  // Feuille de l'exercice analysé : dans le dossier (chiffrée) si l'analyse y est rattachée, sinon en mémoire le temps de la session.
+  function wpStore() {
+    const f = ui.fec;
+    const r = f.result;
+    const c = clientById(f.clientId);
+    const key = r.meta.closing || r.meta.fileName;
+    if (c) {
+      c.revision = c.revision || {};
+      return (c.revision[key] = c.revision[key] || { items: {}, cycles: {}, fileName: r.meta.fileName });
+    }
+    return (f.wp = f.wp || { items: {}, cycles: {} });
+  }
+  function wpMemo() {
+    const c = clientById(ui.fec.clientId);
+    if (c) return (c.revisionMemo = c.revisionMemo || {});
+    return (ui.fec.memo = ui.fec.memo || {});
+  }
+  function wpSave() {
+    if (clientById(ui.fec.clientId)) persist();
+  }
+
+  // Applique la mémoire du dossier : éléments et contrôles justifiés lors d'une revue précédente.
+  function applyMemo(list, cycle) {
+    const memo = wpMemo();
+    return list.map((x) => {
+      if (x.level === 'ok' || x.linked) return x;
+      const k = wpKey(cycle, x.label);
+      if (memo[k + '|*']) {
+        const m = memo[k + '|*'];
+        return Object.assign({}, x, { level: 'ok', memo: true, examples: [], detail: `Justifié lors d'une revue précédente (${m.by || ''} ${m.at ? fmtDate(m.at.slice(0, 10)) : ''})${m.note ? ' : ' + m.note : ''}.` });
+      }
+      if (!x.examples || !x.examples.length) return x;
+      const kept = x.examples.filter((e) => !memo[k + '|' + exSig(e)]);
+      const hidden = x.examples.length - kept.length;
+      if (!hidden) return x;
+      if (!kept.length && x.full) return Object.assign({}, x, { level: 'ok', memo: true, examples: [], detail: `${hidden} élément(s) justifié(s) lors d'une revue précédente.` });
+      return Object.assign({}, x, { examples: kept, hiddenEx: hidden, detail: `${x.detail} (${hidden} élément(s) déjà justifié(s) masqué(s).)` });
+    });
+  }
+
+  // Le dossier a-t-il mémorisé ce contrôle (text = '*') ou un élément dont le libellé contient `text` ?
+  function memoHas(cycle, label, text) {
+    const memo = wpMemo();
+    const k = wpKey(cycle, label) + '|';
+    if (memo[k + '*']) return true;
+    if (text === '*') return false;
+    const sig = exSig(text);
+    return !!sig && Object.keys(memo).some((m) => m.startsWith(k) && m.slice(k.length).includes(sig));
+  }
+
+  function wpItem(cycle, x) {
+    return wpStore().items[wpKey(cycle, x.label)] || {};
+  }
+  function wpProgress(cycle, list) {
+    const todo = list.filter((x) => (x.level === 'error' || x.level === 'warn') && !x.linked);
+    const done = todo.filter((x) => WP_DONE.includes(wpItem(cycle, x).st || ''));
+    const wait = todo.filter((x) => wpItem(cycle, x).st === 'piece');
+    return { total: todo.length, done: done.length, wait: wait.length, left: todo.length - done.length - wait.length };
+  }
+
+  // Liste de contrôles avec, pour chaque point, le statut de révision, un commentaire et la mémoire du dossier.
+  function wpCheckList(list, cycle) {
+    const order = { error: 0, warn: 1, info: 2, ok: 3 };
+    if (!list.length) return '<p class="muted">Aucun point relevé.</p>';
+    return `<ul class="fec-checks wp">${list.slice().sort((a, b) => order[a.level] - order[b.level]).map((c) => {
+      const k = wpKey(cycle, c.label);
+      const it = wpStore().items[k] || {};
+      const actionable = c.level !== 'ok' && !c.linked;
+      const ex = c.examples && c.examples.length;
+      return `<li class="fec-check${it.st && WP_DONE.includes(it.st) ? ' wp-done' : ''}">
+        ${ex ? '<details><summary>' : '<div class="fec-check-row">'}
+          ${levelBadge(c.level)}
+          <span class="fec-check-text"><span><strong>${esc(c.label)}</strong>${c.linked ? ' <span class="muted small">(point général)</span>' : ''}</span>${c.detail ? `<span class="muted small">${esc(c.detail)}</span>` : ''}</span>
+        ${ex ? `</summary><ul class="fec-ex">${c.examples.map((e) => `<li><span>${esc(e)}</span>${actionable ? `<button class="link-btn" data-action="wp-memo" data-k="${esc(k)}" data-sig="${esc(exSig(e))}" data-label="${esc(e.slice(0, 120))}" title="Ne plus signaler cet élément pour ce dossier">Justifié</button>` : ''}</li>`).join('')}</ul></details>` : '</div>'}
+        ${actionable ? `<div class="wp-row">
+          <select data-wp="st" data-k="${esc(k)}" aria-label="Statut de révision">${Object.entries(WP_ST).map(([v, l]) => `<option value="${v}"${(it.st || '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+          <input type="text" data-wp="note" data-k="${esc(k)}" value="${esc(it.note || '')}" placeholder="Commentaire de révision" aria-label="Commentaire">
+          ${it.by ? `<span class="muted small">${esc(it.by)}, ${fmtDate(it.at.slice(0, 10))}</span>` : ''}
+          <button class="link-btn" data-action="wp-memo" data-k="${esc(k)}" data-sig="*" data-label="${esc(c.label)}" title="Ne plus signaler ce contrôle pour ce dossier">Ne plus signaler</button>
+        </div>` : ''}
+      </li>`;
+    }).join('')}</ul>`;
+  }
+
+  function wpCycleBar(cycle, list) {
+    const pg = wpProgress(cycle, list);
+    const rev = wpStore().cycles[cycle];
+    return `<div class="wp-bar">
+      <span class="wp-progress"><span class="wp-track"><i data-w="${pg.total ? Math.round((pg.done / pg.total) * 100) : 100}"></i></span>${pg.done} / ${pg.total} point(s) traité(s)${pg.wait ? ` · ${pg.wait} en attente de pièce` : ''}</span>
+      ${rev ? `<span class="lvl lvl-ok"><b aria-hidden="true">✓</b>Revu${rev.by ? ` par ${esc(rev.by)}` : ''} le ${fmtDate(rev.at.slice(0, 10))}</span><button class="link-btn" data-action="wp-review" data-cycle="${cycle}" data-undo="1">Annuler</button>`
+        : `<button class="btn small" data-action="wp-review" data-cycle="${cycle}">Marquer le cycle comme revu</button>`}
+    </div>`;
+  }
+
+  function wpSetItem(k, patch) {
+    const items = wpStore().items;
+    const it = Object.assign(items[k] || {}, patch, { by: data.settings.utilisateur || '', at: nowIso() });
+    if (!it.st && !it.note) delete items[k];
+    else items[k] = it;
+    wpSave();
+  }
+
+  async function wpMemoAdd(k, sig, label) {
+    const note = await ask({ title: 'Ne plus signaler pour ce dossier', message: `« ${esc(label)} » ne sera plus signalé lors des prochaines analyses de ce dossier. Justification (facultatif) :`, input: { placeholder: 'ex. abonnement professionnel (veille), validé avec le dirigeant' }, okLabel: 'Ne plus signaler' });
+    if (note === false || note === null || note === undefined) return;
+    wpMemo()[`${k}|${sig}`] = { label, note: typeof note === 'string' ? note.trim() : '', by: data.settings.utilisateur || '', at: nowIso() };
+    wpSave();
+    if (!clientById(ui.fec.clientId)) toast('Rattachez l\'analyse à un dossier pour mémoriser ce choix d\'une année sur l\'autre.');
+    refresh();
+  }
+
+  // Dossier de travail imprimable : chiffres clés, contrôles par cycle avec statut, commentaire et revue.
+  function workpaperHtml() {
+    const f = ui.fec;
+    const r = f.result;
+    const c = clientById(f.clientId);
+    const cc = cycleChecks(r);
+    const st = wpStore();
+    const k = r.kpi;
+    const sections = Object.keys(CYCLES).filter((key) => cc[key] && (key !== 'clients' || ui.fecProfile !== 'pharmacie'));
+    const row = (cycle, x) => {
+      const it = st.items[wpKey(cycle, x.label)] || {};
+      return `<tr><td>${esc((LEVEL[x.level] || LEVEL.info).label)}</td><td><strong>${esc(x.label)}</strong><div class="note-sub">${esc(x.detail || '')}</div></td><td>${esc(x.level === 'ok' ? '—' : WP_ST[it.st || ''])}</td><td>${esc(it.note || '')}</td></tr>`;
+    };
+    const gen = applyMemo(fecPoints(r), 'gen');
+    const block = (title, cycle, list) => {
+      const rev = st.cycles[cycle];
+      return `<h2>${esc(title)}</h2><p class="note-sub">${rev ? `Revu${rev.by ? ` par ${esc(rev.by)}` : ''} le ${fmtDate(rev.at.slice(0, 10))}` : 'Revue non signée'}</p>
+        <table class="note-table wp-table"><thead><tr><th>Niveau</th><th>Contrôle</th><th>Statut</th><th>Commentaire</th></tr></thead><tbody>${list.filter((x) => !x.linked).map((x) => row(cycle, x)).join('') || '<tr><td colspan="4">Aucun point.</td></tr>'}</tbody></table>`;
+    };
+    const ecr = r.cycles ? ecrProposals(r).filter((p) => p.on) : [];
+    return `<article class="note">
+      <header class="note-head">
+        <div><div class="note-cab">${esc(data.settings.cabinet || '')}</div><h1>Dossier de travail — révision</h1>
+        <div class="note-sub">${esc(c ? c.nom : r.meta.fileName)}${r.meta.closing ? ` — exercice clos le ${fmtDate(r.meta.closing)}` : ''}</div></div>
+        <div class="note-date">${fmtDate(todayStr())}${data.settings.utilisateur ? `<br>${esc(data.settings.utilisateur)}` : ''}</div>
+      </header>
+      <h2>Chiffres clés</h2>
+      <table class="note-table"><tbody>
+        <tr><td>Chiffre d'affaires</td><td>${eur(k.ca, 0)} €</td></tr><tr><td>Excédent brut d'exploitation</td><td>${eur(k.ebe, 0)} €</td></tr>
+        <tr><td>Résultat net (avant écritures proposées)</td><td>${eur(k.resultat, 0)} €</td></tr><tr><td>Trésorerie</td><td>${eur(k.tresorerie, 0)} €</td></tr>
+        <tr><td>Fichier analysé</td><td>${esc(r.meta.fileName)} (${r.meta.lines.toLocaleString('fr-FR')} lignes)</td></tr>
+      </tbody></table>
+      ${block('Points de révision généraux', 'gen', gen)}
+      ${sections.map((key) => block(CYCLES[key], key, cc[key])).join('')}
+      ${ecr.length ? `<h2>Écritures proposées retenues</h2><table class="note-table"><thead><tr><th>Écriture</th><th>Montant</th><th>Impact résultat</th></tr></thead><tbody>
+        ${ecr.map((p) => `<tr><td>${esc(p.label)}</td><td>${eur(p.amount)} €</td><td>${eur(ecrImpact(p.lines))} €</td></tr>`).join('')}</tbody></table>` : ''}
+      <p class="note-foot">Établi à partir du FEC, sur l'appareil du cabinet. Document de travail interne couvert par le secret professionnel.</p>
+    </article>`;
+  }
+
+  function printHtml(html) {
+    let area = $('#print-area');
+    if (!area) {
+      area = document.createElement('div');
+      area.id = 'print-area';
+      document.body.appendChild(area);
+    }
+    area.innerHTML = html;
+    document.body.classList.add('printing');
+    const done = () => {
+      document.body.classList.remove('printing');
+      area.innerHTML = '';
+      window.removeEventListener('afterprint', done);
+    };
+    window.addEventListener('afterprint', done);
+    window.print();
+  }
+
+  // ---------- Écritures de clôture proposées (import ACD / Pennylane) ----------
+
+  const round2 = (n) => Math.round(n * 100) / 100 || 0;
+
+  // Longueur habituelle des comptes généraux du dossier (6, 8 chiffres…).
+  function acctLen(r) {
+    if (r._len) return r._len;
+    const n = {};
+    r.balance.forEach((b) => { if (/^[67]\d+$/.test(b.compte)) n[b.compte.length] = (n[b.compte.length] || 0) + 1; });
+    const len = Number(Object.keys(n).sort((a, b) => n[b] - n[a])[0]) || 6;
+    Object.defineProperty(r, '_len', { value: len, configurable: true });
+    return len;
+  }
+
+  // Compte du dossier commençant par `prefix` (le plus mouvementé), sinon compte standard complété par des zéros.
+  function acctOf(r, prefix) {
+    const list = r.balance.filter((b) => b.compte.startsWith(prefix));
+    if (list.length) return list.sort((a, b) => b.d + b.c - (a.d + a.c))[0].compte;
+    return prefix.padEnd(acctLen(r), '0');
+  }
+  const STD_LIB = {
+    486: "Charges constatées d'avance", 487: "Produits constatés d'avance", 416: 'Clients douteux ou litigieux', 491: 'Dépréciations des comptes clients',
+    6817: 'Dotations aux dépréciations des actifs circulants', 6712: 'Pénalités et amendes', 695: 'Impôts sur les bénéfices', 444: 'État - impôt sur les bénéfices',
+    4456: 'TVA déductible', 408: 'Fournisseurs - factures non parvenues', 418: 'Clients - factures à établir',
+  };
+  const acctLib = (r, compte) => {
+    const b = r.balance.find((x) => x.compte === compte);
+    if (b) return b.lib;
+    const k = Object.keys(STD_LIB).sort((a, b) => b.length - a.length).find((p) => compte.startsWith(p));
+    return k ? STD_LIB[k] : '';
+  };
+
+  // Contrepartie présumée pour l'extourne d'une régularisation de l'exercice précédent.
+  function largest(r, prefixes) {
+    const list = r.balance.filter((b) => prefixes.some((p) => b.compte.startsWith(p)));
+    if (!list.length) return prefixes[0].padEnd(acctLen(r), '0');
+    return list.sort((a, b) => Math.abs(b.dm - b.cm) - Math.abs(a.dm - a.cm))[0].compte;
+  }
+  const REGUL = [
+    ['408', 'C', ['60', '61', '62'], "Extourne des factures non parvenues de l'exercice précédent"],
+    ['418', 'D', ['70'], "Extourne des factures à établir de l'exercice précédent"],
+    ['486', 'D', ['61', '62', '60'], "Extourne des charges constatées d'avance de l'exercice précédent"],
+    ['487', 'C', ['70'], "Extourne des produits constatés d'avance de l'exercice précédent"],
+    ['4286', 'C', ['641'], "Extourne des dettes de congés payés et charges à payer (personnel) de l'exercice précédent"],
+    ['4386', 'C', ['645'], "Extourne des charges sociales à payer de l'exercice précédent"],
+    ['4486', 'C', ['63'], "Extourne des impôts et taxes à payer de l'exercice précédent"],
+    ['4686', 'C', ['62', '61'], "Extourne des charges à payer diverses de l'exercice précédent"],
+    ['4198', 'C', ['709', '70'], "Extourne des avoirs à établir de l'exercice précédent"],
+    ['4098', 'D', ['609', '60'], "Extourne des rabais et remises à obtenir de l'exercice précédent"],
+  ];
+
+  function ecrState() {
+    const f = ui.fec;
+    if (!f.ecr) f.ecr = { off: new Set(), amounts: {}, cptes: {}, journal: 'OD', date: '', extourne: false, taux: 50 };
+    if (!f.ecr.date) f.ecr.date = isSituation(f.result) ? defaultArrete(f.result, 'situation') : f.result.meta.closing || pharmaRef(f.result);
+    return f.ecr;
+  }
+
+  // Propositions : { id, group, label, why, amount, editable, cpte (contrepartie modifiable), extournable, make(amount, cpte) → lignes }.
+  function ecrProposals(r) {
+    if (!r.cycles) return [];
+    const cy = r.cycles;
+    const st = ecrState();
+    const out = [];
+    const L = (compte, lib, d, c, aux) => ({ compte, lib, d: round2(d), c: round2(c), aux: aux || null });
+    const add = (p) => out.push(p);
+    const dt = fmtDate;
+    const closing = r.meta.closing;
+
+    // 1. Charges constatées d'avance probables
+    if (closing) cy.charges.cca.forEach((x, i) => add({
+      id: `cca:${x.compte}:${x.date}:${i}`, group: "Charges et produits constatés d'avance", extournable: true, editable: true, amount: x.cca,
+      label: `CCA — ${x.label}`, why: `Paiement du ${dt(x.date)} de ${eur(x.amt)} € (${x.compte}), période présumée de ${x.cover} mois : montant à ajuster selon la facture.`,
+      make: (a) => [L(acctOf(r, '486'), `CCA ${x.label}`, a, 0), L(x.compte, `CCA ${x.label}`, 0, a)],
+    }));
+    // 2. Pièces de l'exercice suivant comptabilisées dans l'exercice
+    [...cy.achats.cut.after.items, ...cy.charges.cut.after.items].forEach((x, i) => add({
+      id: `cutc:${x.compte}:${x.date}:${i}`, group: "Charges et produits constatés d'avance", extournable: true, editable: true, amount: x.amt,
+      label: `Charge de l'exercice suivant — ${x.lib}`, why: `Pièce du ${dt(x.pdate)} saisie le ${dt(x.date)} sur ${x.compte} : neutralisée en charge constatée d'avance.`,
+      make: (a) => [L(acctOf(r, '486'), `CCA ${x.lib}`, a, 0), L(x.compte, `CCA ${x.lib}`, 0, a)],
+    }));
+    if (ui.fecProfile !== 'pharmacie') cy.clients.cut.after.items.forEach((x, i) => add({
+      id: `cutv:${x.compte}:${x.date}:${i}`, group: "Charges et produits constatés d'avance", extournable: true, editable: true, amount: x.amt,
+      label: `Produit de l'exercice suivant — ${x.lib}`, why: `Facture du ${dt(x.pdate)} saisie le ${dt(x.date)} sur ${x.compte} : neutralisée en produit constaté d'avance.`,
+      make: (a) => [L(x.compte, `PCA ${x.lib}`, a, 0), L(acctOf(r, '487'), `PCA ${x.lib}`, 0, a)],
+    }));
+
+    // 3. Régularisations de l'exercice précédent non extournées
+    if (r.meta.hasAN) REGUL.forEach(([prefix, side, cp, label]) => {
+      r.balance.filter((b) => b.compte.startsWith(prefix) && Math.abs(b.an) >= 1).forEach((b) => {
+        const rest = round2(Math.abs(b.an) - (b.an < 0 ? b.dm : b.cm));
+        if (rest < 1) return;
+        const id = `regul:${b.compte}`;
+        add({
+          id, group: "Extournes de l'exercice précédent", extournable: false, editable: true, amount: rest, cpte: largest(r, cp),
+          label: `${label} (${b.compte})`, why: `À-nouveau de ${eur(Math.abs(b.an))} €, dont ${eur(rest)} € non extournés. Contrepartie présumée : vérifiez le compte.`,
+          make: (a, c) => (side === 'C' ? [L(b.compte, label, a, 0), L(c, label, 0, a)] : [L(c, label, a, 0), L(b.compte, label, 0, a)]),
+        });
+      });
+    });
+
+    // 4. Dépréciation des créances clients échues depuis plus de 90 jours
+    if (ui.fecProfile !== 'pharmacie' && closing) {
+      const od = overdue(r, '411', closing, fecTerme());
+      const { mv, solde } = sums(r);
+      const tx = r.kpi.ca > 0 ? Math.min(0.2, Math.max(0, -mv(['4457']) / r.kpi.ca)) : 0.2;
+      const dep = -solde(['491']);
+      if (dep < 0.01) od.tiers.filter((t) => t.b91 >= 50).forEach((t) => {
+        const ht = round2(t.b91 / (1 + tx));
+        add({
+          id: `dep:${t.num}`, group: 'Dépréciation des créances', extournable: false, editable: true, amount: round2((ht * st.taux) / 100),
+          label: `Dépréciation de la créance ${t.lib}`, why: `${eur(t.b91)} € TTC échus depuis plus de 90 jours (${oldestTxt(t)}), soit ${eur(ht)} € HT ; dotation proposée à ${st.taux} % du HT, à apprécier selon le risque.`,
+          make: (a) => [
+            L(acctOf(r, '416'), `Reclassement ${t.lib} en douteux`, t.b91, 0), L(acctOf(r, '411'), `Reclassement ${t.lib} en douteux`, 0, t.b91, { num: t.num, lib: t.lib }),
+            L(acctOf(r, '6817'), `Dépréciation ${t.lib}`, a, 0), L(acctOf(r, '491'), `Dépréciation ${t.lib}`, 0, a),
+          ],
+        });
+      });
+      const douteux = solde(['416']);
+      if (douteux > 0.01 && dep < 0.01) add({
+        id: 'dep:416', group: 'Dépréciation des créances', extournable: false, editable: true, amount: round2((douteux / (1 + tx)) * st.taux / 100),
+        label: 'Dépréciation des clients douteux (416)', why: `${eur(douteux)} € TTC en 416 sans dépréciation ; dotation proposée à ${st.taux} % du HT.`,
+        make: (a) => [L(acctOf(r, '6817'), 'Dépréciation clients douteux', a, 0), L(acctOf(r, '491'), 'Dépréciation clients douteux', 0, a)],
+      });
+    }
+
+    // 5. Corrections
+    cy.achats.dupStrong.items.forEach((x, i) => add({
+      id: `dup:${x.sup}:${x.piece}:${i}`, group: 'Corrections', extournable: false, editable: false, amount: x.ttc,
+      label: `Annulation de la facture en double ${x.piece} — ${x.supLib}`, why: `Facture de ${eur(x.ttc)} € TTC saisie deux fois (la seconde le ${dt(x.date)}) : à confirmer sur le relevé fournisseur.`,
+      make: () => [L(acctOf(r, '401'), `Annulation doublon ${x.piece}`, x.ttc, 0, { num: x.sup, lib: x.supLib }), L(x.compte, `Annulation doublon ${x.piece}`, 0, x.ht)]
+        .concat(x.tva > 0.005 ? [L(acctOf(r, '4456'), `Annulation doublon ${x.piece}`, 0, x.tva)] : []),
+    }));
+    const amendes = {};
+    cy.charges.amendes.items.forEach((x) => { if (x.compte && !x.compte.startsWith('6712')) amendes[x.compte] = round2((amendes[x.compte] || 0) + x.amt); });
+    Object.entries(amendes).forEach(([compte, amt]) => add({
+      id: `amende:${compte}`, group: 'Corrections', extournable: false, editable: true, amount: amt,
+      label: `Reclassement des amendes et pénalités (${compte})`, why: 'Non déductibles : isolées en 6712 pour être réintégrées sur la 2058-A.',
+      make: (a) => [L(acctOf(r, '6712'), 'Reclassement amendes', a, 0), L(compte, 'Reclassement amendes', 0, a)],
+    }));
+    cy.charges.giftVat.items.forEach((x, i) => add({
+      id: `gift:${x.date}:${i}`, group: 'Corrections', extournable: false, editable: true, amount: x.amt,
+      label: `TVA non récupérable sur cadeaux — ${x.lib}`, why: `TVA déduite le ${dt(x.date)} sur des cadeaux de plus de 73 € TTC.`,
+      make: (a) => [L(x.compte, 'TVA non récupérable cadeaux', a, 0), L(acctOf(r, '4456'), 'TVA non récupérable cadeaux', 0, a)],
+    }));
+    cy.achats.autoliq.items.forEach((x, i) => add({
+      id: `autoliq:${x.date}:${i}`, group: 'Corrections', extournable: false, editable: true, amount: x.amt,
+      label: `Déduction de la TVA autoliquidée — ${x.sup}`, why: `Facture ${x.piece || ''} du ${dt(x.date)} : TVA autoliquidée non déduite (à vérifier : droit à déduction total ?).`,
+      make: (a) => [L(acctOf(r, '4456'), 'TVA autoliquidée déductible', a, 0), L(x.compte, 'TVA autoliquidée déductible', 0, a)],
+    }));
+
+    const finish = (p) => {
+      p.amount = round2(st.amounts[p.id] !== undefined ? st.amounts[p.id] : p.amount);
+      p.cpteValue = p.cpte ? st.cptes[p.id] || p.cpte : null;
+      p.lines = p.make(p.amount, p.cpteValue).filter((l) => l.d || l.c);
+      p.on = !st.off.has(p.id);
+      return p;
+    };
+    out.forEach(finish);
+
+    // 6. Situation : charges annuelles au prorata
+    const pj = projection(r);
+    if (pj) pj.annual.forEach((a) => {
+      // Compte de contrepartie : celui du dossier (situation ou exercice précédent), sinon compte standard.
+      const any = (prefix) => (r.balance.some((b) => b.compte.startsWith(prefix)) || !pj.full.balance.some((b) => b.compte.startsWith(prefix)) ? acctOf(r, prefix) : acctOf(pj.full, prefix));
+      const cp = /^681/.test(a.compte) ? any('28') : /^63/.test(a.compte) ? any('4486') : /^641/.test(a.compte) ? any('4286') : /^64/.test(a.compte) ? any('4386') : any('4686');
+      out.push(finish({
+        id: `sit:${a.compte}`, group: 'Situation : charges annuelles au prorata', extournable: true, editable: true, amount: a.prorata, cpte: cp,
+        label: `${a.lib} (${a.compte}) au prorata`, why: `${eur(a.full, 0)} € sur l'exercice précédent, comptabilisés après la date de situation : ${Math.round(pj.ratio * 100)} % à étaler. Contrepartie présumée à vérifier.`,
+        make: (amt, c2) => [L(a.compte, `Situation ${a.lib}`, amt, 0), L(c2, `Situation ${a.lib}`, 0, amt)],
+      }));
+    });
+
+    // 7. Impôt sur les sociétés estimé, après prise en compte des autres écritures retenues
+    const c = clientById(ui.fec.clientId);
+    const isCo = c ? presumedIS(c) : r.balance.some((b) => /^(695|444)/.test(b.compte));
+    if (closing && yearEnd(r) && isCo) {
+      const { mv } = sums(r);
+      const isBooked = mv(['695']);
+      const reint = mv(['6712']) + Object.values(amendes).reduce((s, v) => s + v, 0);
+      const other = out.filter((p) => p.on).reduce((s, p) => s + ecrImpact(p.lines), 0);
+      const base = r.kpi.resultat + isBooked + other + reint;
+      if (base > 0) {
+        const is = round2(Math.min(base, 42500) * 0.15 + Math.max(0, base - 42500) * 0.25 - isBooked);
+        if (is >= 1) out.push(finish({
+          id: 'is', group: 'Impôt sur les sociétés', extournable: false, editable: true, amount: is,
+          label: 'Impôt sur les sociétés estimé', why: `Résultat avant impôt ${eur(r.kpi.resultat + isBooked, 0)} €${other ? `, écritures retenues ci-dessus ${other > 0 ? '+' : ''}${eur(other, 0)} €` : ''}, amendes réintégrées ${eur(reint, 0)} € : base ${eur(base, 0)} €. 15 % jusqu'à 42 500 € (taux réduit PME, sous conditions) puis 25 %, moins l'IS déjà comptabilisé (${eur(isBooked, 0)} €). Hors autres retraitements fiscaux.`,
+          make: (a) => [L(acctOf(r, '695'), 'Impôt sur les sociétés', a, 0), L(acctOf(r, '444'), 'Impôt sur les sociétés', 0, a)],
+        }));
+      }
+    }
+    return out;
+  }
+
+  const ecrImpact = (lines) => lines.reduce((s, l) => s + (/^7/.test(l.compte) ? l.c - l.d : /^6/.test(l.compte) ? -(l.d - l.c) : 0), 0);
+
+  // Écritures retenues, numérotées, avec leur extourne éventuelle au lendemain.
+  function ecrEntries(r) {
+    const st = ecrState();
+    const list = ecrProposals(r).filter((p) => p.on && p.lines.length);
+    const next = addDays(st.date, 1);
+    const entries = [];
+    list.forEach((p) => {
+      entries.push({ date: st.date, label: p.label, lines: p.lines });
+      if (st.extourne && p.extournable) entries.push({ date: next, label: `Extourne — ${p.label}`, lines: p.lines.map((l) => ({ ...l, d: l.c, c: l.d, lib: `Extourne ${l.lib}` })) });
+    });
+    entries.forEach((e, i) => { e.num = i + 1; e.piece = `REV${String(i + 1).padStart(3, '0')}`; });
+    return entries;
+  }
+
+  function ecrFileBase(r) {
+    return `ecritures-revision-${r.meta.siren || 'dossier'}-${(ecrState().date || '').replace(/-/g, '')}`;
+  }
+
+  // Format FEC (art. A47 A-1) : importable dans ACD (import FEC) et Pennylane.
+  function exportEcrFec(r) {
+    const st = ecrState();
+    const amt = (v) => (v ? v.toFixed(2).replace('.', ',') : '0,00');
+    const clean = (s) => String(s || '').replace(/[\t\r\n]+/g, ' ');
+    const head = ['JournalCode', 'JournalLib', 'EcritureNum', 'EcritureDate', 'CompteNum', 'CompteLib', 'CompAuxNum', 'CompAuxLib', 'PieceRef', 'PieceDate', 'EcritureLib', 'Debit', 'Credit', 'EcritureLet', 'DateLet', 'ValidDate', 'Montantdevise', 'Idevise'];
+    const rows = [head.join('\t')];
+    ecrEntries(r).forEach((e) => {
+      const d = e.date.replace(/-/g, '');
+      e.lines.forEach((l) => rows.push([st.journal, 'Opérations diverses', e.num, d, l.compte, clean(acctLib(r, l.compte)), l.aux ? l.aux.num : '', l.aux ? clean(l.aux.lib) : '', e.piece, d, clean(l.lib), amt(l.d), amt(l.c), '', '', '', '', ''].join('\t')));
+    });
+    download(`${ecrFileBase(r)}.txt`, rows.join('\r\n') + '\r\n', 'text/plain;charset=utf-8');
+  }
+
+  // Tableur (Excel ou CSV) : une ligne par mouvement, pour l'import paramétrable d'ACD ou l'import d'écritures de Pennylane.
+  function ecrRows(r) {
+    const st = ecrState();
+    const rows = [];
+    ecrEntries(r).forEach((e) => e.lines.forEach((l) => rows.push({
+      journal: st.journal, date: fmtDate(e.date), piece: e.piece, compte: l.compte, aux: l.aux ? l.aux.num : '', auxLib: l.aux ? l.aux.lib : '',
+      clib: acctLib(r, l.compte), lib: l.lib, d: l.d, c: l.c,
+    })));
+    return rows;
+  }
+  const ECR_COLS = ['Journal', 'Date', 'N° de pièce', 'Compte', 'Compte auxiliaire', 'Libellé du compte auxiliaire', 'Libellé du compte', "Libellé de l'écriture", 'Débit', 'Crédit'];
+
+  function exportEcrXlsx(r) {
+    const t = (v, s) => ({ v, s: s === undefined ? 2 : s });
+    const n = (v) => ({ v: Number(v) || 0, s: 8 });
+    const rows = [ECR_COLS.map((c) => t(c, 1))].concat(ecrRows(r).map((x) => [t(x.journal), t(x.date), t(x.piece), t(x.compte), t(x.aux), t(x.auxLib), t(x.clib), t(x.lib), n(x.d), n(x.c)]));
+    const blob = XlsxWriter.build({ sheets: [{ name: 'Écritures', rows, widths: [9, 12, 10, 12, 14, 26, 30, 50, 14, 14], freeze: { row: 1 } }] });
+    download(`${ecrFileBase(r)}.xlsx`, blob, blob.type);
+  }
+
+  function exportEcrCsv(r) {
+    const q = (v) => (/[;"\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+    const a = (v) => (v ? v.toFixed(2).replace('.', ',') : '');
+    const lines = [ECR_COLS.join(';')].concat(ecrRows(r).map((x) => [x.journal, x.date, x.piece, x.compte, x.aux, x.auxLib, x.clib, x.lib, a(x.d), a(x.c)].map(q).join(';')));
+    download(`${ecrFileBase(r)}.csv`, '﻿' + lines.join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
+  }
+
+  async function ecrExport(kind) {
+    const r = ui.fec.result;
+    const ok = await ask({ title: 'Fichier non chiffré', message: "Le fichier d'écritures contient des montants et des noms de tiers <strong>non chiffrés</strong>. Importez-le dans votre logiciel puis supprimez-le.", okLabel: 'Exporter' });
+    if (!ok) return;
+    if (kind === 'fec') exportEcrFec(r);
+    else if (kind === 'xlsx') exportEcrXlsx(r);
+    else exportEcrCsv(r);
+    const c = clientById(ui.fec.clientId);
+    if (c) {
+      log(c.id, `Écritures de révision exportées (${ecrEntries(r).length} écriture(s), format ${kind.toUpperCase()}).`, true);
+      persist();
+    }
+  }
+
+  function viewEcritures() {
+    const r = ui.fec.result;
+    const st = ecrState();
+    const props = ecrProposals(r);
+    const on = props.filter((p) => p.on);
+    const impact = on.reduce((s, p) => s + ecrImpact(p.lines), 0);
+    const groups = {};
+    props.forEach((p) => (groups[p.group] = groups[p.group] || []).push(p));
+    const lineTable = (p) => `<div class="grid-wrap"><table class="dtable num ecr-lines"><thead><tr><th>Compte</th><th>Libellé</th><th>Débit</th><th>Crédit</th></tr></thead>
+      <tbody>${p.lines.map((l) => `<tr><td>${esc(l.compte)}${l.aux ? ` <span class="muted small">${esc(l.aux.num)}</span>` : ''}</td><td>${esc(l.lib)}</td><td>${l.d ? eur(l.d) : ''}</td><td>${l.c ? eur(l.c) : ''}</td></tr>`).join('')}</tbody></table></div>`;
+    return `
+      <section class="card">
+        <h2>Écritures de clôture proposées</h2>
+        <p class="muted small">Calculées à partir des contrôles des cycles. Décochez ce qui ne s'applique pas, ajustez les montants estimés, puis exportez le fichier à importer dans <strong>ACD</strong> ou <strong>Pennylane</strong>. Les écritures ne sont pas validées : elles restent modifiables dans votre logiciel après l'import.</p>
+        <div class="filters ecr-opts">
+          <label class="inline-label">Journal <input type="text" data-ecr="journal" value="${esc(st.journal)}" maxlength="6" spellcheck="false" aria-label="Code journal"></label>
+          <label class="inline-label">Date <input type="date" data-ecr="date" value="${esc(st.date)}"></label>
+          <label class="check inline"><input type="checkbox" data-ecr="extourne"${st.extourne ? ' checked' : ''}><span>Extourner les CCA / PCA au ${fmtDate(addDays(st.date, 1))}</span></label>
+          <label class="inline-label">Dépréciation <input type="number" min="0" max="100" step="5" data-ecr="taux" value="${st.taux}" aria-label="Taux de dépréciation"> % du HT</label>
+        </div>
+        <div class="kpis fec-kpis">
+          ${kpiTile('Écritures retenues', `${on.length} / ${props.length}`)}
+          ${kpiTile('Impact sur le résultat', `${impact > 0 ? '+' : ''}${eurK(impact)}`, impact < 0 ? 'kpi-late' : '')}
+          ${kpiTile('Résultat après écritures', eurK(r.kpi.resultat + impact))}
+        </div>
+        <div class="pieces-actions">
+          <button class="btn primary" data-action="ecr-fec"${on.length ? '' : ' disabled'}>Fichier FEC (.txt) — ACD / Pennylane</button>
+          <button class="btn" data-action="ecr-xlsx"${on.length ? '' : ' disabled'}>Excel</button>
+          <button class="btn" data-action="ecr-csv"${on.length ? '' : ' disabled'}>CSV (point-virgule)</button>
+        </div>
+        <p class="muted small">ACD : import d'écritures au format FEC, ou import paramétrable du CSV. Pennylane : import d'écritures (FEC ou tableur). Faites un premier essai sur un dossier test pour valider la correspondance des comptes et du journal.</p>
+      </section>
+      ${props.length ? Object.keys(groups).map((g) => `<section class="card"><h2>${esc(g)} <span class="count">${groups[g].length}</span></h2>
+        ${groups[g].map((p) => `<div class="ecr-prop${p.on ? '' : ' off'}">
+          <label class="check"><input type="checkbox" data-ecr-sel="${esc(p.id)}"${p.on ? ' checked' : ''}><span><strong>${esc(p.label)}</strong><span class="muted small">${esc(p.why)}</span></span></label>
+          <div class="ecr-edit">
+            ${p.editable ? `<label class="inline-label">Montant <input type="number" step="0.01" min="0" data-ecr-amt="${esc(p.id)}" value="${p.amount}"> €</label>` : `<span class="muted small">${eur(p.amount)} €</span>`}
+            ${p.cpte ? `<label class="inline-label">Contrepartie <input type="text" data-ecr-cpte="${esc(p.id)}" value="${esc(p.cpteValue)}" spellcheck="false" maxlength="20"></label>` : ''}
+          </div>
+          ${lineTable(p)}
+        </div>`).join('')}</section>`).join('') : '<section class="card"><p class="muted">Aucune écriture à proposer pour ce FEC : rien à régulariser parmi les points détectés automatiquement.</p></section>'}`;
   }
 
   // Feuilles Excel des cycles : fournisseurs, clients, charges externes, trésorerie.
@@ -4018,7 +4763,7 @@
     const { errors, warnings } = fecCounts(r);
     c.fec = (c.fec || []).filter((x) => x.fileName !== r.meta.fileName).concat({
       id: uid(), date: nowIso(), fileName: r.meta.fileName, closing: r.meta.closing, lines: r.meta.lines, entries: r.meta.entries,
-      errors, warnings, kpi: r.kpi, points: fecPoints(r).concat(cyclePoints(r).filter((a) => a.level === 'error' || a.level === 'warn')).filter((a) => a.level !== 'ok').map((a) => a.label), profil: ui.fecProfile,
+      errors, warnings, kpi: r.kpi, points: genPoints(r).concat(cyclePoints(r).filter((a) => a.level === 'error' || a.level === 'warn')).filter((a) => a.level !== 'ok').map((a) => a.label), profil: ui.fecProfile,
     });
     log(c.id, `Analyse FEC ${r.meta.closing ? 'au ' + r.meta.closing.split('-').reverse().join('/') : r.meta.fileName} : ${errors} anomalie(s), ${warnings} point(s) à vérifier.`, true);
     persist();
@@ -4031,7 +4776,7 @@
     if (!c) return;
     const r = f.result;
     const year = r.meta.closing ? r.meta.closing.slice(0, 4) : (r.meta.maxDate || '').slice(0, 4);
-    const items = r.checks.concat(fecPoints(r), cyclePoints(r)).filter((x) => x.level === 'error' || x.level === 'warn')
+    const items = r.checks.concat(genPoints(r), cyclePoints(r)).filter((x) => x.level === 'error' || x.level === 'warn')
       .sort((a, b) => (a.level === 'error' ? 0 : 1) - (b.level === 'error' ? 0 : 1))
       .map((x) => `${x.cycle ? CYCLES[x.cycle] + ' — ' : ''}${FEC_FAIL[x.id] || x.label}${x.count ? ` (${x.count})` : ''}`);
     const titre = `Revue FEC ${year}`;
@@ -4043,7 +4788,7 @@
       existing.updatedAt = stamp;
     } else {
       data.missions.push({
-        id: uid(), clientId: c.id, type: 'libre', titre, exercice: year, echeance: addDays(todayStr(), 14), statut: 'a_faire', priorite: items.length && r.checks.concat(fecPoints(r), cyclePoints(r)).some((x) => x.level === 'error') ? 'haute' : 'normale',
+        id: uid(), clientId: c.id, type: 'libre', titre, exercice: year, echeance: addDays(todayStr(), 14), statut: 'a_faire', priorite: items.length && r.checks.concat(genPoints(r), cyclePoints(r)).some((x) => x.level === 'error') ? 'haute' : 'normale',
         responsable: c.responsable || c.collaborateur || data.settings.utilisateur, recurrence: 'aucune', notes: `Points relevés par l'analyse du fichier ${r.meta.fileName} le ${fmtDate(todayStr())}.`,
         suiteCreee: false, termineLe: null, createdAt: stamp, updatedAt: stamp, etapes,
       });
@@ -4363,6 +5108,11 @@
             <li><strong>Trésorerie</strong> : découverts, espèces de 1 000 € ou plus, caisse, virements internes non soldés, comptes dormants, flux par nature et mouvements importants.</li>
             <li>Les tableaux des délais de paiement de l'article D441-6 du code de commerce sont calculés pour les clients et les fournisseurs (échéance réglable).</li>
           </ul></li>
+        <li><strong>Feuille de travail</strong> : chaque point de contrôle reçoit un statut (justifié, corrigé, pièce demandée, sans objet) et un commentaire ; « Marquer le cycle comme revu » signe la revue. Tout est conservé, chiffré, dans le dossier, et une nouvelle analyse du même exercice reprend où vous en étiez. « Dossier de travail (PDF) » imprime l'ensemble.</li>
+        <li><strong>Mémoire du dossier</strong> : « Justifié » sur un élément (ex. un abonnement validé) ou « Ne plus signaler » sur un contrôle : il ne sera plus remonté lors des analyses suivantes de ce dossier, y compris l'année prochaine. La liste se gère depuis la fiche du dossier (Mémoire de révision).</li>
+        <li><strong>Écritures</strong> : les écritures de clôture sont proposées à partir des contrôles (charges et produits constatés d'avance, extournes oubliées de l'exercice précédent, dépréciation des créances échues, annulation des factures en double, reclassement des amendes, TVA sur cadeaux, autoliquidation, impôt sur les sociétés estimé, et pour une situation les charges annuelles au prorata). Ajustez les montants et les contreparties, puis exportez le fichier pour <strong>ACD</strong> ou <strong>Pennylane</strong> (format FEC, Excel ou CSV). Faites un premier import sur un dossier test.</li>
+        <li><strong>Situation</strong> : avec le FEC N-1, la situation est comparée à la <strong>même période</strong> de l'exercice précédent, et une projection du résultat de fin d'exercice est calculée, avec les charges annuelles absentes de la situation.</li>
+        <li><strong>Portefeuille</strong> : sélectionnez les FEC de plusieurs dossiers en une fois ; ils sont analysés l'un après l'autre, rattachés par SIREN et classés par charge de révision (anomalies, points à traiter, pièces, écritures).</li>
         <li><strong>Pièces à demander</strong> : choisissez « Situation » ou « Bilan » et la date d'arrêté ; l'application liste les relevés bancaires manquants, les factures récurrentes absentes, les paiements sans facture, les opérations à identifier (471), les acquisitions d'immobilisations, les mois de paie manquants et, pour un bilan, les documents de clôture et les questions sur les créances et dettes anciennes. « Créer la demande » prépare le mail et une mission dont chaque étape est une pièce : cochez-les à réception, la relance ne reprendra que ce qui manque.</li>
         <li><strong>Revue N / N-1</strong> : chargez aussi le FEC de l'exercice précédent. Les postes et les comptes sont comparés, et les variations au-delà du seuil de signification sont listées pour que vous les justifiez. Contrôles de cohérence automatiques : TVA / CA, charges sociales / salaires, amortissements, intérêts, capitaux propres, points fiscaux. La <strong>note de synthèse</strong> s'imprime ou s'enregistre en PDF pour le rendez-vous bilan.</li>
         <li><strong>Rapprochement</strong> : importez le relevé bancaire (CFONB / EBICS, OFX, CAMT.053, CSV ou Excel de la banque). L'application affiche les opérations non comptabilisées, les écritures absentes du relevé et l'état de rapprochement. Les opérations non comptabilisées s'ajoutent aux pièces à demander.</li>
@@ -4920,7 +5670,7 @@
           <header class="modal-head"><h2>${esc(title)}</h2></header>
           <div class="modal-body">
             <p>${message}</p>
-            ${input ? `<input type="${input}" name="value" required spellcheck="false" autocomplete="off">` : ''}
+            ${input ? `<input type="${typeof input === 'object' ? input.type || 'text' : input}" name="value"${typeof input === 'object' && input.optional !== false ? '' : ' required'} placeholder="${esc((typeof input === 'object' && input.placeholder) || '')}" spellcheck="false" autocomplete="off">` : ''}
             ${confirmText ? `<label>Tapez <strong>${esc(confirmText)}</strong> pour confirmer<input name="confirm" required spellcheck="false" autocomplete="off"></label>` : ''}
           </div>
           <footer class="modal-foot"><button type="button" class="btn" data-ask="cancel">Annuler</button><button type="submit" class="btn ${danger ? 'danger' : 'primary'}">${esc(okLabel || 'Confirmer')}</button></footer>
@@ -4961,6 +5711,7 @@
     return new Promise((resolve) => {
       const input = $('#file-input');
       input.value = '';
+      input.multiple = false;
       input.accept = accept || '.json,application/json';
       input.onchange = () => {
         const file = input.files[0];
@@ -5042,6 +5793,7 @@
   // Efface de la mémoire et de l'écran tout ce qui concerne les dossiers (verrouillage, réinitialisation).
   function forgetSession() {
     ui.fecStates = { classique: null, pharmacie: null };
+    ui.batch = null;
     ui.imp = null;
     ui.cab = null;
     ui.cal = null;
@@ -5271,6 +6023,22 @@
       else updateGrilleCell(m);
     },
     'export-grille': () => exportGrille(),
+    'batch-pick': async () => batchRun(await pickFiles('.txt,.csv,.tsv,text/plain')),
+    'batch-open': (el) => {
+      const it = ui.batch && ui.batch.items[Number(el.dataset.i)];
+      if (!it || !it.st) return;
+      ui.fecStates[it.profile] = it.st;
+      location.hash = it.profile === 'pharmacie' ? '#/fec/pharma' : '#/fec';
+    },
+    'batch-save': () => {
+      const list = (ui.batch ? ui.batch.items : []).filter((it) => it.st && it.st.clientId);
+      list.forEach((it) => withFec(it.st, it.profile, () => fecSave()));
+      toast(`Synthèse enregistrée dans ${list.length} dossier(s).`);
+    },
+    'batch-xlsx': async () => {
+      const ok = await ask({ title: 'Export Excel non chiffré', message: 'Le fichier liste les dossiers et leurs chiffres clés, <strong>non chiffrés</strong>. Supprimez-le après usage.', okLabel: 'Exporter' });
+      if (ok) batchExport();
+    },
     'fec-pick': async () => startFec(await pickFile('.txt,.csv,.tsv,text/plain', true)),
     'fec-tab': (el) => {
       ui.fec.section = el.dataset.tab;
@@ -5281,6 +6049,25 @@
       if (ok) fecExport();
     },
     'fec-save': () => fecSave(),
+    'ecr-fec': () => ecrExport('fec'),
+    'wp-memo': (el) => wpMemoAdd(el.dataset.k, el.dataset.sig, el.dataset.label),
+    'wp-review': (el) => {
+      const cy = wpStore().cycles;
+      if (el.dataset.undo) delete cy[el.dataset.cycle];
+      else cy[el.dataset.cycle] = { by: data.settings.utilisateur || '', at: nowIso() };
+      wpSave();
+      refresh();
+    },
+    'wp-print': () => printHtml(workpaperHtml()),
+    'memo-del': (el) => {
+      const c = clientById(el.dataset.id);
+      if (!c || !c.revisionMemo) return;
+      delete c.revisionMemo[el.dataset.k];
+      persist();
+      refresh();
+    },
+    'ecr-xlsx': () => ecrExport('xlsx'),
+    'ecr-csv': () => ecrExport('csv'),
     'fec-switch': (el) => {
       // Le FEC déjà analysé passe dans l'autre analyseur, sans relecture du fichier.
       const st = ui.fec;
@@ -5291,6 +6078,10 @@
     },
     'fec-prev': async () => startFec(await pickFile('.txt,.csv,.tsv,text/plain', true), 'prev'),
     'fec-note': () => openNote(),
+    'prev-mode': (el) => {
+      ui.fec.prevMode = el.dataset.mode;
+      refresh();
+    },
     'rappro-import': () => importStatement(),
     'rappro-reset': () => {
       ui.fec.rappro = null;
@@ -5417,6 +6208,19 @@
       revueComments().note = t.value.trim();
       if (clientById(ui.fec.clientId)) persist();
       $('#modal .note-preview').innerHTML = noteHtml();
+    } else if (t.dataset.wp && ui.fec && ui.fec.result) {
+      if (t.dataset.wp === 'st') { wpSetItem(t.dataset.k, { st: t.value }); refresh(); }
+      else wpSetItem(t.dataset.k, { note: t.value.trim() });
+    } else if ((t.dataset.ecr || t.dataset.ecrSel || t.dataset.ecrAmt || t.dataset.ecrCpte) && ui.fec && ui.fec.result) {
+      const st = ecrState();
+      if (t.dataset.ecrSel) t.checked ? st.off.delete(t.dataset.ecrSel) : st.off.add(t.dataset.ecrSel);
+      else if (t.dataset.ecrAmt) { const v = parseFloat(String(t.value).replace(',', '.')); if (Number.isFinite(v) && v >= 0) st.amounts[t.dataset.ecrAmt] = v; }
+      else if (t.dataset.ecrCpte) { const v = t.value.trim().toUpperCase(); if (/^[1-7][0-9A-Z]{2,19}$/.test(v)) st.cptes[t.dataset.ecrCpte] = v; else toast('Numéro de compte invalide.', true); }
+      else if (t.dataset.ecr === 'journal') st.journal = (t.value.trim().toUpperCase() || 'OD').slice(0, 6);
+      else if (t.dataset.ecr === 'date') { if (t.value) st.date = t.value; }
+      else if (t.dataset.ecr === 'extourne') st.extourne = t.checked;
+      else if (t.dataset.ecr === 'taux') { const v = Number(t.value); if (v >= 0 && v <= 100) { st.taux = v; Object.keys(st.amounts).filter((k) => k.startsWith('dep:')).forEach((k) => delete st.amounts[k]); } }
+      refresh();
     } else if (t.dataset.piece && ui.fec) {
       const st = piecesState();
       t.checked ? st.excluded.delete(t.dataset.piece) : st.excluded.add(t.dataset.piece);

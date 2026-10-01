@@ -15,7 +15,7 @@ const MAX_EXAMPLES = 8;
 
 self.onmessage = (e) => {
   try {
-    self.postMessage({ type: 'done', result: analyse(e.data.buffer, e.data.fileName || '') });
+    self.postMessage({ type: 'done', result: analyse(e.data.buffer, e.data.fileName || '', e.data.until || '') });
   } catch (err) {
     self.postMessage({ type: 'error', message: err.message || String(err) });
   }
@@ -102,7 +102,8 @@ const fmt = (n) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximum
 
 // ---------- Analyse ----------
 
-function analyse(buffer, fileName) {
+// `until` (AAAA-MM-JJ, facultatif) : écritures postérieures ignorées, pour comparer une situation à la même période de l'exercice précédent.
+function analyse(buffer, fileName, until) {
   const { text, encoding } = decode(buffer);
   const checks = [];
   const add = (id, label, level, count, detail, examples) => checks.push({ id, label, level, count, detail: detail || '', examples: examples || [] });
@@ -240,6 +241,7 @@ function analyse(buffer, fileName) {
     const an = isAN(jc, jl);
     if (an) hasAN = true;
     const date = ed.iso || '';
+    if (until && date > until && !an) continue;
     if (date) {
       if (date < minDate) minDate = date;
       if (date > maxDate) maxDate = date;
@@ -350,8 +352,9 @@ function analyse(buffer, fileName) {
         const cyc = compte[0] === '7' ? 'ventes' : compte.startsWith('60') ? 'achats' : 'charges';
         const amt = round2(compte[0] === '7' ? c - d : d - c);
         const exm = `Pièce du ${dmy(pd.iso)} saisie le ${dmy(date)} · ${compte} · ${elib.slice(0, 50)} · ${fmt(amt)} €`;
-        if (pd.iso > closing && date <= closing) addEx(cut[cyc].after, amt, exm);
-        else if (start && pd.iso < start) addEx(cut[cyc].before, amt, exm);
+        const it = { date, pdate: pd.iso, compte, lib: elib.slice(0, 60), amt, piece };
+        if (pd.iso > closing && date <= closing) addEx(cut[cyc].after, amt, exm, 30, it);
+        else if (start && pd.iso < start) addEx(cut[cyc].before, amt, exm, 30, it);
       }
       if (/^6[12]/.test(compte)) {
         let ca = chAcc.get(compte);
@@ -364,7 +367,7 @@ function analyse(buffer, fileName) {
       if (d > 0 && /^(606|61|62|65)/.test(compte)) {
         const t = normTxt(elib);
         const exm = `${dmy(date)} · ${compte} ${clib.slice(0, 25)} · ${elib.slice(0, 50)} · ${fmt(d)} €`;
-        const item = { date, lib: elib.slice(0, 60), amt: round2(d) };
+        const item = { date, lib: elib.slice(0, 60), amt: round2(d), compte };
         if (RE_AMENDE.test(t)) addEx(amendes, d, exm, 12, item);
         else if (RE_PERSO.test(t)) {
           addEx(perso, d, exm, 20, item);
@@ -379,7 +382,7 @@ function analyse(buffer, fileName) {
           const dow = new Date(date + 'T00:00:00Z').getUTCDay();
           if (dow === 0 || dow === 6) addEx(weekend, d, `${dow ? 'Samedi' : 'Dimanche'} ${exm}`);
         }
-        if (compte.startsWith('6234') && d > 73) { addEx(gifts, d, exm); en.gift = true; }
+        if (compte.startsWith('6234') && d > 73) { addEx(gifts, d, exm); en.gift = compte; }
       }
     }
 
@@ -693,7 +696,7 @@ function analyse(buffer, fileName) {
 
   return {
     meta: {
-      fileName, siren, closing, start, encoding, separator: sep === '\t' ? 'tabulation' : sep, lines, entries: entries.size,
+      fileName, siren, closing, start, until: until || '', encoding, separator: sep === '\t' ? 'tabulation' : sep, lines, entries: entries.size,
       accounts: accounts.size, journalsCount: journals.size, minDate, maxDate, bnc, hasAN, totalD: round2(totalD), totalC: round2(totalC),
     },
     checks,
@@ -838,14 +841,15 @@ function buildCycles(x) {
       a.inv++; a.ht += ht; a.tva += tv6; a.ttc += ttc;
       if (!a.first || date < a.first) a.first = date;
       if (date > a.last) a.last = date;
-      purchases.push([supKey, date, ttc, en.piece || '', ref]);
+      purchases.push([supKey, date, ttc, en.piece || '', ref, ht, round2(tv6), main]);
       if (ht >= 150 && tv6 < 0.01 && tv52 < 0.01 && !/^(616|627)/.test(main)) {
         let g = noVatP.get(main);
         if (!g) noVatP.set(main, (g = { compte: main, lib: libOf(main), ...bucket() }));
         addEx(g, ht, `${ref} · ${a.lib} · ${fmt(ht)} € HT`, 5);
       }
       if (tv6 > ht * 0.2 + 1) addEx(overVatP, tv6, `${ref} · ${a.lib} · HT ${fmt(ht)} € · TVA ${fmt(round2(tv6))} € (${(tv6 / ht * 100).toFixed(1).replace('.', ',')} %)`);
-      if (tv52 > 0.01 && tv6 < tv52 - 1) addEx(autoliq, tv52, `${ref} · ${a.lib} · TVA autoliquidée ${fmt(round2(tv52))} €, déduite ${fmt(round2(tv6))} €`);
+      if (tv52 > 0.01 && tv6 < tv52 - 1) addEx(autoliq, tv52, `${ref} · ${a.lib} · TVA autoliquidée ${fmt(round2(tv52))} €, déduite ${fmt(round2(tv6))} €`, 12,
+        { date, sup: a.lib, piece: en.piece || '', amt: round2(tv52 - tv6), compte: main });
     } else if (supNet > 0.005 && ht < -0.005 && !hasTr) {
       const a = agg(sups, supKey);
       a.av++; a.avAmt += supNet; avoirsP += supNet;
@@ -884,7 +888,7 @@ function buildCycles(x) {
       }
     }
     if (c455 > 0.005 && chg > 0.005 && !hasTr) addEx(notesFrais, chg, `${ref} · ${fmt(round2(chg))} €`);
-    if (en.gift && tv6 > 0.01) addEx(giftVat, tv6, `${ref} · TVA déduite ${fmt(round2(tv6))} €`);
+    if (en.gift && tv6 > 0.01) addEx(giftVat, tv6, `${ref} · TVA déduite ${fmt(round2(tv6))} €`, 12, { date, lib: en.lib || '', amt: round2(tv6), compte: en.gift });
 
     // Trésorerie : flux par nature de contrepartie, espèces, gros mouvements
     if (hasTr) {
@@ -938,7 +942,8 @@ function buildCycles(x) {
     const p = purchases[i], q = purchases[i - 1];
     if (p[0] !== q[0] || Math.abs(p[2] - q[2]) > 0.005 || p[2] < 50) continue;
     const name = auxNames.get(p[0]) || p[0];
-    if (p[3] && p[3] === q[3]) addEx(dupStrong, p[2], `${name} · ${fmt(p[2])} € · pièce ${p[3]} saisie le ${dmy(q[1])} et le ${dmy(p[1])}`, 30);
+    if (p[3] && p[3] === q[3]) addEx(dupStrong, p[2], `${name} · ${fmt(p[2])} € · pièce ${p[3]} saisie le ${dmy(q[1])} et le ${dmy(p[1])}`, 30,
+      { sup: p[0], supLib: name, date: p[1], piece: p[3], ttc: p[2], ht: p[5], tva: p[6], compte: p[7] });
     else if (Math.abs(daysBetween(q[1], p[1])) <= 3) addEx(dupPossible, p[2], `${name} · ${fmt(p[2])} € · pièces ${q[3] || '?'} (${dmy(q[1])}) et ${p[3] || '?'} (${dmy(p[1])})`, 30);
   }
 
