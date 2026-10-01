@@ -633,3 +633,19 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
 .tp-detail { border-top: 1px solid var(--border); padding: .5rem 0; }
 .tp-detail summary { cursor: pointer; }
 @media (max-width: 760px) { .fec-profiles { display: flex; } .fec-profiles a { flex: 1; justify-content: center; font-size: .82rem; padding: .5rem .4rem; } }
+
+/* Cycles de révision */
+.kpi em { display: block; font-style: normal; font-size: .75rem; color: var(--muted); margin-top: .15rem; }
+.cycle-tiles { margin-bottom: 0; }
+button.kpi { font: inherit; text-align: left; cursor: pointer; width: 100%; }
+button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.mdots { display: inline-flex; gap: 3px; vertical-align: middle; }
+.mdots i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--border); background: transparent; }
+.mdots i.on { background: var(--series-1); border-color: var(--series-1); }
+.dtable.d441 td:first-child, .dtable.cyc-ext td:nth-child(2), .dtable.tiers-cyc td:first-child { text-align: left; }
+.dtable.cyc-ext tr.strong td { font-weight: 700; background: var(--bg); }
+.dtable.cyc-ext td:nth-last-child(2) { white-space: nowrap; }
+.inline-label input[type=number] { width: 4.5rem; }
+.dtable.d441 td:nth-child(2), .dtable.d441 th:nth-child(2), .dtable.tiers-cyc td:nth-child(2), .dtable.tiers-cyc th:nth-child(2) { text-align: right; }
+.dtable.l3 td:nth-child(3), .dtable.l3 th:nth-child(3), .dtable.l4 td:nth-child(4), .dtable.l4 th:nth-child(4) { text-align: left; }
+.dtable.r2 td:nth-child(2), .dtable.r2 th:nth-child(2) { text-align: right; }

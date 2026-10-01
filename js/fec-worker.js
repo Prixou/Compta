@@ -82,6 +82,21 @@ function labelKey(s) {
   return words.slice(0, 2).join(' ') || '?';
 }
 
+// Dépenses à caractère personnel probables et amendes (libellés normalisés).
+const RE_PERSO = /netflix|spotify|deezer|disney|canal ?\+|amazon prime|playstation|nintendo|steam|airbnb|sephora|\bzara\b|kiabi|decathlon|ikea|carrefour|leclerc|auchan|intermarche|\blidl\b|super ?u\b|monoprix|franprix|picard|bijout|coiffeur|parfumerie|veterinaire|creche|cinema|\bugc\b|pathe|cdiscount|jouet|club med|camping|\bgolf\b|fitness|basic.fit|salle de sport|esthetique|\bpmu\b|\bfdj\b|francaise des jeux|loto/;
+const RE_AMENDE = /\bamende|contravention|\bantai\b|forfait post|\bfps\b|proces.verbal|\bpv\b|penalite|majoration de retard|interets? de retard/;
+const dmy = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
+const dayMs = 86400000;
+const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / dayMs);
+// Ajoute une occurrence : exemple lisible et, si fourni, élément structuré (date, libellé, montant) pour la demande de pièces.
+const addEx = (o, amt, example, max, item) => {
+  o.n++;
+  o.total = round2(o.total + amt);
+  if (o.ex.length < (max || 12)) o.ex.push(example);
+  if (item && o.items.length < (max || 12)) o.items.push(item);
+};
+const bucket = () => ({ n: 0, total: 0, ex: [], items: [] });
+
 const isAN = (code, lib) => /^(AN|ANO|RAN|OUV|NOUV|A-N|A\.N)/i.test(code) || /nouveau|ouverture|report/i.test(lib);
 const fmt = (n) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -157,6 +172,13 @@ function analyse(buffer, fileName) {
   const attenteLines = [], immoLines = [], ccaLines = [], chargeLines = [];
   const bankLines = {}; // lignes des comptes 51 (hors à-nouveaux) pour le rapprochement bancaire
   const flags = {};
+  // Cycles de révision
+  const auxNames = new Map();
+  const chAcc = new Map(); // comptes 61 / 62 : montants par mois, grosses lignes (charges constatées d'avance)
+  const tresoAcc = new Map(); // comptes 50 à 58 : à-nouveau et mouvements datés
+  const cut = { achats: { after: bucket(), before: bucket() }, charges: { after: bucket(), before: bucket() }, ventes: { after: bucket(), before: bucket() } };
+  const perso = bucket(), amendes = bucket(), weekend = bucket(), gifts = bucket();
+  const persoG = new Map(); // dépenses personnelles possibles regroupées par libellé (abonnements répétés)
   const start = closing ? (() => { const d = new Date(Date.UTC(+closing.slice(0, 4) - 1, +closing.slice(5, 7) - 1, +closing.slice(8, 10) + 1)); return d.toISOString().slice(0, 10); })() : null;
 
   let lineNo = 1;
@@ -277,6 +299,17 @@ function analyse(buffer, fileName) {
     en.c += c;
     if (/^5[13]/.test(compte)) en.has5 = true;
     if (/^4[01]/.test(compte)) en.has4 = true;
+    if (date && !an) {
+      (en.l = en.l || []).push(compte, auxNum, d, c); // à plat (4 valeurs par ligne) pour limiter la mémoire
+      if (!en.piece && piece) en.piece = piece;
+      if (/^4[01]/.test(compte) && !auxNames.has(auxNum || compte)) auxNames.set(auxNum || compte, auxLib || clib);
+    }
+    if (/^5[0-8]/.test(compte)) {
+      let ta = tresoAcc.get(compte);
+      if (!ta) tresoAcc.set(compte, (ta = { compte, lib: clib, an: 0, lines: [] }));
+      if (an) ta.an += d - c;
+      else if (date) ta.lines.push([date, d - c]);
+    }
 
     // Demande de pièces : relevés, factures récurrentes, opérations à justifier
     if (/^3|^603/.test(compte)) flags.stock = true;
@@ -312,16 +345,56 @@ function analyse(buffer, fileName) {
       if (/^2[0-7]/.test(compte) && d > 0 && immoLines.length < 300) immoLines.push({ date, compte, clib, lib: elib, montant: d });
       if (compte.startsWith('455') && ccaLines.length < 300) ccaLines.push({ date, lib: elib, d, c });
       if (compte[0] === '6' && d > 0) chargeLines.push([ek, compte, clib, elib, d, date]);
+      // Séparation des exercices : pièce datée hors de l'exercice
+      if (closing && pd.iso && /^(60|61|62|70)/.test(compte)) {
+        const cyc = compte[0] === '7' ? 'ventes' : compte.startsWith('60') ? 'achats' : 'charges';
+        const amt = round2(compte[0] === '7' ? c - d : d - c);
+        const exm = `Pièce du ${dmy(pd.iso)} saisie le ${dmy(date)} · ${compte} · ${elib.slice(0, 50)} · ${fmt(amt)} €`;
+        if (pd.iso > closing && date <= closing) addEx(cut[cyc].after, amt, exm);
+        else if (start && pd.iso < start) addEx(cut[cyc].before, amt, exm);
+      }
+      if (/^6[12]/.test(compte)) {
+        let ca = chAcc.get(compte);
+        if (!ca) chAcc.set(compte, (ca = { compte, lib: clib, total: 0, n: 0, direct: 0, months: {}, big: [] }));
+        ca.total += d - c;
+        ca.n++;
+        ca.months[ym] = (ca.months[ym] || 0) + d - c;
+        if (d >= 300 && ca.big.length < 60) ca.big.push([date, d, elib]);
+      }
+      if (d > 0 && /^(606|61|62|65)/.test(compte)) {
+        const t = normTxt(elib);
+        const exm = `${dmy(date)} · ${compte} ${clib.slice(0, 25)} · ${elib.slice(0, 50)} · ${fmt(d)} €`;
+        const item = { date, lib: elib.slice(0, 60), amt: round2(d) };
+        if (RE_AMENDE.test(t)) addEx(amendes, d, exm, 12, item);
+        else if (RE_PERSO.test(t)) {
+          addEx(perso, d, exm, 20, item);
+          const k = labelKey(elib);
+          const g = persoG.get(k) || persoG.set(k, { lib: elib.replace(/\s+/g, ' ').trim().slice(0, 60), n: 0, total: 0, first: date, last: date }).get(k);
+          g.n++;
+          g.total = round2(g.total + d);
+          if (date < g.first) g.first = date;
+          if (date > g.last) g.last = date;
+        }
+        if (compte.startsWith('625')) {
+          const dow = new Date(date + 'T00:00:00Z').getUTCDay();
+          if (dow === 0 || dow === 6) addEx(weekend, d, `${dow ? 'Samedi' : 'Dimanche'} ${exm}`);
+        }
+        if (compte.startsWith('6234') && d > 73) { addEx(gifts, d, exm); en.gift = true; }
+      }
     }
 
     // Mensuel
     if (date) {
       const mk = date.slice(0, 7);
       let mo = months.get(mk);
-      if (!mo) months.set(mk, (mo = { mois: mk, ca: 0, produits: 0, charges: 0, tvaCollectee: 0, tvaDeductible: 0, treso: 0 }));
+      if (!mo) months.set(mk, (mo = { mois: mk, ca: 0, produits: 0, charges: 0, tvaCollectee: 0, tvaDeductible: 0, treso: 0, achats: 0, ext: 0, enc: 0, dec: 0 }));
       const cl = compte[0];
       if (cl === '7') { mo.produits += c - d; if (compte.startsWith('70')) mo.ca += c - d; }
-      else if (cl === '6') mo.charges += d - c;
+      else if (cl === '6') {
+        mo.charges += d - c;
+        if (compte.startsWith('60')) mo.achats += d - c;
+        else if (/^6[12]/.test(compte)) mo.ext += d - c;
+      }
       if (compte.startsWith('4457')) mo.tvaCollectee += c - d;
       if (compte.startsWith('4456')) mo.tvaDeductible += d - c;
       if (/^5[1-3]/.test(compte)) mo.treso += d - c;
@@ -476,11 +549,15 @@ function analyse(buffer, fileName) {
     totalActif, totalPassif,
   };
 
+  perso.groups = Array.from(persoG.values()).sort((a, b) => b.total - a.total).slice(0, 30);
+  const cycles = buildCycles({ entries, aux, auxNames, accounts, chAcc, tresoAcc, cut, perso, amendes, weekend, gifts, closing, start, months, maxOp });
+
   // ---------- Mensuel ----------
   let cumul = 0;
   const monthly = Array.from(months.values()).sort((x, y) => x.mois.localeCompare(y.mois)).map((m) => {
     cumul += m.treso;
-    return { mois: m.mois, ca: round2(m.ca), produits: round2(m.produits), charges: round2(m.charges), tvaCollectee: round2(m.tvaCollectee), tvaDeductible: round2(m.tvaDeductible), tresorerie: round2(cumul) };
+    return { mois: m.mois, ca: round2(m.ca), produits: round2(m.produits), charges: round2(m.charges), tvaCollectee: round2(m.tvaCollectee), tvaDeductible: round2(m.tvaDeductible), tresorerie: round2(cumul),
+      achats: round2(m.achats), ext: round2(m.ext), enc: round2(m.enc), dec: round2(m.dec) };
   });
 
   // ---------- Points de révision ----------
@@ -631,10 +708,348 @@ function analyse(buffer, fileName) {
     pieces,
     bankLines,
     aging,
+    cycles,
     kpi: {
       ca: P(['70']), marge, va, ebe, rex, resultat,
       tresorerie: round2(balance.filter((x) => /^5[1-3]/.test(x.compte)).reduce((t, x) => t + x.s, 0)),
       totalBilan: totalActif,
+    },
+  };
+}
+
+// ---------- Cycles de révision : achats, charges externes, clients, trésorerie ----------
+
+const isSup = (c) => /^40[1-7]/.test(c);
+const isCli = (c) => /^41[13]/.test(c);
+const TRESO = /^(51[2-9]|53)/;
+const FLUX_LABELS = {
+  clients: 'Clients', ventes: 'Ventes et produits encaissés directement', remises: 'Remises CB et chèques (511)', fournisseurs: 'Fournisseurs',
+  charges: 'Charges payées directement', salaires: 'Salaires', social: 'Organismes sociaux', etat: 'État (TVA, impôts et taxes)',
+  emprunts: 'Emprunts', associes: 'Associés et groupe', capital: 'Capital et subventions', investissements: 'Immobilisations',
+  financier: 'Frais et produits financiers', divers: 'Attente et débiteurs / créditeurs divers', interne: 'Virements internes (58)', autres: 'Autres',
+};
+function fluxCat(c) {
+  if (/^41/.test(c)) return 'clients';
+  if (/^40/.test(c)) return 'fournisseurs';
+  if (/^(42|64)/.test(c)) return 'salaires';
+  if (/^43/.test(c)) return 'social';
+  if (/^(44|63|69)/.test(c)) return 'etat';
+  if (/^(16|17|518|519)/.test(c)) return 'emprunts';
+  if (/^45/.test(c)) return 'associes';
+  if (/^(10|13)/.test(c)) return 'capital';
+  if (/^2/.test(c)) return 'investissements';
+  if (/^(66|76|627)/.test(c)) return 'financier';
+  if (/^(6[0-25]|67)/.test(c)) return 'charges';
+  if (/^(7[0-57])/.test(c)) return 'ventes';
+  if (/^(46|47)/.test(c)) return 'divers';
+  if (/^511/.test(c)) return 'remises';
+  if (/^58/.test(c)) return 'interne';
+  return 'autres';
+}
+
+// Délais de paiement réels d'un tiers : par lettrage si le compte est lettré, sinon règlements imputés sur les factures les plus anciennes.
+function payDelays(t) {
+  const sign = t.racine === '401' ? -1 : 1;
+  const items = t.lines.map(([date, d, c, let_, , an]) => ({ date, amt: round2(sign * (d - c)), let: let_, an: !!an })).filter((x) => x.amt !== 0);
+  let paidN = 0, paidAmt = 0, wsum = 0, lateN = 0, lateAmt = 0;
+  const done = (inv, payDate) => {
+    if (inv.an) return;
+    const days = Math.max(0, daysBetween(inv.date, payDate));
+    paidN++;
+    paidAmt += inv.amt;
+    wsum += inv.amt * days;
+    if (days > 60) { lateN++; lateAmt += inv.amt; }
+  };
+  if (items.some((x) => x.let)) {
+    const groups = new Map();
+    items.forEach((x) => { if (x.let) (groups.get(x.let) || groups.set(x.let, []).get(x.let)).push(x); });
+    groups.forEach((g) => {
+      const pays = g.filter((x) => x.amt < 0);
+      if (!pays.length) return;
+      const payDate = pays.reduce((m, x) => (x.date > m ? x.date : m), '');
+      g.filter((x) => x.amt > 0).forEach((inv) => done(inv, payDate));
+    });
+  } else {
+    const inv = items.filter((x) => x.amt > 0).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)).map((x) => ({ ...x, rest: x.amt }));
+    const pays = items.filter((x) => x.amt < 0).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    let i = 0;
+    pays.forEach((p) => {
+      let rest = -p.amt;
+      while (rest > 0.005 && i < inv.length) {
+        const take = Math.min(rest, inv[i].rest);
+        inv[i].rest -= take;
+        rest -= take;
+        if (inv[i].rest < 0.005) { done(inv[i], p.date); i++; }
+      }
+    });
+  }
+  return { paidN, paidAmt: round2(paidAmt), delay: paidAmt > 0 ? Math.round(wsum / paidAmt) : null, lateN, lateAmt: round2(lateAmt) };
+}
+
+function buildCycles(x) {
+  const { entries, aux, auxNames, accounts, chAcc, tresoAcc, cut, closing, start, months } = x;
+  const libOf = (c) => (accounts.get(c) || {}).lib || '';
+  const sups = new Map(), custs = new Map();
+  const agg = (map, key) => {
+    let a = map.get(key);
+    if (!a) map.set(key, (a = { num: key, lib: auxNames.get(key) || key, inv: 0, ht: 0, tva: 0, ttc: 0, av: 0, avAmt: 0, pay: 0, payAmt: 0, first: '', last: '' }));
+    return a;
+  };
+  const purchases = [], sales = [];
+  const noVatP = new Map(), overVatP = bucket(), autoliq = bucket(), noVatS = bucket(), overVatS = bucket();
+  const cash = bucket(), notesFrais = bucket(), giftVat = bucket();
+  const das2 = new Map();
+  const flux = {}, big = [];
+  let avoirsP = 0, avoirsS = 0;
+  const fluxAdd = (cat, amt, ym) => {
+    const f = (flux[cat] = flux[cat] || { cat, label: FLUX_LABELS[cat], enc: 0, dec: 0 });
+    if (amt > 0) f.enc += amt; else f.dec -= amt;
+    const mo = months.get(ym);
+    if (mo && cat !== 'interne') { if (amt > 0) mo.enc += amt; else mo.dec -= amt; }
+  };
+
+  entries.forEach((en, ek) => {
+    if (en.an || !en.l) return;
+    const L = [];
+    for (let i = 0; i < en.l.length; i += 4) L.push([en.l[i], en.l[i + 1], en.l[i + 2], en.l[i + 3]]);
+    let supNet = 0, supKey = '', supMax = 0, chg = 0, im = 0, tv6 = 0, tv52 = 0, cliNet = 0, cliKey = '', cliMax = 0, ven = 0, tv7 = 0, tr = 0, hasTr = false, c455 = 0;
+    let main = '', mainAmt = 0;
+    for (const [compte, auxNum, d, c] of L) {
+      const amt = d - c;
+      if (isSup(compte)) { supNet += amt; if (Math.abs(amt) > supMax) { supMax = Math.abs(amt); supKey = auxNum || compte; } }
+      else if (isCli(compte)) { cliNet += amt; if (Math.abs(amt) > cliMax) { cliMax = Math.abs(amt); cliKey = auxNum || compte; } }
+      else if (/^6[0-2]/.test(compte)) { chg += amt; if (amt > mainAmt) { mainAmt = amt; main = compte; } }
+      else if (/^2[0-3]/.test(compte)) { im += amt; if (amt > mainAmt) { mainAmt = amt; main = compte; } }
+      else if (compte.startsWith('4456')) tv6 += amt;
+      else if (compte.startsWith('4452')) tv52 -= amt;
+      else if (compte.startsWith('4457')) tv7 -= amt;
+      else if (compte.startsWith('70')) ven -= amt;
+      else if (compte.startsWith('455')) c455 -= amt;
+      if (TRESO.test(compte)) { tr += amt; hasTr = true; }
+    }
+    const date = en.date;
+    const ref = `${dmy(date)} · ${en.jc} ${en.num} · ${(en.lib || '').slice(0, 45)}`;
+
+    // Achats : factures, avoirs, règlements
+    const ht = round2(chg + im);
+    if (supNet < -0.005 && ht > 0.005 && !hasTr) {
+      const ttc = round2(-supNet);
+      const a = agg(sups, supKey);
+      a.inv++; a.ht += ht; a.tva += tv6; a.ttc += ttc;
+      if (!a.first || date < a.first) a.first = date;
+      if (date > a.last) a.last = date;
+      purchases.push([supKey, date, ttc, en.piece || '', ref]);
+      if (ht >= 150 && tv6 < 0.01 && tv52 < 0.01 && !/^(616|627)/.test(main)) {
+        let g = noVatP.get(main);
+        if (!g) noVatP.set(main, (g = { compte: main, lib: libOf(main), ...bucket() }));
+        addEx(g, ht, `${ref} · ${a.lib} · ${fmt(ht)} € HT`, 5);
+      }
+      if (tv6 > ht * 0.2 + 1) addEx(overVatP, tv6, `${ref} · ${a.lib} · HT ${fmt(ht)} € · TVA ${fmt(round2(tv6))} € (${(tv6 / ht * 100).toFixed(1).replace('.', ',')} %)`);
+      if (tv52 > 0.01 && tv6 < tv52 - 1) addEx(autoliq, tv52, `${ref} · ${a.lib} · TVA autoliquidée ${fmt(round2(tv52))} €, déduite ${fmt(round2(tv6))} €`);
+    } else if (supNet > 0.005 && ht < -0.005 && !hasTr) {
+      const a = agg(sups, supKey);
+      a.av++; a.avAmt += supNet; avoirsP += supNet;
+    } else if (supNet > 0.005 && tr < -0.005) {
+      const a = agg(sups, supKey);
+      a.pay++; a.payAmt += supNet;
+    }
+
+    // Ventes : factures, avoirs, encaissements
+    if (cliNet > 0.005 && ven > 0.005 && !hasTr) {
+      const a = agg(custs, cliKey);
+      a.inv++; a.ht += ven; a.tva += tv7; a.ttc += cliNet;
+      if (!a.first || date < a.first) a.first = date;
+      if (date > a.last) a.last = date;
+      sales.push([cliKey, date, round2(cliNet), en.piece || '', ref, ek]);
+      if (ven >= 150 && tv7 < 0.01) addEx(noVatS, ven, `${ref} · ${a.lib} · ${fmt(round2(ven))} € HT`);
+      if (tv7 > ven * 0.2 + 1) addEx(overVatS, tv7, `${ref} · ${a.lib} · HT ${fmt(round2(ven))} € · TVA ${fmt(round2(tv7))} €`);
+    } else if (cliNet < -0.005 && ven < -0.005 && !hasTr) {
+      const a = agg(custs, cliKey);
+      a.av++; a.avAmt -= cliNet; avoirsS -= cliNet;
+    } else if (cliNet < -0.005 && tr > 0.005) {
+      const a = agg(custs, cliKey);
+      a.pay++; a.payAmt -= cliNet;
+    }
+
+    // Charges externes : paiements directs, honoraires (DAS2), notes de frais, cadeaux
+    for (const [compte, auxNum, d, c] of L) {
+      if (/^6[12]/.test(compte) && hasTr && !supNet && chAcc.get(compte)) chAcc.get(compte).direct += d - c;
+      if (/^(622[1-46-8]|6516|653)/.test(compte) && d - c > 0) {
+        const benef = supKey ? auxNames.get(supKey) || supKey : (en.lib || '').replace(/\S*\d\S*/g, '').replace(/\s+/g, ' ').trim() || en.lib;
+        const key = supKey || labelKey(en.lib);
+        let b = das2.get(key);
+        if (!b) das2.set(key, (b = { benef, total: 0, comptes: [] }));
+        b.total += (d - c) + (ht > 0 && tv6 > 0 ? tv6 * (d - c) / ht : 0);
+        if (!b.comptes.includes(compte)) b.comptes.push(compte);
+      }
+    }
+    if (c455 > 0.005 && chg > 0.005 && !hasTr) addEx(notesFrais, chg, `${ref} · ${fmt(round2(chg))} €`);
+    if (en.gift && tv6 > 0.01) addEx(giftVat, tv6, `${ref} · TVA déduite ${fmt(round2(tv6))} €`);
+
+    // Trésorerie : flux par nature de contrepartie, espèces, gros mouvements
+    if (hasTr) {
+      const others = L.filter((l) => !TRESO.test(l[0]));
+      const nonVat = others.filter((l) => !l[0].startsWith('445'));
+      let dom = '', domAmt = 0;
+      nonVat.forEach((l) => { const a = Math.abs(l[2] - l[3]); if (a > domAmt) { domAmt = a; dom = l[0]; } });
+      const ym = date.slice(0, 7);
+      others.forEach(([compte, , d, c]) => fluxAdd(fluxCat(compte.startsWith('445') && dom ? dom : compte), c - d, ym));
+      const real = others.some((l) => !/^5/.test(l[0]));
+      for (const [compte, , d, c] of L) {
+        if (!TRESO.test(compte)) continue;
+        const amt = round2(d - c);
+        const cp = dom || (others[0] || [''])[0];
+        if (compte.startsWith('53') && Math.abs(amt) >= 1000 && real) addEx(cash, Math.abs(amt), `${ref} · ${amt > 0 ? 'encaissement' : 'paiement'} de ${fmt(Math.abs(amt))} € · contrepartie ${cp} ${libOf(cp).slice(0, 30)}`, 30, { date, lib: (en.lib || '').slice(0, 60), amt });
+        if (Math.abs(amt) >= 1000 && real) big.push({ date, amt, compte, cp, cplib: libOf(cp), lib: en.lib || '', ref: `${en.jc} ${en.num}` });
+      }
+    }
+  });
+
+  // Délais de paiement réels par tiers
+  const delays = new Map();
+  aux.forEach((t) => { if (t.racine === '401' || t.racine === '411') delays.set(t.racine + '|' + t.num, payDelays(t)); });
+  const finish = (map, racine, total) => {
+    const list = [];
+    let pN = 0, pAmt = 0, w = 0, lN = 0, lAmt = 0;
+    aux.forEach((t) => {
+      if (t.racine !== racine) return;
+      const a = map.get(t.num) || agg(map, t.num);
+      const dl = delays.get(racine + '|' + t.num) || {};
+      Object.assign(a, { lib: t.lib || a.lib, s: round2(t.d - t.c), paidN: dl.paidN || 0, delay: dl.delay === undefined ? null : dl.delay, lateN: dl.lateN || 0, lateAmt: dl.lateAmt || 0 });
+      if (dl.paidAmt) { pN += dl.paidN; pAmt += dl.paidAmt; w += dl.paidAmt * dl.delay; lN += dl.lateN; lAmt += dl.lateAmt; }
+    });
+    map.forEach((a) => {
+      ['ht', 'tva', 'ttc', 'avAmt', 'payAmt'].forEach((k) => { a[k] = round2(a[k]); });
+      a.share = total > 0 ? a.ttc / total : 0;
+      list.push(a);
+    });
+    list.sort((a, b) => b.ttc - a.ttc || Math.abs(b.s || 0) - Math.abs(a.s || 0));
+    return { list: list.slice(0, 300), count: list.filter((a) => a.inv).length, delay: { paidN: pN, paidAmt: round2(pAmt), avg: pAmt > 0 ? Math.round(w / pAmt) : null, lateN: lN, lateAmt: round2(lAmt) } };
+  };
+  const ttcP = round2(purchases.reduce((s, p) => s + p[2], 0));
+  const ttcS = round2(sales.reduce((s, p) => s + p[2], 0));
+  const supF = finish(sups, '401', ttcP);
+  const cliF = finish(custs, '411', ttcS);
+
+  // Factures fournisseurs en double
+  const dupStrong = bucket(), dupPossible = bucket();
+  purchases.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[2] - b[2] || (a[1] < b[1] ? -1 : 1)));
+  for (let i = 1; i < purchases.length; i++) {
+    const p = purchases[i], q = purchases[i - 1];
+    if (p[0] !== q[0] || Math.abs(p[2] - q[2]) > 0.005 || p[2] < 50) continue;
+    const name = auxNames.get(p[0]) || p[0];
+    if (p[3] && p[3] === q[3]) addEx(dupStrong, p[2], `${name} · ${fmt(p[2])} € · pièce ${p[3]} saisie le ${dmy(q[1])} et le ${dmy(p[1])}`, 30);
+    else if (Math.abs(daysBetween(q[1], p[1])) <= 3) addEx(dupPossible, p[2], `${name} · ${fmt(p[2])} € · pièces ${q[3] || '?'} (${dmy(q[1])}) et ${p[3] || '?'} (${dmy(p[1])})`, 30);
+  }
+
+  // Numérotation des factures de vente (art. 242 nonies A, annexe II du CGI)
+  const groups = new Map();
+  sales.forEach(([, date, ttc, piece, ref, ek]) => {
+    const m = String(piece).match(/^(.*?)(\d+)$/);
+    if (!m || m[2].length > 9) return;
+    const g = groups.get(m[1]) || groups.set(m[1], new Map()).get(m[1]);
+    if (!g.w) g.w = m[2].length;
+    const n = +m[2];
+    (g.get(n) || g.set(n, []).get(n)).push({ date, ttc, piece, ek });
+  });
+  const numbering = [];
+  groups.forEach((g, prefix) => {
+    if (g.size < 10) return;
+    const nums = Array.from(g.keys()).sort((a, b) => a - b);
+    const ref = (n) => prefix + String(n).padStart(g.w, '0');
+    const ranges = [];
+    let missing = 0, inversions = 0;
+    const invEx = [];
+    for (let i = 1; i < nums.length; i++) {
+      const gap = nums[i] - nums[i - 1] - 1;
+      if (gap > 0) {
+        missing += gap;
+        if (ranges.length < 25) ranges.push(gap === 1 ? ref(nums[i - 1] + 1) : `${ref(nums[i - 1] + 1)} à ${ref(nums[i] - 1)}`);
+      }
+      const a = g.get(nums[i - 1])[0], b = g.get(nums[i])[0];
+      if (b.date < a.date) { inversions++; if (invEx.length < 8) invEx.push(`${a.piece} du ${dmy(a.date)} puis ${b.piece} du ${dmy(b.date)}`); }
+    }
+    const dups = [];
+    g.forEach((list) => {
+      const distinct = new Set(list.map((x) => x.ek));
+      if (distinct.size > 1 && dups.length < 20) dups.push(`${list[0].piece} : ${list.map((x) => `${dmy(x.date)} (${fmt(x.ttc)} €)`).join(' et ')}`);
+    });
+    numbering.push({ prefix, count: g.size, first: ref(nums[0]), last: ref(nums[nums.length - 1]), missing, ranges, inversions, invEx, dups, sparse: missing > g.size });
+  });
+  numbering.sort((a, b) => b.count - a.count);
+
+  // Charges constatées d'avance probables : paiements annuels ou trimestriels qui couvrent l'exercice suivant
+  const cca = [];
+  if (closing) {
+    chAcc.forEach((ca) => {
+      if (!/^(612|613|614|615|616|618|6231|6233|6236|626|6281|6226)/.test(ca.compte)) return;
+      const nMonths = Object.values(ca.months).filter((v) => Math.abs(v) >= 0.01).length;
+      const cover = nMonths <= 2 ? 12 : nMonths <= 5 ? 3 : 0;
+      if (!cover) return;
+      ca.big.forEach(([date, amt, lib]) => {
+        if (date > closing) return;
+        const end = new Date(Date.parse(date));
+        end.setUTCMonth(end.getUTCMonth() + cover);
+        const total = (end - Date.parse(date)) / dayMs;
+        const rest = (end - Date.parse(closing)) / dayMs - 1;
+        if (rest <= 0) return;
+        const v = round2((amt * rest) / total);
+        if (v >= 50) cca.push({ compte: ca.compte, lib: ca.lib, date, amt, label: lib, cover, cca: v });
+      });
+    });
+    cca.sort((a, b) => b.cca - a.cca);
+  }
+
+  // Trésorerie par compte : soldes, plus bas, jours à découvert
+  const endDate = closing || x.maxOp;
+  const tresorerie = [];
+  tresoAcc.forEach((ta) => {
+    ta.lines.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    let s = ta.an, enc = 0, dec = 0, negDays = 0;
+    let min = s, minDate = start || '', max = s, maxDate = start || '';
+    if (s < -0.005 && start && ta.lines.length) negDays += Math.max(0, daysBetween(start, ta.lines[0][0]));
+    for (let i = 0; i < ta.lines.length; i++) {
+      const [date, amt] = ta.lines[i];
+      s += amt;
+      if (amt > 0) enc += amt; else dec -= amt;
+      const next = i + 1 < ta.lines.length ? ta.lines[i + 1][0] : null;
+      if (next === date) continue;
+      if (s < min) { min = s; minDate = date; }
+      if (s > max) { max = s; maxDate = date; }
+      if (s < -0.005) negDays += Math.max(1, daysBetween(date, next || (endDate && endDate > date ? endDate : date)));
+    }
+    tresorerie.push({
+      compte: ta.compte, lib: ta.lib || libOf(ta.compte), an: round2(ta.an), enc: round2(enc), dec: round2(dec), solde: round2(s),
+      min: round2(min), minDate, max: round2(max), maxDate, negDays, ops: ta.lines.length,
+      first: ta.lines.length ? ta.lines[0][0] : '', last: ta.lines.length ? ta.lines[ta.lines.length - 1][0] : '',
+    });
+  });
+  tresorerie.sort((a, b) => a.compte.localeCompare(b.compte));
+  big.sort((a, b) => Math.abs(b.amt) - Math.abs(a.amt));
+
+  // Facturation de fin d'exercice (risque de séparation des exercices)
+  let lastWeek = 0;
+  if (closing) sales.forEach(([, date, ttc]) => { if (date <= closing && daysBetween(date, closing) < 7) lastWeek += ttc; });
+  const spanDays = start && closing ? daysBetween(start, closing) + 1 : 365;
+
+  return {
+    achats: {
+      invoices: purchases.length, ttc: ttcP, avoirs: round2(avoirsP), suppliers: supF.list, nbSuppliers: supF.count, delay: supF.delay,
+      dupStrong, dupPossible, noVat: Array.from(noVatP.values()).sort((a, b) => b.total - a.total), overVat: overVatP, autoliq, cut: cut.achats,
+    },
+    charges: {
+      accounts: Array.from(chAcc.values()).map(({ big: _b, ...a }) => ({ ...a, total: round2(a.total), direct: round2(a.direct), months: Object.fromEntries(Object.entries(a.months).map(([k, v]) => [k, round2(v)])) })).sort((a, b) => a.compte.localeCompare(b.compte)),
+      cca: cca.slice(0, 40), das2: Array.from(das2.values()).map((b) => ({ ...b, total: round2(b.total) })).filter((b) => b.total > 1200).sort((a, b) => b.total - a.total),
+      perso: x.perso, amendes: x.amendes, weekend: x.weekend, gifts: x.gifts, giftVat, notesFrais, cut: cut.charges,
+    },
+    clients: {
+      invoices: sales.length, ttc: ttcS, avoirs: round2(avoirsS), customers: cliF.list, nbCustomers: cliF.count, delay: cliF.delay,
+      numbering, noVat: noVatS, overVat: overVatS, cut: cut.ventes, lastWeek: round2(lastWeek), avgWeek: round2((ttcS / spanDays) * 7),
+    },
+    treso: {
+      accounts: tresorerie, cash,
+      flux: Object.values(flux).map((f) => ({ ...f, enc: round2(f.enc), dec: round2(f.dec) })).sort((a, b) => (b.enc + b.dec) - (a.enc + a.dec)),
+      big: big.filter((m) => !/^4[0-3]/.test(m.cp)).slice(0, 40), // hors clients, fournisseurs et paie
     },
   };
 }
