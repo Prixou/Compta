@@ -275,7 +275,7 @@ function analyse(buffer, fileName, until) {
       t.d += d;
       t.c += c;
       // Lignes conservées pour la balance âgée : date, débit, crédit, lettrage, libellé, à-nouveau.
-      if (date || an) t.lines.push([date || '0000-00-00', d, c, g('EcritureLet'), elib, an ? 1 : 0]);
+      if (date || an) t.lines.push([date || '0000-00-00', d, c, g('EcritureLet'), elib, an ? 1 : 0, jc + '\u0001' + num]);
       if (date && !an) {
         if (d > 0 && date > (t.lastD || '')) t.lastD = date;
         if (c > 0 && date > (t.lastC || '')) t.lastC = date;
@@ -591,6 +591,57 @@ function analyse(buffer, fileName, until) {
 
   const auxList = Array.from(aux.values()).map(({ lines: _l, ...t }) => ({ ...t, d: round2(t.d), c: round2(t.c), s: round2(t.d - t.c) }));
 
+  // Règlements fournisseurs et encaissements clients non affectés à une facture : lignes non lettrées (si le compte
+  // est lettré), rapprochement montant pour montant, puis imputation sur les factures restantes ; les règlements
+  // les plus récents qui restent sans facture sont listés un par un (date, montant, libellé).
+  const unmatched = [];
+  aux.forEach((t) => {
+    if (t.racine !== '401' && t.racine !== '411') return;
+    const sign = t.racine === '401' ? -1 : 1; // facture > 0, règlement < 0
+    const lettered = t.lines.some((l) => l[3]);
+    const items = [];
+    t.lines.forEach(([date, d, c, let_, lib, isAn, ek]) => {
+      if (lettered && let_) return;
+      const amt = round2(sign * (d - c));
+      if (!amt) return;
+      const en = !isAn && entries.get(ek);
+      items.push({ date, amt, lib, bank: !!(en && en.has5) });
+    });
+    const pays = items.filter((x) => x.amt < 0 && x.bank).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    if (!pays.length) return;
+    const invs = items.filter((x) => x.amt > 0).map((x) => ({ date: x.date, rest: x.amt })).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    // Avoirs et acomptes (lignes négatives hors banque) imputés sur les factures les plus anciennes
+    let cred = -items.filter((x) => x.amt < 0 && !x.bank).reduce((s2, x) => s2 + x.amt, 0);
+    for (const v of invs) { if (cred <= 0.005) break; const take = Math.min(cred, v.rest); v.rest -= take; cred -= take; }
+    // Rapprochement montant pour montant (facture à 62 jours au plus du paiement)
+    const byAmt = new Map();
+    invs.forEach((v) => { if (v.rest > 0.005) { const k = Math.round(v.rest * 100); (byAmt.get(k) || byAmt.set(k, []).get(k)).push(v); } });
+    const rest = pays.filter((pm) => {
+      const list = byAmt.get(Math.round(-pm.amt * 100)) || [];
+      const v = list.find((x) => x.rest > 0.005 && Math.abs(daysBetween(pm.date, x.date)) <= 62);
+      if (!v) return true;
+      v.rest = 0;
+      return false;
+    });
+    // Imputation sur les factures restantes les plus anciennes, datées au plus 10 jours après le paiement
+    let i0 = 0; // factures déjà soldées en tête de liste
+    rest.forEach((pm) => {
+      let a = -pm.amt;
+      while (i0 < invs.length && invs[i0].rest <= 0.005) i0++;
+      for (let i = i0; i < invs.length; i++) {
+        const v = invs[i];
+        if (a <= 0.005) break;
+        if (v.rest <= 0.005) continue;
+        if (daysBetween(pm.date, v.date) > 10) break;
+        const take = Math.min(a, v.rest);
+        v.rest -= take;
+        a -= take;
+      }
+      if (a >= 0.01 && unmatched.length < 5000) unmatched.push({ racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(a), label: String(pm.lib || '').slice(0, 60) });
+    });
+  });
+  unmatched.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
   // Balance âgée des tiers (411 clients, 401 fournisseurs) : pièces non soldées et leur date.
   // Avec lettrage dans le FEC : lignes non lettrées. Sinon : règlements imputés sur les factures les plus anciennes (FIFO).
   const aging = [];
@@ -689,6 +740,7 @@ function analyse(buffer, fileName, until) {
       .map((x) => ({ ...x, total: round2(x.total) })),
     tiers: auxList.filter((t) => Math.abs(t.s) >= 0.01).map((t) => ({ racine: t.racine, num: t.num, lib: t.lib, s: t.s, lastD: t.lastD || '', lastC: t.lastC || '' })),
     directLines,
+    unmatched,
     // Mouvements mensuels des comptes clients et fournisseurs (à-nouveau, puis débit / crédit par mois)
     tiersMonths: Array.from(aux.values()).filter((t) => t.racine === '401' || t.racine === '411').map((t) => {
       const m = {};

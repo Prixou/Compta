@@ -2080,7 +2080,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '13';
+  const ASSET_VERSION = '14';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -2583,6 +2583,42 @@
     return median(seen.map((m) => months[m]));
   }
 
+  // Tiers « fourre-tout » (divers, occasionnels) : jamais d'estimation de facture récurrente.
+  const RE_DIVERS = /\bdivers|diverse|occasionnel|ponctuel|autres? (fournisseurs?|clients?)|\bvarious\b|\bmisc/i;
+
+  // Abonnement : facturé chaque mois pour un montant stable (écart de 20 % au plus autour du montant habituel).
+  function stableMonthly(t, ym) {
+    if (RE_DIVERS.test(t.lib || '')) return null;
+    const med = usuallyMonthly(t.months, ym);
+    if (med === null || med <= 0) return null;
+    const start = `${ym}-01`;
+    const prior = monthsBetween(ymOf(addDays(start, -175)), ymOf(addDays(start, -1))).map((m) => t.months[m]).filter((v) => Math.abs(v || 0) >= 0.01);
+    return prior.every((v) => Math.abs(v - med) <= med * 0.2) ? med : null;
+  }
+
+  // Règlements et encaissements non affectés à une facture, regroupés par tiers : une demande par tiers, chaque paiement daté.
+  function unmatchedPieces(r, push, from, to, scope) {
+    const pharma = ui.fecProfile === 'pharmacie';
+    const d = fmtDate;
+    const groups = new Map();
+    (r.pieces.unmatched || []).filter((u) => u.date >= from && u.date <= to && (u.racine === '401' || !pharma)).forEach((u) => {
+      const k = u.racine + '|' + u.num;
+      (groups.get(k) || groups.set(k, []).get(k)).push(u);
+    });
+    groups.forEach((list) => {
+      const u0 = list[0];
+      const total = list.reduce((s2, u) => s2 + u.amt, 0);
+      const det = list.slice(0, 8).map((u) => `du ${d(u.date)} (${eur(u.amt)} €)`).join(', ') + (list.length > 8 ? ` et ${list.length - 8} autre(s), total ${eur(total)} €` : '');
+      if (u0.racine === '401') push('achats', `nf:${scope}:${u0.num}`, list.length === 1
+        ? `Facture ${u0.lib} correspondant au paiement de ${eur(u0.amt)} € du ${d(u0.date)}`
+        : `Factures ${u0.lib} correspondant aux paiements ${det}`);
+      else push('ventes', `ne:${scope}:${u0.num}`, list.length === 1
+        ? `Facture ou avoir ${u0.lib} correspondant à l'encaissement de ${eur(u0.amt)} € du ${d(u0.date)}`
+        : `Factures ou avoirs ${u0.lib} correspondant aux encaissements ${det}`);
+    });
+    return groups;
+  }
+
   // Demande mensuelle : pièces manquantes du mois pour les cycles achats et ventes.
   function monthPieces(r, arrete) {
     const items = [];
@@ -2595,19 +2631,13 @@
     const d = fmtDate;
     const pharma = ui.fecProfile === 'pharmacie';
 
-    // Achats : fournisseurs facturés chaque mois sans facture ce mois-ci
+    // Règlements fournisseurs et encaissements clients du mois non affectés à une facture (paiement par paiement)
+    const asked = unmatchedPieces(r, push, start, end, ym);
+    // Abonnements : fournisseurs facturés chaque mois pour un montant stable, sans facture ce mois-ci
     p.suppliers.forEach((sp) => {
-      if (Math.abs(sp.months[ym] || 0) >= 0.01) return;
-      const med = usuallyMonthly(sp.months, ym);
-      if (med !== null) push('achats', 'rec:' + sp.num, `Facture ${sp.lib} de ${mois} (habituellement ${eur(med, 0)} € par mois)`);
-    });
-    // Règlements sans facture (fournisseur débiteur) et encaissements sans facture (client créditeur) à la fin du mois
-    (p.tiersMonths || []).forEach((t) => {
-      let bal = t.an;
-      Object.keys(t.m).forEach((k) => { if (k <= ym) bal += t.m[k][0] - t.m[k][1]; });
-      const mv = t.m[ym] || [0, 0];
-      if (t.racine === '401' && bal > 0.01 && mv[0] > 0.01) push('achats', 'deb:' + t.num, `Facture ${t.lib} correspondant au règlement de ${eur(Math.min(bal, mv[0]))} € effectué en ${mois}`);
-      if (t.racine === '411' && !pharma && bal < -0.01 && mv[1] > 0.01) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} correspondant au règlement de ${eur(Math.min(-bal, mv[1]))} € reçu en ${mois}`);
+      if (Math.abs(sp.months[ym] || 0) >= 0.01 || asked.has('401|' + sp.num)) return;
+      const med = stableMonthly(sp, ym);
+      if (med !== null) push('achats', 'rec:' + sp.num, `Facture ${sp.lib} de ${mois} (abonnement de ${eur(med)} € par mois)`);
     });
     // Dépenses payées directement (banque ou caisse → charge, sans facture fournisseur)
     const groups = new Map();
@@ -2618,8 +2648,9 @@
       g.n++;
       g.total += amt;
     });
+    const docName = (lib) => (/amende|antai|contravention|\bpv\b|penalit/i.test(lib) ? 'Avis de contravention' : 'Facture');
     Array.from(groups.values()).sort((a, b) => b.total - a.total).forEach((g, i) => push('justif', `m${ym}:${i}`, g.n === 1
-      ? `Facture « ${g.lib.slice(0, 45)} » du ${d(g.date)} (${eur(g.total)} €) — ${g.clib}`
+      ? `${docName(g.lib)} « ${g.lib.slice(0, 45)} » du ${d(g.date)} (${eur(g.total)} €) — ${g.clib}`
       : `Factures « ${g.lib.slice(0, 45)} » : ${g.n} paiements en ${mois}, total ${eur(g.total)} € — ${g.clib}`));
     // Acquisitions d'immobilisations du mois
     p.immo.filter((l) => inM(l.date)).forEach((l, i) => push('immo', `m${ym}:${i}`, `Facture d'acquisition « ${l.lib} » du ${d(l.date)} (${eur(l.montant)} €, ${l.clib})`));
@@ -2629,7 +2660,7 @@
     if (!pharma && cy) {
       // Ventes : clients facturés chaque mois sans facture ce mois-ci
       cy.clients.customers.forEach((c) => {
-        if (!c.months || Math.abs(c.months[ym] || 0) >= 0.01) return;
+        if (!c.months || Math.abs(c.months[ym] || 0) >= 0.01 || RE_DIVERS.test(c.lib || '') || asked.has('411|' + c.num)) return;
         const med = usuallyMonthly(c.months, ym);
         if (med !== null) push('ventes', 'mcli:' + c.num, `Factures de vente à ${c.lib} pour ${mois} (facturé habituellement chaque mois, environ ${eur(med, 0)} € TTC)`);
       });
@@ -2675,22 +2706,26 @@
       if (bilan && !closed) push('banque', b.compte + ':solde', `Relevé du compte ${b.lib || b.compte} au ${d(arrete)} (ou attestation de solde bancaire)`);
     });
 
-    // Factures fournisseurs récurrentes manquantes
-    p.suppliers.forEach((s) => {
-      const months = Object.keys(s.months).filter((ym) => ym <= endYm).sort();
+    // Règlements et encaissements non affectés à une facture, paiement par paiement (en officine, le tiers payant est traité à part)
+    const pharma = ui.fecProfile === 'pharmacie';
+    const asked = p.unmatched ? unmatchedPieces(r, push, '0000-00-00', arrete, 'per') : new Map();
+    if (!p.unmatched) p.tiers.forEach((t) => {
+      if (t.racine === '401' && t.s > 0) push('achats', 'deb:' + t.num, `Facture ${t.lib} correspondant au paiement de ${eur(t.s)} € (compte fournisseur débiteur : payé mais non facturé)`);
+      if (t.racine === '411' && t.s < 0 && !pharma) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} : règlement de ${eur(-t.s)} € reçu sans facture correspondante`);
+    });
+
+    // Abonnements (montant mensuel stable) dont des factures manquent ; jamais d'estimation pour les dépenses ponctuelles
+    p.suppliers.forEach((sp) => {
+      if (RE_DIVERS.test(sp.lib || '') || asked.has('401|' + sp.num)) return;
+      const months = Object.keys(sp.months).filter((ym) => ym <= endYm).sort();
       if (months.length < 3) return;
       const window = monthsBetween(months[0], endYm);
       if (months.length / window.length < 0.6) return;
-      const missing = window.filter((ym) => !s.months[ym]);
+      const med = median(months.map((ym) => sp.months[ym]));
+      if (med <= 0 || !months.every((ym) => Math.abs(sp.months[ym] - med) <= med * 0.2)) return;
+      const missing = window.filter((ym) => !sp.months[ym]);
       if (!missing.length) return;
-      push('achats', s.num, `Factures ${s.lib} : ${fmtMonths(missing)} (habituellement ${eur(median(months.map((ym) => s.months[ym])), 0)} € par mois)`);
-    });
-
-    // Tiers : fournisseurs débiteurs, clients créditeurs (en officine, le tiers payant est traité à part)
-    const pharma = ui.fecProfile === 'pharmacie';
-    p.tiers.forEach((t) => {
-      if (t.racine === '401' && t.s > 0) push('achats', 'deb:' + t.num, `Facture ${t.lib} correspondant au paiement de ${eur(t.s)} € (compte fournisseur débiteur : payé mais non facturé)`);
-      if (t.racine === '411' && t.s < 0 && !pharma) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} : règlement de ${eur(-t.s)} € reçu sans facture correspondante`);
+      push('achats', sp.num, `Factures ${sp.lib} : ${fmtMonths(missing)} (abonnement de ${eur(med)} € par mois)`);
     });
     if (pharma && r.aging) pharmaPieces(r, mode, arrete, push);
     cyclePieces(r, mode, arrete, push);
