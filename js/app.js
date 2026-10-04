@@ -268,6 +268,7 @@
         dashResp: '',
         dossierView: 'cartes',
         pointage: false,
+        piecesIgnore: ['RSM'], // fournisseurs dont on ne demande jamais les pièces (ex. le cabinet lui-même)
       },
       templates: clone(DEFAULT_TEMPLATES),
       clients: [],
@@ -2080,7 +2081,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '14';
+  const ASSET_VERSION = '15';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -2685,7 +2686,20 @@
     return items;
   }
 
+  // Noms à ne jamais solliciter (réglage « Ne jamais demander de pièces pour ces fournisseurs »), en mot entier.
+  function ignoredRe() {
+    const list = (data.settings.piecesIgnore || []).map((x) => norm(x).trim()).filter(Boolean);
+    if (!list.length) return null;
+    return new RegExp(`(^|[^a-z0-9])(${list.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})([^a-z0-9]|$)`);
+  }
+
   function computePieces(r, mode, arrete) {
+    const re = ignoredRe();
+    const items = computePiecesRaw(r, mode, arrete);
+    return re ? items.filter((i) => i.cat === 'cloture' || !re.test(norm(i.text))) : items;
+  }
+
+  function computePiecesRaw(r, mode, arrete) {
     if (mode === 'mois') return monthPieces(r, arrete);
     const p = r.pieces;
     const items = [];
@@ -4175,7 +4189,9 @@
     if (cy.charges.notesFrais.n && !memoHas('charges', "Dépenses avancées par l'associé", '*')) push('justif', 'ndf', `Notes de frais et justificatifs des ${cy.charges.notesFrais.n} dépense(s) avancée(s) par l'associé (${eur(cy.charges.notesFrais.total)} €)`);
     if (bilan) {
       cy.charges.cca.slice(0, 8).forEach((x, i) => push('cloture', 'cca:' + i, `Facture « ${x.label} » du ${d(x.date)} (${eur(x.amt)} €) : période couverte, pour les charges constatées d'avance`));
-      if (cy.charges.das2.length && !memoHas('charges', 'DAS2 : 0 bénéficiaire(s) de plus de 1 200 €', '*')) push('questions', 'das2', `Pour la DAS2 : SIRET et adresse de ${cy.charges.das2.slice(0, 8).map((b) => b.benef).join(', ')}${cy.charges.das2.length > 8 ? '…' : ''}`);
+      const re = ignoredRe();
+      const das2 = cy.charges.das2.filter((b) => !re || !re.test(norm(b.benef)));
+      if (das2.length && !memoHas('charges', 'DAS2 : 0 bénéficiaire(s) de plus de 1 200 €', '*')) push('questions', 'das2', `Pour la DAS2 : SIRET et adresse de ${das2.slice(0, 8).map((b) => b.benef).join(', ')}${das2.length > 8 ? '…' : ''}`);
     }
   }
 
@@ -4224,7 +4240,7 @@
       const props = ecrProposals(r).filter((p) => p.on);
       const moisArrete = defaultArrete(r, 'mois');
       return {
-        moisArrete, moisPieces: monthPieces(r, moisArrete).length,
+        moisArrete, moisPieces: computePieces(r, 'mois', moisArrete).length,
         errors, warnings, left, total: Object.values(left).reduce((s, v) => s + v, 0), pieces, mode,
         ecr: props.length, impact: props.reduce((s, p) => s + ecrImpact(p.lines), 0),
         ca: r.kpi.ca, resultat: r.kpi.resultat, treso: r.kpi.tresorerie,
@@ -5776,6 +5792,8 @@
             <label>Revue LCB-FT tous les (mois)<input type="number" name="kycMois" min="1" max="60" value="${esc(s.kycMois)}"></label>
             <label>Relancer un client sans réponse après (jours)<input type="number" name="relanceJours" min="1" max="60" value="${esc(s.relanceJours)}"></label>
             <label>Signature des messages<textarea name="signature" rows="3" placeholder="${esc([s.utilisateur, s.cabinet].filter(Boolean).join('\n') || 'Prénom Nom\nCabinet')}">${esc(s.signature)}</textarea></label>
+            <label>Ne jamais demander de pièces pour ces fournisseurs<textarea name="piecesIgnore" rows="3" placeholder="RSM">${esc((s.piecesIgnore || []).join('\n'))}</textarea></label>
+            <p class="muted small">Un nom par ligne (par exemple votre propre cabinet, dont vous récupérez les factures vous-même). Toute demande qui mentionne ce nom est retirée des pièces à demander.</p>
             <button class="btn primary" type="submit">Enregistrer</button>
           </form>
         </section>
@@ -6716,6 +6734,7 @@
       s.kycMois = Math.max(1, Number(val(form, 'kycMois')) || 12);
       s.relanceJours = Math.max(1, Number(val(form, 'relanceJours')) || 7);
       s.signature = form.signature.value.trim();
+      s.piecesIgnore = Array.from(new Set(form.piecesIgnore.value.split('\n').map((x) => x.trim()).filter(Boolean)));
       await persist();
       renderShell();
       route();
