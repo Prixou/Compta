@@ -8,6 +8,10 @@
  *   reste en mémoire sous forme non extractible tant que l'application est
  *   déverrouillée.
  * - Chaque sauvegarde utilise un vecteur d'initialisation (IV) neuf.
+ * - Option « ouverture sans mot de passe sur cet appareil » : la clé de session,
+ *   non extractible, est conservée dans IndexedDB. Les données restent chiffrées
+ *   sur le disque, mais toute personne ayant accès à la session du navigateur peut
+ *   les ouvrir. Les sauvegardes exportées restent protégées par le mot de passe.
  */
 (function () {
   'use strict';
@@ -17,6 +21,7 @@
   const KEY = 'main';
   const ITERATIONS = 600000;
   const FORMAT = 'compta-suivi/v1';
+  const DEVICE = 'meta:deviceKey';
 
   const enc = new TextEncoder();
   const dec = new TextDecoder();
@@ -150,6 +155,38 @@
       const salt = crypto.getRandomValues(new Uint8Array(16));
       session = { key: await deriveKey(newPassword, salt, ITERATIONS), salt, iterations: ITERATIONS };
       await Vault.save(data);
+      if (await Vault.hasDevice()) await Vault.rememberDevice();
+    },
+
+    // Ouverture sans mot de passe sur cet appareil (clé non extractible conservée par le navigateur).
+    async rememberDevice() {
+      if (!session) throw new Error('Coffre verrouillé.');
+      await idb('readwrite', (s) => s.put({ key: session.key }, DEVICE));
+    },
+
+    async forgetDevice() {
+      await idb('readwrite', (s) => s.delete(DEVICE));
+    },
+
+    async hasDevice() {
+      const d = await idb('readonly', (s) => s.get(DEVICE));
+      return !!(d && d.key);
+    },
+
+    // Ouvre le coffre avec la clé conservée sur l'appareil ; null si absente ou devenue invalide.
+    async unlockDevice() {
+      const d = await idb('readonly', (s) => s.get(DEVICE));
+      const env = await idb('readonly', (s) => s.get(KEY));
+      if (!d || !d.key || !env) return null;
+      checkEnvelope(env);
+      let data;
+      try {
+        data = await open(d.key, env);
+      } catch (e) {
+        return null;
+      }
+      session = { key: d.key, salt: unb64(env.salt), iterations: env.iterations };
+      return data;
     },
 
     // Sauvegarde exportable : même format, chiffrée avec la clé courante.

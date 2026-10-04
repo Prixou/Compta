@@ -4,7 +4,7 @@
  * et n'effectue aucune requête vers un autre domaine.
  */
 // À garder identique aux ?v= de index.html et à ASSET_VERSION dans js/app.js.
-const VERSION = '11';
+const VERSION = '12';
 const CACHE = 'suivi-dossiers-v' + VERSION;
 const ASSETS = [
   './',

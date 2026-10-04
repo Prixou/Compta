@@ -500,6 +500,7 @@
   // ---------------------------------------------------------------------------
 
   let failedAttempts = 0;
+  let noPassword = false; // ouverture sans mot de passe activée sur cet appareil
 
   function renderSetup() {
     $('#app').innerHTML = `
@@ -525,6 +526,10 @@
               <input type="checkbox" name="ack" required>
               <span>J'ai compris qu'en cas d'oubli de ce mot de passe, <strong>les données ne pourront pas être récupérées</strong>.</span>
             </label>
+            <label class="check">
+              <input type="checkbox" name="device">
+              <span>Ne plus demander le mot de passe sur cet appareil (il protégera seulement les sauvegardes). À réserver à un appareil personnel, lui-même protégé par un code.</span>
+            </label>
             <p class="form-error" data-error></p>
             <button class="btn primary block" type="submit">Créer mon coffre sécurisé</button>
           </form>
@@ -542,18 +547,19 @@
           <div class="lock-logo">${icon('lock')}</div>
           <h1>Suivi Dossiers</h1>
           <p class="muted">${message ? esc(message) : 'Application verrouillée.'}</p>
+          ${noPassword ? `<button class="btn primary block" data-action="open-device">Ouvrir</button><div class="sep"><span>ou avec le mot de passe</span></div>` : ''}
           <form data-form="unlock" autocomplete="off">
             <label>Mot de passe maître
               <input type="password" name="password" required autocomplete="current-password" spellcheck="false" autofocus>
             </label>
             <p class="form-error" data-error></p>
-            <button class="btn primary block" type="submit">Déverrouiller</button>
+            <button class="btn ${noPassword ? '' : 'primary '}block" type="submit">Déverrouiller</button>
           </form>
           <button class="link-btn danger small" data-action="reset-all">Mot de passe oublié ? Réinitialiser l'application</button>
         </div>
       </div>`;
     const input = $('input[name=password]');
-    if (input) input.focus();
+    if (input && !noPassword) input.focus();
   }
 
   // ---------------------------------------------------------------------------
@@ -2074,7 +2080,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '11';
+  const ASSET_VERSION = '12';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -5126,6 +5132,7 @@
         <li>Les données sont chiffrées (AES-256) et ne quittent jamais l'appareil. Aucun compte, aucun serveur, aucun traceur.</li>
         <li>Le <strong>mode discret</strong> (icône œil) remplace les noms par les numéros de dossier : utile en rendez-vous ou en déplacement.</li>
         <li>L'application se verrouille seule après quelques minutes d'inactivité. Sans le mot de passe, <strong>personne</strong> ne peut lire les données, pas même vous : notez-le en lieu sûr.</li>
+        <li>Sur un appareil personnel protégé par un code, Paramètres → <strong>Ne plus demander le mot de passe sur cet appareil</strong> ouvre l'application directement. Les données restent chiffrées sur le disque, mais quiconque accède à votre session peut les lire. Le mot de passe reste nécessaire pour restaurer une sauvegarde.</li>
         <li>Les exports Excel et CSV ne sont pas chiffrés : supprimez-les après usage.</li>
       </ul>`)}`;
   }
@@ -5557,10 +5564,14 @@
         </section>
         <section class="card">
           <h2>Sécurité et confidentialité</h2>
-          <label>Verrouillage automatique après inactivité
-            <select data-setting="autoLockMin">${options({ 1: '1 minute', 2: '2 minutes', 5: '5 minutes', 10: '10 minutes', 15: '15 minutes', 30: '30 minutes' }, String(s.autoLockMin))}</select>
+          <label class="check"><input type="checkbox" data-device${noPassword ? ' checked' : ''}><span><strong>Ne plus demander le mot de passe sur cet appareil</strong></span></label>
+          <p class="muted small">${noPassword
+            ? "Activé : l'application s'ouvre directement. Les données restent chiffrées sur le disque, mais toute personne ayant accès à votre session (ordinateur ou téléphone déverrouillé) peut les consulter : protégez l'appareil par un code et verrouillez-le en vous absentant. Le mot de passe reste nécessaire pour restaurer une sauvegarde : ne l'oubliez pas."
+            : "Le mot de passe est demandé à chaque ouverture. Vous pouvez le supprimer sur un appareil personnel, protégé par un code : les données resteront chiffrées sur le disque et les sauvegardes protégées par le mot de passe."}</p>
+          ${noPassword ? '' : `<label>Verrouillage automatique après inactivité
+            <select data-setting="autoLockMin">${options({ 1: '1 minute', 2: '2 minutes', 5: '5 minutes', 10: '10 minutes', 15: '15 minutes', 30: '30 minutes', 60: '1 heure', 0: 'Jamais' }, String(s.autoLockMin))}</select>
           </label>
-          <label class="check"><input type="checkbox" data-setting="lockOnHide"${s.lockOnHide ? ' checked' : ''}><span>Verrouiller dès que l'application passe en arrière-plan</span></label>
+          <label class="check"><input type="checkbox" data-setting="lockOnHide"${s.lockOnHide ? ' checked' : ''}><span>Verrouiller dès que l'application passe en arrière-plan</span></label>`}
           <label class="check"><input type="checkbox" data-setting="discret"${s.discret ? ' checked' : ''}><span>Mode discret : afficher les codes dossiers au lieu des noms et masquer les coordonnées (utile en rendez-vous ou dans les transports)</span></label>
           <h3>Changer le mot de passe maître</h3>
           <form data-form="password" autocomplete="off">
@@ -5807,6 +5818,25 @@
     if (tip) { tip.textContent = ''; tip.style.display = 'none'; }
   }
 
+  async function setDeviceMode(input) {
+    if (input.checked) {
+      const ok = await ask({
+        title: 'Ouvrir sans mot de passe',
+        message: "L'application s'ouvrira directement sur cet appareil. Toute personne ayant accès à votre session Windows, Mac ou à votre téléphone déverrouillé pourra lire les dossiers clients. À réserver à un appareil personnel protégé par un code.<br><br>Le mot de passe reste indispensable pour restaurer une sauvegarde.",
+        okLabel: 'Ne plus demander le mot de passe', danger: true,
+      });
+      if (!ok) { input.checked = false; return; }
+      await Vault.rememberDevice();
+      noPassword = true;
+      toast('Le mot de passe ne sera plus demandé sur cet appareil.');
+    } else {
+      await Vault.forgetDevice();
+      noPassword = false;
+      toast('Le mot de passe sera de nouveau demandé à chaque ouverture.');
+    }
+    refresh();
+  }
+
   async function lock(message) {
     if (!data) return;
     if (autoBackupTimer) await writeAutoBackup();
@@ -5831,7 +5861,7 @@
   );
 
   function checkIdle() {
-    if (data && data.settings.autoLockMin > 0 && Date.now() - lastActivity > data.settings.autoLockMin * 60000) {
+    if (data && !noPassword && data.settings.autoLockMin > 0 && Date.now() - lastActivity > data.settings.autoLockMin * 60000) {
       lock('Verrouillée automatiquement après inactivité.');
     }
   }
@@ -5839,7 +5869,7 @@
 
   document.addEventListener('visibilitychange', () => {
     if (!data) return;
-    if (document.hidden && data.settings.lockOnHide) lock();
+    if (document.hidden && data.settings.lockOnHide && !noPassword) lock();
     else if (!document.hidden) checkIdle();
   });
 
@@ -5863,6 +5893,12 @@
 
   const actions = {
     'lock': () => lock(),
+    'open-device': async () => {
+      const opened = await Vault.unlockDevice();
+      if (!opened) return renderLock("L'ouverture sans mot de passe n'a pas fonctionné : saisissez le mot de passe.");
+      data = migrate(opened);
+      afterUnlock();
+    },
     'toggle-discret': () => {
       data.settings.discret = !data.settings.discret;
       persist();
@@ -6208,6 +6244,8 @@
       revueComments().note = t.value.trim();
       if (clientById(ui.fec.clientId)) persist();
       $('#modal .note-preview').innerHTML = noteHtml();
+    } else if (t.dataset.device !== undefined && t.type === 'checkbox') {
+      setDeviceMode(t);
     } else if (t.dataset.wp && ui.fec && ui.fec.result) {
       if (t.dataset.wp === 'st') { wpSetItem(t.dataset.k, { st: t.value }); refresh(); }
       else wpSetItem(t.dataset.k, { note: t.value.trim() });
@@ -6328,6 +6366,10 @@
       form.querySelector('button[type=submit]').disabled = true;
       data = emptyData();
       await Vault.create(p1, data);
+      if (form.device.checked) {
+        await Vault.rememberDevice();
+        noPassword = true;
+      }
       afterUnlock();
     },
 
@@ -6511,7 +6553,15 @@
       return;
     }
     try {
-      (await Vault.exists()) ? renderLock() : renderSetup();
+      if (!(await Vault.exists())) renderSetup();
+      else {
+        noPassword = await Vault.hasDevice();
+        const opened = noPassword ? await Vault.unlockDevice() : null;
+        if (opened) {
+          data = migrate(opened);
+          afterUnlock();
+        } else renderLock(noPassword ? "L'ouverture sans mot de passe n'a pas fonctionné : saisissez le mot de passe." : '');
+      }
     } catch (e) {
       $('#app').innerHTML = `<div class="lock-screen"><div class="lock-card"><h1>Suivi Dossiers</h1>
         <p>Le stockage local est indisponible (navigation privée ?). ${esc(e.message)}</p></div></div>`;
