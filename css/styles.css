@@ -682,3 +682,19 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .wp-table td:nth-child(2) { text-align: left; }
 @media (max-width: 760px) { .wp-row { margin-left: 0; } }
 .dtable.num.batch td:nth-child(5), .dtable.num.batch th:nth-child(5) { text-align: left; white-space: nowrap; }
+
+/* Traitement élément par élément */
+.wp-count { display: inline-block; margin-left: .4rem; font-size: .75rem; font-weight: 600; color: var(--muted); background: var(--surface-2); border-radius: 999px; padding: .05rem .5rem; }
+.wp-count.ok { color: var(--ok); background: var(--ok-soft); }
+.wp-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin: .2rem 0 .5rem; font-size: .85rem; }
+.wp-bulk select { width: auto; min-height: 32px; padding: .2rem .5rem; font-size: .85rem; margin: 0; }
+.fec-ex.wp-els { list-style: none; padding: .35rem .6rem; }
+.fec-ex.wp-els li.wp-el { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .35rem .75rem; align-items: center; padding: .3rem 0; border-top: 1px solid var(--border); margin: 0; }
+.fec-ex.wp-els li.wp-el:first-child { border-top: 0; }
+.wp-el-ctl { display: inline-flex; gap: .4rem; align-items: center; font-family: inherit; font-size: .8rem; }
+.wp-el-ctl select { width: auto; min-height: 30px; padding: .15rem .4rem; font-size: .8rem; margin: 0; font-family: system-ui, sans-serif; }
+.wp-el-ctl input[type=text] { width: 13rem; min-height: 30px; padding: .15rem .5rem; font-size: .8rem; margin: 0; font-family: system-ui, sans-serif; }
+.wp-el.done .wp-el-text { color: var(--muted); text-decoration: line-through; }
+.wp-el.wait .wp-el-text { color: var(--wait); }
+.note-table tr.wp-sub td { font-size: .85em; color: #52606d; }
+@media (max-width: 900px) { .fec-ex.wp-els li.wp-el { grid-template-columns: 1fr; } .wp-el-ctl { flex-wrap: wrap; } .wp-el-ctl input[type=text] { flex: 1 1 10rem; width: auto; } }

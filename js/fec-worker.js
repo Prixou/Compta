@@ -660,9 +660,11 @@ function analyse(buffer, fileName, until) {
 
   // Paiements passés directement de la banque vers un compte de charges (sans compte fournisseur) : facture à obtenir.
   const direct = new Map();
+  const directLines = []; // paiements directs ligne à ligne, pour la demande mensuelle
   chargeLines.forEach(([ek, compte, clib, elib, amt, date]) => {
     const en = entries.get(ek);
     if (!en || !en.has5 || en.has4 || /^(627|6[3-9]|64|658|66|67|68|69)/.test(compte)) return;
+    if (directLines.length < 5000) directLines.push([date, compte, clib, elib, round2(amt)]);
     const key = compte + '|' + labelKey(elib);
     let gr = direct.get(key);
     if (!gr) direct.set(key, (gr = { compte, clib, label: elib, count: 0, total: 0, months: {}, first: date, last: date }));
@@ -686,6 +688,20 @@ function analyse(buffer, fileName, until) {
     direct: Array.from(direct.values()).filter((x) => x.total >= 30).sort((a, b) => b.total - a.total).slice(0, 120)
       .map((x) => ({ ...x, total: round2(x.total) })),
     tiers: auxList.filter((t) => Math.abs(t.s) >= 0.01).map((t) => ({ racine: t.racine, num: t.num, lib: t.lib, s: t.s, lastD: t.lastD || '', lastC: t.lastC || '' })),
+    directLines,
+    // Mouvements mensuels des comptes clients et fournisseurs (à-nouveau, puis débit / crédit par mois)
+    tiersMonths: Array.from(aux.values()).filter((t) => t.racine === '401' || t.racine === '411').map((t) => {
+      const m = {};
+      let an = 0;
+      t.lines.forEach(([date, d, c, , , isAn]) => {
+        if (isAn) { an += d - c; return; }
+        const ym = date.slice(0, 7);
+        const x = (m[ym] = m[ym] || [0, 0]);
+        x[0] = round2(x[0] + d);
+        x[1] = round2(x[1] + c);
+      });
+      return { racine: t.racine, num: t.num, lib: t.lib, an: round2(an), m };
+    }),
     flags,
   };
 
@@ -801,6 +817,7 @@ function buildCycles(x) {
   const purchases = [], sales = [];
   const noVatP = new Map(), overVatP = bucket(), autoliq = bucket(), noVatS = bucket(), overVatS = bucket();
   const cash = bucket(), notesFrais = bucket(), giftVat = bucket();
+  const directSales = [];
   const das2 = new Map();
   const flux = {}, big = [];
   let avoirsP = 0, avoirsS = 0;
@@ -865,6 +882,8 @@ function buildCycles(x) {
       if (!a.first || date < a.first) a.first = date;
       if (date > a.last) a.last = date;
       sales.push([cliKey, date, round2(cliNet), en.piece || '', ref, ek]);
+      const cm = (a.months = a.months || {});
+      cm[date.slice(0, 7)] = round2((cm[date.slice(0, 7)] || 0) + cliNet);
       if (ven >= 150 && tv7 < 0.01) addEx(noVatS, ven, `${ref} · ${a.lib} · ${fmt(round2(ven))} € HT`);
       if (tv7 > ven * 0.2 + 1) addEx(overVatS, tv7, `${ref} · ${a.lib} · HT ${fmt(round2(ven))} € · TVA ${fmt(round2(tv7))} €`);
     } else if (cliNet < -0.005 && ven < -0.005 && !hasTr) {
@@ -873,6 +892,8 @@ function buildCycles(x) {
     } else if (cliNet < -0.005 && tr > 0.005) {
       const a = agg(custs, cliKey);
       a.pay++; a.payAmt -= cliNet;
+    } else if (hasTr && tr > 0.005 && ven > 0.005 && Math.abs(cliNet) < 0.005 && directSales.length < 5000) {
+      directSales.push([date, round2(tr), (en.lib || '').slice(0, 60)]); // encaissement comptabilisé en vente sans compte client
     }
 
     // Charges externes : paiements directs, honoraires (DAS2), notes de frais, cadeaux
@@ -935,16 +956,21 @@ function buildCycles(x) {
   const supF = finish(sups, '401', ttcP);
   const cliF = finish(custs, '411', ttcS);
 
-  // Factures fournisseurs en double
-  const dupStrong = bucket(), dupPossible = bucket();
+  // Factures fournisseurs en double : même fournisseur, même montant, même n° de pièce, saisies à moins de 15 jours d'écart.
+  // Une même référence qui revient chaque mois pour le même montant est un n° de contrat ou d'échéancier (loyer,
+  // crédit-bail, abonnement) : ce n'est pas un doublon.
+  const dupStrong = bucket(), dupPossible = bucket(), recurring = new Set();
   purchases.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[2] - b[2] || (a[1] < b[1] ? -1 : 1)));
   for (let i = 1; i < purchases.length; i++) {
     const p = purchases[i], q = purchases[i - 1];
     if (p[0] !== q[0] || Math.abs(p[2] - q[2]) > 0.005 || p[2] < 50) continue;
     const name = auxNames.get(p[0]) || p[0];
-    if (p[3] && p[3] === q[3]) addEx(dupStrong, p[2], `${name} · ${fmt(p[2])} € · pièce ${p[3]} saisie le ${dmy(q[1])} et le ${dmy(p[1])}`, 30,
-      { sup: p[0], supLib: name, date: p[1], piece: p[3], ttc: p[2], ht: p[5], tva: p[6], compte: p[7] });
-    else if (Math.abs(daysBetween(q[1], p[1])) <= 3) addEx(dupPossible, p[2], `${name} · ${fmt(p[2])} € · pièces ${q[3] || '?'} (${dmy(q[1])}) et ${p[3] || '?'} (${dmy(p[1])})`, 30);
+    const gap = Math.abs(daysBetween(q[1], p[1]));
+    if (p[3] && p[3] === q[3]) {
+      if (gap >= 15) { recurring.add(p[0] + '|' + p[3]); continue; }
+      addEx(dupStrong, p[2], `${name} · ${fmt(p[2])} € · pièce ${p[3]} saisie le ${dmy(q[1])} et le ${dmy(p[1])}`, 30,
+        { sup: p[0], supLib: name, date: p[1], piece: p[3], ttc: p[2], ht: p[5], tva: p[6], compte: p[7] });
+    } else if (gap <= 3) addEx(dupPossible, p[2], `${name} · ${fmt(p[2])} € · pièces ${q[3] || '?'} (${dmy(q[1])}) et ${p[3] || '?'} (${dmy(p[1])})`, 30);
   }
 
   // Numérotation des factures de vente (art. 242 nonies A, annexe II du CGI)
@@ -979,7 +1005,7 @@ function buildCycles(x) {
       const distinct = new Set(list.map((x) => x.ek));
       if (distinct.size > 1 && dups.length < 20) dups.push(`${list[0].piece} : ${list.map((x) => `${dmy(x.date)} (${fmt(x.ttc)} €)`).join(' et ')}`);
     });
-    numbering.push({ prefix, count: g.size, first: ref(nums[0]), last: ref(nums[nums.length - 1]), missing, ranges, inversions, invEx, dups, sparse: missing > g.size });
+    numbering.push({ prefix, w: g.w, seq: g.size <= 6000 ? nums.map((n) => [n, g.get(n)[0].date]) : null, count: g.size, first: ref(nums[0]), last: ref(nums[nums.length - 1]), missing, ranges, inversions, invEx, dups, sparse: missing > g.size });
   });
   numbering.sort((a, b) => b.count - a.count);
 
@@ -1040,7 +1066,7 @@ function buildCycles(x) {
   return {
     achats: {
       invoices: purchases.length, ttc: ttcP, avoirs: round2(avoirsP), suppliers: supF.list, nbSuppliers: supF.count, delay: supF.delay,
-      dupStrong, dupPossible, noVat: Array.from(noVatP.values()).sort((a, b) => b.total - a.total), overVat: overVatP, autoliq, cut: cut.achats,
+      dupStrong, dupPossible, recurringRefs: recurring.size, noVat: Array.from(noVatP.values()).sort((a, b) => b.total - a.total), overVat: overVatP, autoliq, cut: cut.achats,
     },
     charges: {
       accounts: Array.from(chAcc.values()).map(({ big: _b, ...a }) => ({ ...a, total: round2(a.total), direct: round2(a.direct), months: Object.fromEntries(Object.entries(a.months).map(([k, v]) => [k, round2(v)])) })).sort((a, b) => a.compte.localeCompare(b.compte)),
@@ -1048,7 +1074,7 @@ function buildCycles(x) {
       perso: x.perso, amendes: x.amendes, weekend: x.weekend, gifts: x.gifts, giftVat, notesFrais, cut: cut.charges,
     },
     clients: {
-      invoices: sales.length, ttc: ttcS, avoirs: round2(avoirsS), customers: cliF.list, nbCustomers: cliF.count, delay: cliF.delay,
+      invoices: sales.length, ttc: ttcS, avoirs: round2(avoirsS), customers: cliF.list, nbCustomers: cliF.count, delay: cliF.delay, directSales,
       numbering, noVat: noVatS, overVat: overVatS, cut: cut.ventes, lastWeek: round2(lastWeek), avgWeek: round2((ttcS / spanDays) * 7),
     },
     treso: {

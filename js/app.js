@@ -1396,7 +1396,7 @@
 
   // Message d'une demande de pièces issue du FEC : éléments non encore reçus, groupés par catégorie.
   function buildPiecesMessage(c, m, modele, salut, signature) {
-    const objet = `${m.demandePieces.mode === 'bilan' ? 'votre bilan' : 'votre situation'} au ${fmtDate(m.demandePieces.arrete)}`;
+    const objet = m.demandePieces.mode === 'mois' ? `la comptabilité de ${moisNom(m.demandePieces.arrete)}` : `${m.demandePieces.mode === 'bilan' ? 'votre bilan' : 'votre situation'} au ${fmtDate(m.demandePieces.arrete)}`;
     const groups = {};
     m.etapes.filter((e) => !e.done).forEach((e) => (groups[e.cat || 'Autres'] = groups[e.cat || 'Autres'] || []).push(e.label));
     const list = Object.entries(groups).map(([cat, l]) => `${cat} :\n${l.map((x) => `- ${x}`).join('\n')}`).join('\n\n');
@@ -2080,7 +2080,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '12';
+  const ASSET_VERSION = '13';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -2387,7 +2387,7 @@
       const k = r.kpi;
       const tile = (label, value, cls) => `<div class="kpi ${cls || ''}"><strong>${value}</strong><span>${label}</span></div>`;
       body = `
-        ${nbPieces ? `<div class="banner info"><span><strong>${nbPieces} pièce(s) ou information(s)</strong> à demander au client pour ${piecesState().mode === 'bilan' ? 'le bilan' : 'la situation'} au ${fmtDate(piecesState().arrete)}.</span><button class="btn small" data-action="fec-tab" data-tab="pieces">Voir la liste</button></div>` : ''}
+        ${nbPieces ? `<div class="banner info"><span><strong>${nbPieces} pièce(s) ou information(s)</strong> à demander au client pour ${piecesState().mode === 'mois' ? `le mois de ${moisNom(piecesState().arrete)}` : `${piecesState().mode === 'bilan' ? 'le bilan' : 'la situation'} au ${fmtDate(piecesState().arrete)}`}.</span><button class="btn small" data-action="fec-tab" data-tab="pieces">Voir la liste</button></div>` : ''}
         <div class="kpis fec-kpis">
           ${tile('Anomalies', errors, errors ? 'kpi-late' : '')}
           ${tile('Points à vérifier', warnings, warnings ? 'kpi-wait' : '')}
@@ -2571,7 +2571,91 @@
     return Math.round((parseYmd(b) - parseYmd(a)) / 86400000);
   }
 
+  const moisNom = (iso) => `${MOIS_LONGS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
+  const piecesLabel = (mode, arrete) => (mode === 'mois' ? `mois de ${moisNom(arrete)}` : `${mode === 'bilan' ? 'bilan' : 'situation'} au ${fmtDate(arrete)}`);
+
+  // Mois dont un tiers est habituellement facturé : au moins 3 des 6 mois précédents, dont l'un des 2 derniers.
+  function usuallyMonthly(months, ym) {
+    const start = `${ym}-01`;
+    const prior = monthsBetween(ymOf(addDays(start, -175)), ymOf(addDays(start, -1)));
+    const seen = prior.filter((m) => Math.abs(months[m] || 0) >= 0.01);
+    if (seen.length < 3 || !prior.slice(-2).some((m) => Math.abs(months[m] || 0) >= 0.01)) return null;
+    return median(seen.map((m) => months[m]));
+  }
+
+  // Demande mensuelle : pièces manquantes du mois pour les cycles achats et ventes.
+  function monthPieces(r, arrete) {
+    const items = [];
+    const push = (cat, id, text) => items.push({ cat, id: `${cat}:${id}`, text });
+    const p = r.pieces;
+    const cy = r.cycles;
+    const ym = ymOf(arrete);
+    const start = `${ym}-01`, end = endOfMonth(start), mois = moisNom(start);
+    const inM = (date) => date >= start && date <= end;
+    const d = fmtDate;
+    const pharma = ui.fecProfile === 'pharmacie';
+
+    // Achats : fournisseurs facturés chaque mois sans facture ce mois-ci
+    p.suppliers.forEach((sp) => {
+      if (Math.abs(sp.months[ym] || 0) >= 0.01) return;
+      const med = usuallyMonthly(sp.months, ym);
+      if (med !== null) push('achats', 'rec:' + sp.num, `Facture ${sp.lib} de ${mois} (habituellement ${eur(med, 0)} € par mois)`);
+    });
+    // Règlements sans facture (fournisseur débiteur) et encaissements sans facture (client créditeur) à la fin du mois
+    (p.tiersMonths || []).forEach((t) => {
+      let bal = t.an;
+      Object.keys(t.m).forEach((k) => { if (k <= ym) bal += t.m[k][0] - t.m[k][1]; });
+      const mv = t.m[ym] || [0, 0];
+      if (t.racine === '401' && bal > 0.01 && mv[0] > 0.01) push('achats', 'deb:' + t.num, `Facture ${t.lib} correspondant au règlement de ${eur(Math.min(bal, mv[0]))} € effectué en ${mois}`);
+      if (t.racine === '411' && !pharma && bal < -0.01 && mv[1] > 0.01) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} correspondant au règlement de ${eur(Math.min(-bal, mv[1]))} € reçu en ${mois}`);
+    });
+    // Dépenses payées directement (banque ou caisse → charge, sans facture fournisseur)
+    const groups = new Map();
+    (p.directLines || []).filter((l) => inM(l[0])).forEach(([date, compte, clib, elib, amt]) => {
+      const lib = String(elib).replace(/\S*\d\S*/g, '').replace(/\s+/g, ' ').trim() || elib;
+      const k = compte + '|' + norm(lib);
+      const g = groups.get(k) || groups.set(k, { lib, clib, n: 0, total: 0, date }).get(k);
+      g.n++;
+      g.total += amt;
+    });
+    Array.from(groups.values()).sort((a, b) => b.total - a.total).forEach((g, i) => push('justif', `m${ym}:${i}`, g.n === 1
+      ? `Facture « ${g.lib.slice(0, 45)} » du ${d(g.date)} (${eur(g.total)} €) — ${g.clib}`
+      : `Factures « ${g.lib.slice(0, 45)} » : ${g.n} paiements en ${mois}, total ${eur(g.total)} € — ${g.clib}`));
+    // Acquisitions d'immobilisations du mois
+    p.immo.filter((l) => inM(l.date)).forEach((l, i) => push('immo', `m${ym}:${i}`, `Facture d'acquisition « ${l.lib} » du ${d(l.date)} (${eur(l.montant)} €, ${l.clib})`));
+    // Opérations en attente du mois
+    p.attente.filter((l) => inM(l.date) && !l.lettre).forEach((l, i) => push('attente', `m${ym}:${i}`, `Justificatif de l'opération « ${l.lib} » du ${d(l.date)} : ${l.c > 0 ? 'encaissement' : 'paiement'} de ${eur(l.c || l.d)} €`));
+
+    if (!pharma && cy) {
+      // Ventes : clients facturés chaque mois sans facture ce mois-ci
+      cy.clients.customers.forEach((c) => {
+        if (!c.months || Math.abs(c.months[ym] || 0) >= 0.01) return;
+        const med = usuallyMonthly(c.months, ym);
+        if (med !== null) push('ventes', 'mcli:' + c.num, `Factures de vente à ${c.lib} pour ${mois} (facturé habituellement chaque mois, environ ${eur(med, 0)} € TTC)`);
+      });
+      // Numéros de facture manquants dans la séquence du mois
+      cy.clients.numbering.filter((g) => !g.sparse && g.seq).forEach((g) => {
+        // Chaque trou de la numérotation est rattaché au mois de la facture qui le suit.
+        const miss = [];
+        for (let i = 1; i < g.seq.length && miss.length < 200; i++) {
+          if (!inM(g.seq[i][1])) continue;
+          for (let n = g.seq[i - 1][0] + 1; n < g.seq[i][0] && miss.length < 200; n++) miss.push(n);
+        }
+        if (!miss.length) return;
+        const ref = (n) => g.prefix + String(n).padStart(g.w || 0, '0');
+        const ranges = [];
+        miss.forEach((n) => { const last = ranges[ranges.length - 1]; if (last && n === last[1] + 1) last[1] = n; else ranges.push([n, n]); });
+        push('ventes', `num:${g.prefix}:${ym}`, `Factures de vente n° ${ranges.slice(0, 10).map(([a, b]) => (a === b ? ref(a) : `${ref(a)} à ${ref(b)}`)).join(', ')} (${mois}) : copies, ou confirmation de leur annulation`);
+      });
+      // Encaissements enregistrés en ventes sans facture client (activité facturée)
+      const facture = cy.clients.customers.reduce((s, c) => s + c.ht, 0);
+      if (r.kpi.ca > 0 && facture >= r.kpi.ca * 0.5) (cy.clients.directSales || []).filter(([date]) => inM(date)).slice(0, 15).forEach(([date, amt, lib], i) => push('ventes', `enc:${ym}:${i}`, `Facture de vente correspondant à l'encaissement « ${lib} » du ${d(date)} (${eur(amt)} €)`));
+    }
+    return items;
+  }
+
   function computePieces(r, mode, arrete) {
+    if (mode === 'mois') return monthPieces(r, arrete);
     const p = r.pieces;
     const items = [];
     const push = (cat, id, text) => items.push({ cat, id: `${cat}:${id}`, text });
@@ -2610,6 +2694,12 @@
     });
     if (pharma && r.aging) pharmaPieces(r, mode, arrete, push);
     cyclePieces(r, mode, arrete, push);
+    // Éléments marqués « pièce demandée » dans la feuille de travail
+    if (ui.fec && ui.fec.result === r) Object.values(wpStore().items).forEach((it) => Object.entries(it.els || {}).forEach(([ek, el]) => {
+      // Texte destiné au client : sans n° de compte ni référence d'écriture interne.
+      const txt = String(el.label || '').split(' · ').filter((x) => !/^\d{4,}\b/.test(x) && !/^[A-Z0-9]{1,5} \d+$/.test(x)).join(' · ');
+      if (el.st === 'piece') push('questions', 'el:' + ek.slice(0, 80), `Justificatif de l'opération : ${txt}${el.note ? ` — ${el.note}` : ''}`);
+    }));
 
     // Dépenses payées directement (banque ou caisse → charge, sans compte fournisseur)
     p.direct.filter((g) => g.first <= arrete).forEach((g, i) => {
@@ -2707,13 +2797,19 @@
     return `
       <section class="card">
         <h2>Pièces à demander au client</h2>
-        <p class="muted small">Liste établie à partir des écritures : relevés manquants, factures récurrentes absentes, paiements sans facture, opérations à identifier… Décochez ce qui ne s'applique pas, puis créez la demande.</p>
+        <p class="muted small">${st.mode === 'mois'
+          ? 'Demande du mois, cycles achats et ventes : factures des fournisseurs et clients habituels absentes, règlements et encaissements sans facture, dépenses payées directement, numéros de facture manquants, opérations à identifier. À envoyer dès la saisie du mois pour anticiper la situation ou le bilan.'
+          : "Liste établie à partir des écritures : relevés manquants, factures récurrentes absentes, paiements sans facture, opérations à identifier… Décochez ce qui ne s'applique pas, puis créez la demande."}</p>
+        ${st.mode === 'mois' && f.result.pieces.maxOp && f.result.pieces.maxOp < addDays(endOfMonth(`${ymOf(st.arrete)}-01`), -5) ? `<div class="banner warn"><span>Les écritures s'arrêtent au ${fmtDate(f.result.pieces.maxOp)} : seule la partie saisie du mois est analysée.</span></div>` : ''}
         <div class="filters pieces-opts">
           <div class="seg" role="group" aria-label="Travail à préparer">
+            <button class="${st.mode === 'mois' ? 'on' : ''}" data-action="pieces-mode" data-mode="mois">Mois</button>
             <button class="${st.mode === 'situation' ? 'on' : ''}" data-action="pieces-mode" data-mode="situation">Situation</button>
             <button class="${st.mode === 'bilan' ? 'on' : ''}" data-action="pieces-mode" data-mode="bilan">Bilan</button>
           </div>
-          <label class="inline-label">Arrêté au <input type="date" data-pieces="arrete" value="${esc(st.arrete)}"></label>
+          ${st.mode === 'mois'
+            ? `<label class="inline-label">Mois <input type="month" data-pieces="mois" value="${esc(ymOf(st.arrete))}"></label>`
+            : `<label class="inline-label">Arrêté au <input type="date" data-pieces="arrete" value="${esc(st.arrete)}"></label>`}
           <span class="muted small">${kept.length} élément(s) retenu(s) sur ${items.length}</span>
         </div>
         ${items.length ? Object.keys(PIECES_CATS).filter((k) => groups[k]).map((k) => `
@@ -2736,7 +2832,7 @@
     const st = piecesState();
     const items = selectedPieces();
     if (!c || !items.length) return;
-    const label = `${st.mode === 'bilan' ? 'bilan' : 'situation'} au ${fmtDate(st.arrete)}`;
+    const label = piecesLabel(st.mode, st.arrete);
     const titre = `Demande de pièces — ${label}`;
     const stamp = nowIso();
     let m = data.missions.find((x) => x.clientId === c.id && x.titre === titre && isOpen(x));
@@ -2765,7 +2861,7 @@
     const items = selectedPieces();
     const c = clientById(f.clientId);
     const t = (v, s) => ({ v, s: s === undefined ? 2 : s });
-    const rows = [[{ v: `Pièces à fournir — ${st.mode === 'bilan' ? 'bilan' : 'situation'} au ${fmtDate(st.arrete)}${c ? ' — ' + c.nom : ''}`, s: 10 }], [],
+    const rows = [[{ v: `Pièces à fournir — ${piecesLabel(st.mode, st.arrete)}${c ? ' — ' + c.nom : ''}`, s: 10 }], [],
       [t('Catégorie', 1), t('Élément demandé', 1), t('Fourni', 1), t('Commentaire', 1)]]
       .concat(items.map((i) => [t(PIECES_CATS[i.cat]), t(i.text), t(''), t('')]));
     const blob = XlsxWriter.build({ sheets: [{ name: 'Pièces à fournir', rows, widths: [30, 110, 10, 40], freeze: { row: 3 }, filter: { row: 3 } }] });
@@ -3591,7 +3687,8 @@
 
   function checksList() {
     const out = [];
-    out.add = (level, label, detail, examples, extra) => out.push(Object.assign({ level, label, detail: detail || '', examples: examples || [], count: 0 }, extra || {}));
+    // `full` : la liste d'exemples est complète (sinon d'autres éléments existent au-delà de ceux affichés).
+    out.add = (level, label, detail, examples, extra) => out.push(Object.assign({ level, label, detail: detail || '', examples: examples || [], count: 0, full: (examples || []).length < 10 }, extra || {}));
     return out;
   }
 
@@ -3646,8 +3743,8 @@
     const { mv, solde } = sums(r);
     const pharma = ui.fecProfile === 'pharmacie';
     linkedAlerts(r, out, ['Fournisseurs débiteurs']);
-    if (a.dupStrong.n) out.add('warn', 'Factures fournisseurs en double', `${a.dupStrong.n} facture(s) saisie(s) deux fois (même fournisseur, même montant, même n° de pièce) : ${eur(a.dupStrong.total)} € de charges et de TVA déductible en trop ?`, a.dupStrong.ex, { full: a.dupStrong.ex.length >= a.dupStrong.n });
-    else if (a.invoices) out.add('ok', 'Aucune facture fournisseur en double', `${a.invoices.toLocaleString('fr-FR')} factures contrôlées (fournisseur, montant et n° de pièce).`);
+    if (a.dupStrong.n) out.add('warn', 'Factures fournisseurs en double', `${a.dupStrong.n} facture(s) saisie(s) deux fois (même fournisseur, même montant, même n° de pièce, à moins de 15 jours d'écart) : ${eur(a.dupStrong.total)} € de charges et de TVA déductible en trop ?`, a.dupStrong.ex, { full: a.dupStrong.ex.length >= a.dupStrong.n });
+    else if (a.invoices) out.add('ok', 'Aucune facture fournisseur en double', `${a.invoices.toLocaleString('fr-FR')} factures contrôlées (fournisseur, montant et n° de pièce)${a.recurringRefs ? ` ; ${a.recurringRefs} référence(s) d'échéancier mensuel (loyer, crédit-bail, abonnement) écartée(s)` : ''}.`);
     if (a.dupPossible.n) out.add('info', "Factures de même montant à quelques jours d'intervalle", `${a.dupPossible.n} cas chez un même fournisseur (3 jours au plus) : livraisons distinctes ou doublon ?`, a.dupPossible.ex, { full: a.dupPossible.ex.length >= a.dupPossible.n });
     const od = overdue(r, '401', ref, terme);
     if (od.b91[1] > 0) out.add('warn', 'Dettes fournisseurs échues depuis plus de 90 jours', `${eur(od.b91[1], 0)} € (${od.b91[0]} facture(s)) : litige, avoir attendu, ou facture déjà réglée par un autre moyen ?`, od.tiers.filter((t) => t.b91 > 0).slice(0, 10).map((t) => `${t.lib} : ${eur(t.b91)} € (${oldestTxt(t)})`));
@@ -3674,6 +3771,8 @@
     return out;
   }
 
+  const ccaEx = (x) => `${fmtDate(x.date)} · ${x.compte} ${x.lib} · ${x.label} · ${eur(x.amt, 0)} € → ${eur(x.cca, 0)} € (période présumée de ${x.cover} mois)`;
+
   function chkCharges(r, ref, prev) {
     const ch = r.cycles.charges;
     const out = checksList();
@@ -3693,7 +3792,7 @@
     if (r.meta.closing) {
       const est = ch.cca.reduce((s, x) => s + x.cca, 0);
       const cca = solde(['486']);
-      if (ch.cca.length) out.add(cca < est * 0.5 ? 'warn' : 'info', `Charges constatées d'avance probables : ${eur(est, 0)} €`, `${ch.cca.length} paiement(s) annuels ou trimestriels couvrant une période postérieure au ${fmtDate(r.meta.closing)} (estimation à confirmer sur les factures) ; comptabilisé en 486 : ${eur(cca, 0)} €.`, ch.cca.slice(0, 12).map((x) => `${fmtDate(x.date)} · ${x.compte} ${x.lib} · ${x.label} · ${eur(x.amt, 0)} € → ${eur(x.cca, 0)} € (période présumée de ${x.cover} mois)`));
+      if (ch.cca.length) out.add(cca < est * 0.5 ? 'warn' : 'info', `Charges constatées d'avance probables : ${eur(est, 0)} €`, `${ch.cca.length} paiement(s) annuels ou trimestriels couvrant une période postérieure au ${fmtDate(r.meta.closing)} (estimation à confirmer sur les factures) ; comptabilisé en 486 : ${eur(cca, 0)} €.`, ch.cca.slice(0, 12).map(ccaEx), { full: ch.cca.length <= 12 });
     }
     regulCheck(r, out, ['486'], "Charges constatées d'avance de l'exercice précédent non extournées");
     regulCheck(r, out, ['4286', '4386', '4486', '4686'], "Charges à payer de l'exercice précédent non extournées");
@@ -4088,7 +4187,9 @@
       const mode = isSituation(r) ? 'situation' : 'bilan';
       const pieces = computePieces(r, mode, defaultArrete(r, mode)).length;
       const props = ecrProposals(r).filter((p) => p.on);
+      const moisArrete = defaultArrete(r, 'mois');
       return {
+        moisArrete, moisPieces: monthPieces(r, moisArrete).length,
         errors, warnings, left, total: Object.values(left).reduce((s, v) => s + v, 0), pieces, mode,
         ecr: props.length, impact: props.reduce((s, p) => s + ecrImpact(p.lines), 0),
         ca: r.kpi.ca, resultat: r.kpi.resultat, treso: r.kpi.tresorerie,
@@ -4172,10 +4273,10 @@
       </div>
       <section class="card"><div class="card-head"><h2>Dossiers par charge de révision</h2>
         ${!b.running && linked.length ? `<button class="btn small" data-action="batch-save">Enregistrer les synthèses dans les dossiers (${linked.length})</button>` : ''}</div>
-        <div class="grid-wrap"><table class="dtable num batch"><thead><tr><th>Dossier</th><th>Travail</th><th>Anomalies</th><th>À traiter</th><th>Détail par cycle</th><th>Pièces</th><th>Écritures</th><th>Impact résultat</th><th>CA</th><th>Résultat</th><th></th></tr></thead>
-        <tbody>${items.map((x) => x.error ? `<tr><td>${esc(x.fileName)}</td><td colspan="9" class="late">${esc(x.error)}</td><td></td></tr>` : `<tr>
+        <div class="grid-wrap"><table class="dtable num batch"><thead><tr><th>Dossier</th><th>Travail</th><th>Anomalies</th><th>À traiter</th><th>Détail par cycle</th><th>Pièces</th><th>Pièces du mois</th><th>Écritures</th><th>Impact résultat</th><th>CA</th><th>Résultat</th><th></th></tr></thead>
+        <tbody>${items.map((x) => x.error ? `<tr><td>${esc(x.fileName)}</td><td colspan="10" class="late">${esc(x.error)}</td><td></td></tr>` : `<tr>
           <td>${name(x)}</td><td>${x.sum.mode === 'situation' ? 'Situation' : 'Bilan'}${x.profile === 'pharmacie' ? ' · officine' : ''}</td>
-          <td class="${x.sum.errors ? 'late' : ''}">${x.sum.errors}</td><td>${x.sum.total}</td><td class="small">${cyc(x) || '—'}</td><td>${x.sum.pieces}</td><td>${x.sum.ecr}</td>
+          <td class="${x.sum.errors ? 'late' : ''}">${x.sum.errors}</td><td>${x.sum.total}</td><td class="small">${cyc(x) || '—'}</td><td>${x.sum.pieces}</td><td>${x.sum.moisPieces ? `<button class="link-btn" data-action="batch-open" data-i="${x.i}" data-mois="1" title="Ouvrir la demande du mois">${x.sum.moisPieces} · ${esc(MOIS_COURTS[Number(x.sum.moisArrete.slice(5, 7)) - 1])}</button>` : '—'}</td><td>${x.sum.ecr}</td>
           <td class="${x.sum.impact < 0 ? 'cred' : ''}">${x.sum.ecr ? eur(x.sum.impact, 0) : ''}</td><td>${eurK(x.sum.ca)}</td><td class="${x.sum.resultat < 0 ? 'cred' : ''}">${eurK(x.sum.resultat)}</td>
           <td><button class="btn small" data-action="batch-open" data-i="${x.i}">Ouvrir</button></td></tr>`).join('')}</tbody></table></div>
         <p class="muted small">Classement : anomalies de conformité d'abord, puis nombre de points de révision restant à traiter. Les FEC sans dossier correspondant (SIREN) peuvent être ouverts et rattachés manuellement.</p>
@@ -4185,14 +4286,14 @@
   function batchExport() {
     const t = (v, s) => ({ v, s: s === undefined ? 2 : s });
     const n = (v, s) => ({ v: Number(v) || 0, s: s || 8 });
-    const rows = [['Dossier', 'Fichier', 'Travail', 'Profil', 'Anomalies', 'Points à traiter', 'Achats', 'Charges externes', 'Clients', 'Trésorerie', 'Généraux', 'Pièces à demander', 'Écritures proposées', 'Impact résultat', 'CA', 'Résultat', 'Trésorerie fin'].map((c) => t(c, 1))]
+    const rows = [['Dossier', 'Fichier', 'Travail', 'Profil', 'Anomalies', 'Points à traiter', 'Achats', 'Charges externes', 'Clients', 'Trésorerie', 'Généraux', 'Pièces à demander', 'Pièces du mois', 'Écritures proposées', 'Impact résultat', 'CA', 'Résultat', 'Trésorerie fin'].map((c) => t(c, 1))]
       .concat(batchItems().filter((x) => x.sum).map((x) => {
         const c = clientById(x.st.clientId);
         return [t(c ? clientLabel(c) : ''), t(x.fileName), t(x.sum.mode === 'situation' ? 'Situation' : 'Bilan'), t(x.profile === 'pharmacie' ? 'Pharmacie' : 'Classique'),
           n(x.sum.errors, 2), n(x.sum.total, 2), n(x.sum.left.achats || 0, 2), n(x.sum.left.charges || 0, 2), n(x.sum.left.clients || 0, 2), n(x.sum.left.treso || 0, 2), n(x.sum.left.gen || 0, 2),
-          n(x.sum.pieces, 2), n(x.sum.ecr, 2), n(x.sum.impact), n(x.sum.ca), n(x.sum.resultat), n(x.sum.treso)];
+          n(x.sum.pieces, 2), n(x.sum.moisPieces, 2), n(x.sum.ecr, 2), n(x.sum.impact), n(x.sum.ca), n(x.sum.resultat), n(x.sum.treso)];
       }));
-    const blob = XlsxWriter.build({ sheets: [{ name: 'Portefeuille', rows, widths: [34, 30, 11, 11, 11, 13, 9, 11, 9, 11, 10, 12, 12, 14, 14, 14, 14], freeze: { row: 1 } }] });
+    const blob = XlsxWriter.build({ sheets: [{ name: 'Portefeuille', rows, widths: [34, 30, 11, 11, 11, 13, 9, 11, 9, 11, 10, 12, 12, 12, 14, 14, 14, 14], freeze: { row: 1 } }] });
     download(`portefeuille-fec-${todayStr()}.xlsx`, blob, blob.type);
   }
 
@@ -4272,35 +4373,103 @@
   function wpItem(cycle, x) {
     return wpStore().items[wpKey(cycle, x.label)] || {};
   }
+  // Clé d'un élément (ligne d'exemple) : texte complet, dates et montants compris.
+  const elKey = (e) => norm(e).replace(/\s+/g, ' ').trim().slice(0, 200);
+  const elOf = (it, e) => (it.els && it.els[elKey(e)]) || {};
+
+  // Statut d'un contrôle : son statut global, sinon celui qui découle de ses éléments traités un par un.
+  function checkState(cycle, x) {
+    const it = wpItem(cycle, x);
+    if (it.st) return it.st;
+    const ex = x.examples || [];
+    if (!ex.length || !it.els) return '';
+    const sts = ex.map((e) => elOf(it, e).st || '');
+    if (!sts.every((v) => WP_DONE.includes(v) || v === 'piece')) return '';
+    if (sts.includes('piece')) return 'piece';
+    return x.full === false ? '' : 'justifie';
+  }
+  function elCounts(cycle, x) {
+    const it = wpItem(cycle, x);
+    const ex = x.examples || [];
+    return { total: ex.length, done: ex.filter((e) => WP_DONE.includes(elOf(it, e).st || '')).length, wait: ex.filter((e) => elOf(it, e).st === 'piece').length };
+  }
   function wpProgress(cycle, list) {
     const todo = list.filter((x) => (x.level === 'error' || x.level === 'warn') && !x.linked);
-    const done = todo.filter((x) => WP_DONE.includes(wpItem(cycle, x).st || ''));
-    const wait = todo.filter((x) => wpItem(cycle, x).st === 'piece');
+    const done = todo.filter((x) => WP_DONE.includes(checkState(cycle, x)));
+    const wait = todo.filter((x) => checkState(cycle, x) === 'piece');
     return { total: todo.length, done: done.length, wait: wait.length, left: todo.length - done.length - wait.length };
   }
 
+  // Écriture proposée écartée parce que l'élément qui la motive a été justifié, classé sans objet ou n'est plus signalé.
+  function elDismissed(src) {
+    if (!src || !ui.fec || !ui.fec.result) return false;
+    const it = wpStore().items[wpKey(src.cycle, src.check)] || {};
+    if (['justifie', 'na'].includes(it.st)) return true;
+    if (['justifie', 'na'].includes(elOf(it, src.ex).st)) return true;
+    return memoHas(src.cycle, src.check, src.ex);
+  }
+
   // Liste de contrôles avec, pour chaque point, le statut de révision, un commentaire et la mémoire du dossier.
+  // Les éléments détaillés (factures, dépenses, opérations…) se traitent aussi un par un.
   function wpCheckList(list, cycle) {
     const order = { error: 0, warn: 1, info: 2, ok: 3 };
     if (!list.length) return '<p class="muted">Aucun point relevé.</p>';
+    const f = ui.fec;
+    f.wpOpen = f.wpOpen || new Set();
+    const opts = (cur, first) => Object.entries(WP_ST).map(([v, l]) => `<option value="${v}"${(cur || '') === v ? ' selected' : ''}>${v === '' && first ? first : l}</option>`).join('');
     return `<ul class="fec-checks wp">${list.slice().sort((a, b) => order[a.level] - order[b.level]).map((c) => {
       const k = wpKey(cycle, c.label);
       const it = wpStore().items[k] || {};
       const actionable = c.level !== 'ok' && !c.linked;
       const ex = c.examples && c.examples.length;
-      return `<li class="fec-check${it.st && WP_DONE.includes(it.st) ? ' wp-done' : ''}">
-        ${ex ? '<details><summary>' : '<div class="fec-check-row">'}
+      const state = actionable ? checkState(cycle, c) : '';
+      const ec = actionable && ex ? elCounts(cycle, c) : null;
+      const shown = ex ? c.examples.filter((e) => !(f.wpHide && actionable && WP_DONE.includes(elOf(it, e).st || ''))) : [];
+      const elRow = (e) => {
+        const el = elOf(it, e);
+        const ek = elKey(e);
+        return `<li class="wp-el${WP_DONE.includes(el.st || '') ? ' done' : el.st === 'piece' ? ' wait' : ''}">
+          <span class="wp-el-text">${esc(e)}</span>
+          <span class="wp-el-ctl">
+            <select data-wp="el-st" data-k="${esc(k)}" data-e="${esc(ek)}" data-label="${esc(e)}" data-check="${esc(c.label)}" aria-label="Statut de l'élément">${opts(el.st)}</select>
+            <input type="text" data-wp="el-note" data-k="${esc(k)}" data-e="${esc(ek)}" data-label="${esc(e)}" data-check="${esc(c.label)}" value="${esc(el.note || '')}" placeholder="Commentaire" aria-label="Commentaire sur l'élément">
+            <button class="link-btn" data-action="wp-memo" data-k="${esc(k)}" data-sig="${esc(exSig(e))}" data-label="${esc(e.slice(0, 120))}" title="Ne plus signaler cet élément lors des prochaines analyses de ce dossier">Ne plus signaler</button>
+          </span></li>`;
+      };
+      return `<li class="fec-check${WP_DONE.includes(state) ? ' wp-done' : ''}">
+        ${ex ? `<details data-wpk="${esc(k)}"${f.wpOpen.has(k) ? ' open' : ''}><summary>` : '<div class="fec-check-row">'}
           ${levelBadge(c.level)}
-          <span class="fec-check-text"><span><strong>${esc(c.label)}</strong>${c.linked ? ' <span class="muted small">(point général)</span>' : ''}</span>${c.detail ? `<span class="muted small">${esc(c.detail)}</span>` : ''}</span>
-        ${ex ? `</summary><ul class="fec-ex">${c.examples.map((e) => `<li><span>${esc(e)}</span>${actionable ? `<button class="link-btn" data-action="wp-memo" data-k="${esc(k)}" data-sig="${esc(exSig(e))}" data-label="${esc(e.slice(0, 120))}" title="Ne plus signaler cet élément pour ce dossier">Justifié</button>` : ''}</li>`).join('')}</ul></details>` : '</div>'}
+          <span class="fec-check-text"><span><strong>${esc(c.label)}</strong>${c.linked ? ' <span class="muted small">(point général)</span>' : ''}${ec ? ` <span class="wp-count${ec.done === ec.total ? ' ok' : ''}">${ec.done} / ${ec.total} élément(s) traité(s)${ec.wait ? ` · ${ec.wait} pièce(s) demandée(s)` : ''}</span>` : ''}</span>${c.detail ? `<span class="muted small">${esc(c.detail)}</span>` : ''}</span>
+        ${ex ? `</summary>
+          ${actionable ? `<div class="wp-bulk">
+            <label class="inline-label">Tous les éléments encore à traiter <select data-wp="bulk" data-k="${esc(k)}" data-check="${esc(c.label)}" aria-label="Statut de tous les éléments"><option value="-" selected>Choisir…</option>${opts('-', 'À traiter')}</select></label>
+            <label class="check inline"><input type="checkbox" data-wp="hide"${f.wpHide ? ' checked' : ''}><span>Masquer les éléments traités</span></label>
+          </div>` : ''}
+          <ul class="fec-ex${actionable ? ' wp-els' : ''}">${actionable ? shown.map(elRow).join('') : c.examples.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>
+          ${actionable && shown.length < c.examples.length ? `<p class="muted small">${c.examples.length - shown.length} élément(s) traité(s) masqué(s).</p>` : ''}
+          ${actionable && c.full === false ? '<p class="muted small">Liste limitée aux premiers éléments : le détail complet figure dans l\'export Excel.</p>' : ''}
+        </details>` : '</div>'}
         ${actionable ? `<div class="wp-row">
-          <select data-wp="st" data-k="${esc(k)}" aria-label="Statut de révision">${Object.entries(WP_ST).map(([v, l]) => `<option value="${v}"${(it.st || '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+          <select data-wp="st" data-k="${esc(k)}" aria-label="Statut du contrôle">${opts(it.st, ex ? 'Statut global : selon les éléments' : 'À traiter')}</select>
           <input type="text" data-wp="note" data-k="${esc(k)}" value="${esc(it.note || '')}" placeholder="Commentaire de révision" aria-label="Commentaire">
           ${it.by ? `<span class="muted small">${esc(it.by)}, ${fmtDate(it.at.slice(0, 10))}</span>` : ''}
           <button class="link-btn" data-action="wp-memo" data-k="${esc(k)}" data-sig="*" data-label="${esc(c.label)}" title="Ne plus signaler ce contrôle pour ce dossier">Ne plus signaler</button>
         </div>` : ''}
       </li>`;
     }).join('')}</ul>`;
+  }
+
+  // Statut et commentaire d'un élément.
+  function wpSetEl(k, ek, patch, label, check) {
+    const items = wpStore().items;
+    const it = items[k] || (items[k] = {});
+    it.els = it.els || {};
+    const el = Object.assign(it.els[ek] || {}, patch, { label, check, by: data.settings.utilisateur || '', at: nowIso() });
+    if (!el.st && !el.note) delete it.els[ek];
+    else it.els[ek] = el;
+    if (!Object.keys(it.els).length) delete it.els;
+    if (!it.st && !it.note && !it.els) delete items[k];
+    wpSave();
   }
 
   function wpCycleBar(cycle, list) {
@@ -4316,7 +4485,7 @@
   function wpSetItem(k, patch) {
     const items = wpStore().items;
     const it = Object.assign(items[k] || {}, patch, { by: data.settings.utilisateur || '', at: nowIso() });
-    if (!it.st && !it.note) delete items[k];
+    if (!it.st && !it.note && !it.els) delete items[k];
     else items[k] = it;
     wpSave();
   }
@@ -4341,7 +4510,10 @@
     const sections = Object.keys(CYCLES).filter((key) => cc[key] && (key !== 'clients' || ui.fecProfile !== 'pharmacie'));
     const row = (cycle, x) => {
       const it = st.items[wpKey(cycle, x.label)] || {};
-      return `<tr><td>${esc((LEVEL[x.level] || LEVEL.info).label)}</td><td><strong>${esc(x.label)}</strong><div class="note-sub">${esc(x.detail || '')}</div></td><td>${esc(x.level === 'ok' ? '—' : WP_ST[it.st || ''])}</td><td>${esc(it.note || '')}</td></tr>`;
+      const state = x.level === 'ok' ? '' : checkState(cycle, x);
+      const els = x.level === 'ok' ? [] : (x.examples || []).filter((e) => elOf(it, e).st || elOf(it, e).note);
+      return `<tr><td>${esc((LEVEL[x.level] || LEVEL.info).label)}</td><td><strong>${esc(x.label)}</strong><div class="note-sub">${esc(x.detail || '')}</div></td><td>${esc(x.level === 'ok' ? '—' : WP_ST[state || ''])}</td><td>${esc(it.note || '')}</td></tr>
+        ${els.map((e) => `<tr class="wp-sub"><td></td><td>${esc(e)}</td><td>${esc(WP_ST[elOf(it, e).st || ''])}</td><td>${esc(elOf(it, e).note || '')}</td></tr>`).join('')}`;
     };
     const gen = applyMemo(fecPoints(r), 'gen');
     const block = (title, cycle, list) => {
@@ -4441,7 +4613,8 @@
 
   function ecrState() {
     const f = ui.fec;
-    if (!f.ecr) f.ecr = { off: new Set(), amounts: {}, cptes: {}, journal: 'OD', date: '', extourne: false, taux: 50 };
+    if (!f.ecr) f.ecr = { off: new Set(), forceOn: new Set(), amounts: {}, cptes: {}, journal: 'OD', date: '', extourne: false, taux: 50 };
+    f.ecr.forceOn = f.ecr.forceOn || new Set();
     if (!f.ecr.date) f.ecr.date = isSituation(f.result) ? defaultArrete(f.result, 'situation') : f.result.meta.closing || pharmaRef(f.result);
     return f.ecr;
   }
@@ -4459,17 +4632,20 @@
 
     // 1. Charges constatées d'avance probables
     if (closing) cy.charges.cca.forEach((x, i) => add({
+      src: { cycle: 'charges', check: "Charges constatées d'avance probables : 0 €", ex: ccaEx(x) },
       id: `cca:${x.compte}:${x.date}:${i}`, group: "Charges et produits constatés d'avance", extournable: true, editable: true, amount: x.cca,
       label: `CCA — ${x.label}`, why: `Paiement du ${dt(x.date)} de ${eur(x.amt)} € (${x.compte}), période présumée de ${x.cover} mois : montant à ajuster selon la facture.`,
       make: (a) => [L(acctOf(r, '486'), `CCA ${x.label}`, a, 0), L(x.compte, `CCA ${x.label}`, 0, a)],
     }));
     // 2. Pièces de l'exercice suivant comptabilisées dans l'exercice
-    [...cy.achats.cut.after.items, ...cy.charges.cut.after.items].forEach((x, i) => add({
+    [...cy.achats.cut.after.items.map((x, i) => [x, 'Achats', cy.achats.cut.after.ex[i], 'achats']), ...cy.charges.cut.after.items.map((x, i) => [x, 'Charges externes', cy.charges.cut.after.ex[i], 'charges'])].forEach(([x, what, ex, cycle], i) => add({
+      src: { cycle, check: `${what} : pièces datées après la clôture`, ex },
       id: `cutc:${x.compte}:${x.date}:${i}`, group: "Charges et produits constatés d'avance", extournable: true, editable: true, amount: x.amt,
       label: `Charge de l'exercice suivant — ${x.lib}`, why: `Pièce du ${dt(x.pdate)} saisie le ${dt(x.date)} sur ${x.compte} : neutralisée en charge constatée d'avance.`,
       make: (a) => [L(acctOf(r, '486'), `CCA ${x.lib}`, a, 0), L(x.compte, `CCA ${x.lib}`, 0, a)],
     }));
     if (ui.fecProfile !== 'pharmacie') cy.clients.cut.after.items.forEach((x, i) => add({
+      src: { cycle: 'clients', check: 'Ventes : pièces datées après la clôture', ex: cy.clients.cut.after.ex[i] },
       id: `cutv:${x.compte}:${x.date}:${i}`, group: "Charges et produits constatés d'avance", extournable: true, editable: true, amount: x.amt,
       label: `Produit de l'exercice suivant — ${x.lib}`, why: `Facture du ${dt(x.pdate)} saisie le ${dt(x.date)} sur ${x.compte} : neutralisée en produit constaté d'avance.`,
       make: (a) => [L(x.compte, `PCA ${x.lib}`, a, 0), L(acctOf(r, '487'), `PCA ${x.lib}`, 0, a)],
@@ -4516,6 +4692,7 @@
 
     // 5. Corrections
     cy.achats.dupStrong.items.forEach((x, i) => add({
+      src: { cycle: 'achats', check: 'Factures fournisseurs en double', ex: cy.achats.dupStrong.ex[i] },
       id: `dup:${x.sup}:${x.piece}:${i}`, group: 'Corrections', extournable: false, editable: false, amount: x.ttc,
       label: `Annulation de la facture en double ${x.piece} — ${x.supLib}`, why: `Facture de ${eur(x.ttc)} € TTC saisie deux fois (la seconde le ${dt(x.date)}) : à confirmer sur le relevé fournisseur.`,
       make: () => [L(acctOf(r, '401'), `Annulation doublon ${x.piece}`, x.ttc, 0, { num: x.sup, lib: x.supLib }), L(x.compte, `Annulation doublon ${x.piece}`, 0, x.ht)]
@@ -4529,11 +4706,13 @@
       make: (a) => [L(acctOf(r, '6712'), 'Reclassement amendes', a, 0), L(compte, 'Reclassement amendes', 0, a)],
     }));
     cy.charges.giftVat.items.forEach((x, i) => add({
+      src: { cycle: 'charges', check: 'TVA déduite sur des cadeaux de plus de 73 €', ex: cy.charges.giftVat.ex[i] },
       id: `gift:${x.date}:${i}`, group: 'Corrections', extournable: false, editable: true, amount: x.amt,
       label: `TVA non récupérable sur cadeaux — ${x.lib}`, why: `TVA déduite le ${dt(x.date)} sur des cadeaux de plus de 73 € TTC.`,
       make: (a) => [L(x.compte, 'TVA non récupérable cadeaux', a, 0), L(acctOf(r, '4456'), 'TVA non récupérable cadeaux', 0, a)],
     }));
     cy.achats.autoliq.items.forEach((x, i) => add({
+      src: { cycle: 'achats', check: 'Autoliquidation incomplète', ex: cy.achats.autoliq.ex[i] },
       id: `autoliq:${x.date}:${i}`, group: 'Corrections', extournable: false, editable: true, amount: x.amt,
       label: `Déduction de la TVA autoliquidée — ${x.sup}`, why: `Facture ${x.piece || ''} du ${dt(x.date)} : TVA autoliquidée non déduite (à vérifier : droit à déduction total ?).`,
       make: (a) => [L(acctOf(r, '4456'), 'TVA autoliquidée déductible', a, 0), L(x.compte, 'TVA autoliquidée déductible', 0, a)],
@@ -4543,7 +4722,8 @@
       p.amount = round2(st.amounts[p.id] !== undefined ? st.amounts[p.id] : p.amount);
       p.cpteValue = p.cpte ? st.cptes[p.id] || p.cpte : null;
       p.lines = p.make(p.amount, p.cpteValue).filter((l) => l.d || l.c);
-      p.on = !st.off.has(p.id);
+      p.dismissed = !!p.src && elDismissed(p.src);
+      p.on = st.forceOn.has(p.id) || (!st.off.has(p.id) && !p.dismissed);
       return p;
     };
     out.forEach(finish);
@@ -4691,7 +4871,7 @@
       </section>
       ${props.length ? Object.keys(groups).map((g) => `<section class="card"><h2>${esc(g)} <span class="count">${groups[g].length}</span></h2>
         ${groups[g].map((p) => `<div class="ecr-prop${p.on ? '' : ' off'}">
-          <label class="check"><input type="checkbox" data-ecr-sel="${esc(p.id)}"${p.on ? ' checked' : ''}><span><strong>${esc(p.label)}</strong><span class="muted small">${esc(p.why)}</span></span></label>
+          <label class="check"><input type="checkbox" data-ecr-sel="${esc(p.id)}"${p.on ? ' checked' : ''}><span><strong>${esc(p.label)}</strong><span class="muted small">${esc(p.why)}</span>${p.dismissed && !p.on ? '<span class="muted small">Écartée : élément justifié ou sans objet dans la feuille de travail.</span>' : ''}</span></label>
           <div class="ecr-edit">
             ${p.editable ? `<label class="inline-label">Montant <input type="number" step="0.01" min="0" data-ecr-amt="${esc(p.id)}" value="${p.amount}"> €</label>` : `<span class="muted small">${eur(p.amount)} €</span>`}
             ${p.cpte ? `<label class="inline-label">Contrepartie <input type="text" data-ecr-cpte="${esc(p.id)}" value="${esc(p.cpteValue)}" spellcheck="false" maxlength="20"></label>` : ''}
@@ -5115,10 +5295,12 @@
             <li>Les tableaux des délais de paiement de l'article D441-6 du code de commerce sont calculés pour les clients et les fournisseurs (échéance réglable).</li>
           </ul></li>
         <li><strong>Feuille de travail</strong> : chaque point de contrôle reçoit un statut (justifié, corrigé, pièce demandée, sans objet) et un commentaire ; « Marquer le cycle comme revu » signe la revue. Tout est conservé, chiffré, dans le dossier, et une nouvelle analyse du même exercice reprend où vous en étiez. « Dossier de travail (PDF) » imprime l'ensemble.</li>
+        <li><strong>Élément par élément</strong> : dépliez un contrôle pour traiter chaque facture, dépense ou opération (statut et commentaire), ou tous ceux encore à traiter en une fois ; « Masquer les éléments traités » allège la liste. Un élément justifié ou sans objet écarte l'écriture proposée correspondante, et un élément en « pièce demandée » s'ajoute aux pièces à demander.</li>
         <li><strong>Mémoire du dossier</strong> : « Justifié » sur un élément (ex. un abonnement validé) ou « Ne plus signaler » sur un contrôle : il ne sera plus remonté lors des analyses suivantes de ce dossier, y compris l'année prochaine. La liste se gère depuis la fiche du dossier (Mémoire de révision).</li>
         <li><strong>Écritures</strong> : les écritures de clôture sont proposées à partir des contrôles (charges et produits constatés d'avance, extournes oubliées de l'exercice précédent, dépréciation des créances échues, annulation des factures en double, reclassement des amendes, TVA sur cadeaux, autoliquidation, impôt sur les sociétés estimé, et pour une situation les charges annuelles au prorata). Ajustez les montants et les contreparties, puis exportez le fichier pour <strong>ACD</strong> ou <strong>Pennylane</strong> (format FEC, Excel ou CSV). Faites un premier import sur un dossier test.</li>
         <li><strong>Situation</strong> : avec le FEC N-1, la situation est comparée à la <strong>même période</strong> de l'exercice précédent, et une projection du résultat de fin d'exercice est calculée, avec les charges annuelles absentes de la situation.</li>
         <li><strong>Portefeuille</strong> : sélectionnez les FEC de plusieurs dossiers en une fois ; ils sont analysés l'un après l'autre, rattachés par SIREN et classés par charge de révision (anomalies, points à traiter, pièces, écritures).</li>
+        <li><strong>Demande mensuelle</strong> : Pièces à demander → « Mois », choisissez le mois. L'application liste, pour les achats et les ventes, les factures des fournisseurs et clients habituels absentes, les règlements et encaissements sans facture, les dépenses payées directement, les numéros de facture manquants et les opérations à identifier. Envoyez la demande dès la saisie du mois : la situation et le bilan seront prêts plus vite. Le Portefeuille indique ce nombre pour chaque dossier.</li>
         <li><strong>Pièces à demander</strong> : choisissez « Situation » ou « Bilan » et la date d'arrêté ; l'application liste les relevés bancaires manquants, les factures récurrentes absentes, les paiements sans facture, les opérations à identifier (471), les acquisitions d'immobilisations, les mois de paie manquants et, pour un bilan, les documents de clôture et les questions sur les créances et dettes anciennes. « Créer la demande » prépare le mail et une mission dont chaque étape est une pièce : cochez-les à réception, la relance ne reprendra que ce qui manque.</li>
         <li><strong>Revue N / N-1</strong> : chargez aussi le FEC de l'exercice précédent. Les postes et les comptes sont comparés, et les variations au-delà du seuil de signification sont listées pour que vous les justifiez. Contrôles de cohérence automatiques : TVA / CA, charges sociales / salaires, amortissements, intérêts, capitaux propres, points fiscaux. La <strong>note de synthèse</strong> s'imprime ou s'enregistre en PDF pour le rendez-vous bilan.</li>
         <li><strong>Rapprochement</strong> : importez le relevé bancaire (CFONB / EBICS, OFX, CAMT.053, CSV ou Excel de la banque). L'application affiche les opérations non comptabilisées, les écritures absentes du relevé et l'état de rapprochement. Les opérations non comptabilisées s'ajoutent aux pièces à demander.</li>
@@ -6063,6 +6245,7 @@
     'batch-open': (el) => {
       const it = ui.batch && ui.batch.items[Number(el.dataset.i)];
       if (!it || !it.st) return;
+      if (el.dataset.mois) Object.assign(it.st, { section: 'pieces', pieces: { mode: 'mois', arrete: it.sum.moisArrete, excluded: new Set() } });
       ui.fecStates[it.profile] = it.st;
       location.hash = it.profile === 'pharmacie' ? '#/fec/pharma' : '#/fec';
     },
@@ -6214,6 +6397,14 @@
     }
   });
 
+  // Mémorise les contrôles dépliés de la feuille de travail pour les garder ouverts après une mise à jour.
+  document.addEventListener('toggle', (e) => {
+    const d = e.target;
+    if (!d.dataset || !d.dataset.wpk || !ui.fec) return;
+    ui.fec.wpOpen = ui.fec.wpOpen || new Set();
+    d.open ? ui.fec.wpOpen.add(d.dataset.wpk) : ui.fec.wpOpen.delete(d.dataset.wpk);
+  }, true);
+
   document.addEventListener('change', (e) => {
     const t = e.target;
     if (!data) return;
@@ -6247,11 +6438,23 @@
     } else if (t.dataset.device !== undefined && t.type === 'checkbox') {
       setDeviceMode(t);
     } else if (t.dataset.wp && ui.fec && ui.fec.result) {
-      if (t.dataset.wp === 'st') { wpSetItem(t.dataset.k, { st: t.value }); refresh(); }
-      else wpSetItem(t.dataset.k, { note: t.value.trim() });
+      const w = t.dataset.wp;
+      if (w === 'st') { wpSetItem(t.dataset.k, { st: t.value }); refresh(); }
+      else if (w === 'note') wpSetItem(t.dataset.k, { note: t.value.trim() });
+      else if (w === 'el-st') { wpSetEl(t.dataset.k, t.dataset.e, { st: t.value }, t.dataset.label, t.dataset.check); refresh(); }
+      else if (w === 'el-note') wpSetEl(t.dataset.k, t.dataset.e, { note: t.value.trim() }, t.dataset.label, t.dataset.check);
+      else if (w === 'hide') { ui.fec.wpHide = t.checked; refresh(); }
+      else if (w === 'bulk' && t.value !== '-') {
+        const li = t.closest('details');
+        $$('select[data-wp="el-st"]', li).filter((sel) => !sel.value).forEach((sel) => wpSetEl(sel.dataset.k, sel.dataset.e, { st: t.value }, sel.dataset.label, sel.dataset.check));
+        refresh();
+      }
     } else if ((t.dataset.ecr || t.dataset.ecrSel || t.dataset.ecrAmt || t.dataset.ecrCpte) && ui.fec && ui.fec.result) {
       const st = ecrState();
-      if (t.dataset.ecrSel) t.checked ? st.off.delete(t.dataset.ecrSel) : st.off.add(t.dataset.ecrSel);
+      if (t.dataset.ecrSel) {
+        if (t.checked) { st.off.delete(t.dataset.ecrSel); st.forceOn.add(t.dataset.ecrSel); }
+        else { st.off.add(t.dataset.ecrSel); st.forceOn.delete(t.dataset.ecrSel); }
+      }
       else if (t.dataset.ecrAmt) { const v = parseFloat(String(t.value).replace(',', '.')); if (Number.isFinite(v) && v >= 0) st.amounts[t.dataset.ecrAmt] = v; }
       else if (t.dataset.ecrCpte) { const v = t.value.trim().toUpperCase(); if (/^[1-7][0-9A-Z]{2,19}$/.test(v)) st.cptes[t.dataset.ecrCpte] = v; else toast('Numéro de compte invalide.', true); }
       else if (t.dataset.ecr === 'journal') st.journal = (t.value.trim().toUpperCase() || 'OD').slice(0, 6);
@@ -6265,6 +6468,9 @@
       refresh();
     } else if (t.dataset.pieces === 'arrete' && ui.fec) {
       if (t.value) piecesState().arrete = t.value;
+      refresh();
+    } else if (t.dataset.pieces === 'mois' && ui.fec) {
+      if (/^\d{4}-\d{2}$/.test(t.value)) piecesState().arrete = endOfMonth(`${t.value}-01`);
       refresh();
     } else if (t.dataset.fec && ui.fec) {
       if (t.dataset.fec === 'q') return;
