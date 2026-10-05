@@ -1265,9 +1265,10 @@
     while (isS(b + 1)) b++;
     return [a, b];
   }
-  // Dans un groupe, une étape dépend des précédentes de même premier mot (« Banque affectée » suppose « Banque importée »).
+  // Dans un groupe, une étape dépend des précédentes de même premier mot (« Banque affectée » suppose « Banque importée ») ;
+  // les saisies (ventes, achats) restent indépendantes entre elles.
   const firstWord = (e) => norm(e.label || '').split(/\s+/)[0];
-  const sameKind = (etapes, j, i) => firstWord(etapes[j]) === firstWord(etapes[i]);
+  const sameKind = (etapes, j, i) => firstWord(etapes[i]) !== 'saisie' && firstWord(etapes[j]) === firstWord(etapes[i]);
 
   // Libellé de l'étape atteinte : « Saisie » quand tout le groupe (banque, ventes, achats) est fait,
   // sinon la dernière étape du groupe cochée (dans l'ordre où elles ont été faites).
@@ -1362,7 +1363,7 @@
     if (pop) pop.remove();
   }
 
-  function openGrillePop(td, m) {
+  function openGrillePop(td, m, focusI) {
     closeGrillePop();
     if (!m) return;
     const c = clientById(m.clientId);
@@ -1372,9 +1373,12 @@
     pop.setAttribute('role', 'dialog');
     pop.setAttribute('aria-label', `Étapes — ${m.titre}`);
     pop.dataset.id = m.id;
-    pop.innerHTML = `<div class="gp-head"><strong>${esc(c ? clientLabel(c) : '')}</strong><span class="muted small">${esc(m.titre)}${m.echeance ? ` · échéance ${fmtDate(m.echeance)}` : ''}</span></div>
+    const n = m.etapes.length, nd = m.etapes.filter((e) => e.done).length;
+    pop.innerHTML = `<div class="gp-head"><div><strong>${esc(c ? clientLabel(c) : '')}</strong><span class="muted small">${esc(m.titre)}${m.echeance ? ` · échéance ${fmtDate(m.echeance)}` : ''}</span>
+        <span class="gp-state ${isOpen(m) ? '' : 'ok'}">${isOpen(m) ? `${nd} / ${n} étape(s) faite(s)` : 'Terminée'}</span></div>
+        <button class="icon-btn gp-close" data-action="grille-pop-close" title="Fermer (Échap)" aria-label="Fermer">✕</button></div>
       ${m.etapes.length ? `<ol class="gp-steps">${m.etapes.map((e, i) => { const [ga, gb] = stepGroup(m.etapes, i); return `<li class="${ga !== gb ? 'gp-par' : ''}"><button class="${e.done ? 'done' : ''}${i + 1 === k ? ' current' : ''}" data-action="grille-step" data-id="${m.id}" data-i="${i}" aria-pressed="${e.done}"><span aria-hidden="true">${e.done ? '✓' : i + 1}</span>${esc(e.label)}</button></li>`; }).join('')}</ol>
-        <p class="muted small">Un clic coche l'étape et celles qui la précèdent ; un second clic la décoche. Banque, ventes et achats (repère bleu) se cochent indépendamment, dans l'ordre où vous les faites ; « Banque affectée » coche aussi « Banque importée ». La dernière étape termine la mission.</p>`
+        <p class="muted small">Un clic coche l'étape et celles qui la précèdent ; un second clic la décoche. Banque, ventes et achats (repère bleu) se cochent indépendamment, dans l'ordre où vous les faites ; « Banque affectée » coche aussi « Banque importée ». La dernière étape termine la mission. La fenêtre reste ouverte : fermez-la avec ✕, Échap ou un clic à côté.</p>`
         : `<div class="gp-foot"><button class="btn small primary" data-action="grille-step" data-id="${m.id}" data-i="all">Marquer terminée</button></div>`}
       <div class="gp-foot">
         <button class="btn small" data-action="grille-step" data-id="${m.id}" data-i="-1">Remettre à faire</button>
@@ -1386,7 +1390,7 @@
     pop.style.left = Math.max(8, Math.min(r.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - w - 8)) + 'px';
     const below = r.bottom + pop.offsetHeight + 8 <= window.innerHeight;
     pop.style.top = (below ? r.bottom + window.scrollY + 4 : Math.max(window.scrollY + 8, r.top + window.scrollY - pop.offsetHeight - 4)) + 'px';
-    const first = $('.gp-steps button.current', pop) || $('button', pop);
+    const first = (focusI !== undefined && $(`.gp-steps button[data-i="${focusI}"]`, pop)) || $('.gp-steps button.current', pop) || $('.gp-steps button', pop) || $('button', pop);
     if (first) first.focus();
   }
 
@@ -1422,11 +1426,14 @@
     setStatus(m, target);
     m.updatedAt = nowIso();
     persist();
-    closeGrillePop();
     const c = clientById(m.clientId);
     toast(`${clientLabel(c)} — ${m.titre} : ${target === 'termine' ? 'terminée' : `${msg}${et.length ? ` (${done}/${et.length})` : ''}`}`);
     if (data.missions.length !== count) refresh();
     else updateGrilleCell(m);
+    // Fenêtre conservée, mise à jour sur la case (redessinée si la grille a changé).
+    const td = $(`.grille td[data-id="${m.id}"]`);
+    if (td) openGrillePop(td, m, i === 'all' ? undefined : i);
+    else closeGrillePop();
   }
 
   function viewGrille() {
@@ -2258,7 +2265,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '18';
+  const ASSET_VERSION = '19';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -5499,7 +5506,7 @@
       ${item('Suivi mensuel (grille)', `<ul>
         <li>Reproduit votre tableau Excel : un dossier par ligne, un mois par colonne. Filtrez par type de mission, régime de TVA (mensuel, trimestriel, CA12) et responsable.</li>
         <li><strong>Tri</strong> : cliquez sur un titre de colonne (N°, Dossier, TVA, Jour) ou choisissez « Trier par » (clôture, responsable, retards et avancement) ; un second clic inverse l'ordre. Le tri est conservé.</li>
-        <li><strong>Étapes</strong> (mode par défaut) : un clic sur une case affiche les étapes de la mission ; cliquez sur une étape faite pour la cocher (les précédentes le sont aussi), recliquez pour la décocher. Pour la TVA, <strong>banque importée</strong>, <strong>banque affectée</strong>, <strong>saisie des ventes</strong> et <strong>saisie des achats</strong> se cochent séparément, dans l'ordre où vous les faites (« Banque affectée » coche aussi « Banque importée »). La case indique la dernière étape faite (« Bq import », « Bq affect », « Ventes », « Achats », puis « Saisie » quand les quatre sont faites), et la dernière étape termine la mission. Survolez une case pour voir toutes les étapes.</li>
+        <li><strong>Étapes</strong> (mode par défaut) : un clic sur une case affiche les étapes de la mission ; cliquez sur une étape faite pour la cocher (les précédentes le sont aussi), recliquez pour la décocher. Pour la TVA, <strong>banque importée</strong>, <strong>banque affectée</strong>, <strong>saisie des ventes</strong> et <strong>saisie des achats</strong> se cochent séparément, dans l'ordre où vous les faites (« Banque affectée » coche aussi « Banque importée »). La case indique la dernière étape faite (« Bq import », « Bq affect », « Ventes », « Achats », puis « Saisie » quand les quatre sont faites), et la dernière étape termine la mission. La fenêtre des étapes reste ouverte pour en cocher plusieurs d'affilée (✕, Échap ou un clic à côté pour la fermer). Survolez une case pour voir toutes les étapes.</li>
         <li><strong>Pointage rapide</strong> : un clic sur une case la passe à OK, un second clic annule, comme dans Excel.</li>
         <li><strong>Exporter en Excel</strong> produit un fichier réimportable (attention : non chiffré).</li>
       </ul>`)}
@@ -6463,6 +6470,13 @@
       refresh();
     },
     'grille-steps': (el) => openGrillePop(el, missionById(el.dataset.id)),
+    'grille-pop-close': () => {
+      const pop = $('#grille-pop');
+      const id = pop && pop.dataset.id;
+      closeGrillePop();
+      const td = id && $(`.grille td[data-id="${id}"]`);
+      if (td) td.focus();
+    },
     'grille-step': (el) => setGrilleStep(missionById(el.dataset.id), el.dataset.i === 'all' ? 'all' : Number(el.dataset.i)),
     'grille-toggle': (el) => {
       const m = missionById(el.dataset.id);
@@ -6633,7 +6647,8 @@
     if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') e.preventDefault();
     const fromPop = pop && pop.contains(el);
     actions[el.dataset.action](el, e);
-    if (fromPop) closeGrillePop();
+    // La fenêtre des étapes reste ouverte pour cocher plusieurs étapes d'affilée.
+    if (fromPop && !['grille-step', 'grille-pop-close'].includes(el.dataset.action)) closeGrillePop();
   });
 
   document.addEventListener('keydown', (e) => {
