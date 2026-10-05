@@ -50,7 +50,7 @@
     },
     {
       id: 'tva', nom: 'Déclaration de TVA', recurrence: 'mensuelle',
-      etapes: ['Pièces reçues', 'Saisie des ventes', 'Saisie des achats', 'Contrôle et calcul de la TVA', 'Validation', 'Télédéclaration', 'Télépaiement'],
+      etapes: ['Pièces reçues', 'Banque importée', 'Banque affectée', 'Saisie des ventes', 'Saisie des achats', 'Contrôle et calcul de la TVA', 'Validation', 'Télédéclaration', 'Télépaiement'],
     },
     {
       id: 'paie', nom: 'Paie', recurrence: 'mensuelle',
@@ -308,6 +308,23 @@
       if (i < 0) return;
       const e = m.etapes[i];
       m.etapes.splice(i, 1, Object.assign({}, e, { id: uid(), label: 'Saisie des ventes' }), Object.assign({}, e, { id: uid(), label: 'Saisie des achats' }));
+    });
+    // Étapes bancaires (relevés importés, opérations affectées) ajoutées avant les saisies de la TVA.
+    const hasBank = (labels) => labels.some((l) => /^banque\s+import/i.test(l));
+    d.templates.forEach((t) => {
+      if (t.id !== 'tva' || hasBank(t.etapes || [])) return;
+      const i = t.etapes.findIndex((e) => /^saisie des ventes$/i.test(e));
+      if (i >= 0) t.etapes.splice(i, 0, 'Banque importée', 'Banque affectée');
+    });
+    d.missions.forEach((m) => {
+      if (m.type !== 'tva' || hasBank(m.etapes.map((e) => e.label || ''))) return;
+      const i = m.etapes.findIndex((e) => /^saisie des ventes$/i.test(e.label || ''));
+      if (i < 0) return;
+      // Déjà faites si la mission est terminée ou si une étape après les saisies (contrôle…) est cochée.
+      const after = m.etapes.slice(i).filter((e) => !/^saisie\b/i.test(e.label || ''));
+      const done = m.statut === 'termine' || after.some((e) => e.done);
+      const at = done ? (after.find((e) => e.done) || {}).doneAt || m.termineLe || null : null;
+      m.etapes.splice(i, 0, { id: uid(), label: 'Banque importée', done, doneAt: at }, { id: uid(), label: 'Banque affectée', done, doneAt: at });
     });
     d.version = 1;
     return d;
@@ -1230,28 +1247,40 @@
 
   // Libellé court d'une étape, affiché dans la case (« Saisie », « Contrôle », « Télédécl. »).
   function stepShort(label) {
+    const bq = String(label || '').match(/^banque\s+(\S+)/i);
+    if (bq) return 'Bq ' + bq[1].replace(/ée?s?$/i, '').slice(0, 6);
     const sv = String(label || '').match(/^saisie\s+(?:des?\s+|du\s+|de\s+la\s+)?(\S+)/i);
     if (sv && !/^[/(]/.test(sv[1])) { const w2 = sv[1].charAt(0).toUpperCase() + sv[1].slice(1); return w2.length > 9 ? w2.slice(0, 8) + '.' : w2; }
     const w = String(label || '').replace(/^(la|le|les|l'|de|des|du)\s+/i, '').split(/[\s/(,–-]+/)[0] || String(label || '');
-    return w.length > 9 ? w.slice(0, 8) + '.' : w;
+    return w.length > 10 ? w.slice(0, 9) + '.' : w;
   }
   const lastDoneIndex = (m) => m.etapes.reduce((k, e, i) => (e.done ? i : k), -1);
 
   // Étapes faisables dans n'importe quel ordre : saisies consécutives (ventes, achats…). Renvoie [début, fin] du groupe.
   function stepGroup(etapes, i) {
-    const isS = (k) => k >= 0 && k < etapes.length && /^saisie\b/i.test(etapes[k].label || '');
+    const isS = (k) => k >= 0 && k < etapes.length && /^(saisie|banque)\b/i.test(etapes[k].label || '');
     if (!isS(i)) return [i, i];
     let a = i, b = i;
     while (isS(a - 1)) a--;
     while (isS(b + 1)) b++;
     return [a, b];
   }
-  // Libellé de l'étape atteinte : « Saisie » quand toutes les saisies du groupe sont faites, sinon celle qui est faite.
+  // Dans un groupe, une étape dépend des précédentes de même premier mot (« Banque affectée » suppose « Banque importée »).
+  const firstWord = (e) => norm(e.label || '').split(/\s+/)[0];
+  const sameKind = (etapes, j, i) => firstWord(etapes[j]) === firstWord(etapes[i]);
+
+  // Libellé de l'étape atteinte : « Saisie » quand tout le groupe (banque, ventes, achats) est fait,
+  // sinon la dernière étape du groupe cochée (dans l'ordre où elles ont été faites).
   function stepReached(m) {
     const last = lastDoneIndex(m);
     if (last < 0) return '';
     const [a, b] = stepGroup(m.etapes, last);
-    return a !== b && m.etapes.slice(a, b + 1).every((e) => e.done) ? 'Saisie' : stepShort(m.etapes[last].label);
+    if (a === b) return stepShort(m.etapes[last].label);
+    const grp = m.etapes.slice(a, b + 1);
+    if (grp.every((e) => e.done)) return 'Saisie';
+    // Faite le plus récemment ; à égalité (cochées du même clic), la plus avancée dans la liste.
+    const recent = grp.map((e, k) => [e, k]).filter(([e]) => e.done).sort((x, y) => (y[0].doneAt || '').localeCompare(x[0].doneAt || '') || y[1] - x[1])[0][0];
+    return stepShort(recent.label);
   }
 
   function grilleCellState(m) {
@@ -1345,7 +1374,7 @@
     pop.dataset.id = m.id;
     pop.innerHTML = `<div class="gp-head"><strong>${esc(c ? clientLabel(c) : '')}</strong><span class="muted small">${esc(m.titre)}${m.echeance ? ` · échéance ${fmtDate(m.echeance)}` : ''}</span></div>
       ${m.etapes.length ? `<ol class="gp-steps">${m.etapes.map((e, i) => { const [ga, gb] = stepGroup(m.etapes, i); return `<li class="${ga !== gb ? 'gp-par' : ''}"><button class="${e.done ? 'done' : ''}${i + 1 === k ? ' current' : ''}" data-action="grille-step" data-id="${m.id}" data-i="${i}" aria-pressed="${e.done}"><span aria-hidden="true">${e.done ? '✓' : i + 1}</span>${esc(e.label)}</button></li>`; }).join('')}</ol>
-        <p class="muted small">Un clic coche l'étape et celles qui la précèdent ; un second clic la décoche. La saisie des ventes et celle des achats se cochent indépendamment, dans l'ordre où vous les faites. La dernière étape termine la mission.</p>`
+        <p class="muted small">Un clic coche l'étape et celles qui la précèdent ; un second clic la décoche. Banque, ventes et achats (repère bleu) se cochent indépendamment, dans l'ordre où vous les faites ; « Banque affectée » coche aussi « Banque importée ». La dernière étape termine la mission.</p>`
         : `<div class="gp-foot"><button class="btn small primary" data-action="grille-step" data-id="${m.id}" data-i="all">Marquer terminée</button></div>`}
       <div class="gp-foot">
         <button class="btn small" data-action="grille-step" data-id="${m.id}" data-i="-1">Remettre à faire</button>
@@ -1374,15 +1403,17 @@
     else if (i === 'all' || !et[i]) { et.forEach(check); msg = 'terminée'; }
     else {
       const [ga, gb] = stepGroup(et, i);
+      const before = (j) => j < ga || (j >= ga && j < i && sameKind(et, j, i)); // prérequis de l'étape i
+      const after = (j) => j > gb || (j > i && j <= gb && sameKind(et, j, i)); // étapes qui dépendent de l'étape i
       if (!isOpen(m)) {
-        // Mission terminée : on revient à l'étape choisie (elle et ce qui la précède restent cochés, le reste est décoché).
-        et.forEach((e, j) => (j === i || j < ga ? check(e) : uncheck(e)));
+        // Mission terminée : on revient à l'étape choisie (elle et ses prérequis restent cochés, le reste est décoché).
+        et.forEach((e, j) => (j === i || before(j) ? check(e) : uncheck(e)));
         msg = `revenue à « ${et[i].label} »`;
       } else if (et[i].done) {
-        et.forEach((e, j) => { if (j === i || j > gb) uncheck(e); });
+        et.forEach((e, j) => { if (j === i || after(j)) uncheck(e); });
         msg = `${et[i].label} décochée`;
       } else {
-        et.forEach((e, j) => { if (j === i || j < ga) check(e); });
+        et.forEach((e, j) => { if (j === i || before(j)) check(e); });
         msg = `${et[i].label} faite`;
       }
     }
@@ -1442,7 +1473,7 @@
           <button class="${mode === 'pointage' ? 'on' : ''}" data-action="grille-mode" data-mode="pointage" title="Un clic pointe la case OK">Pointage rapide</button>
           <button class="${mode === 'fiche' ? 'on' : ''}" data-action="grille-mode" data-mode="fiche" title="Un clic ouvre la mission">Ouvrir</button>
         </div>
-        <span class="legend"><span class="g-ok">OK</span> terminée <span class="g-progress g-leg"><span class="g-step">Ventes</span><span class="g-frac">2/7</span></span> étape atteinte <span class="g-late">!</span> en retard <span class="g-wait">Att.</span> attente client <span class="g-todo">·</span> à faire</span>
+        <span class="legend"><span class="g-ok">OK</span> terminée <span class="g-progress g-leg"><span class="g-step">Ventes</span><span class="g-frac">4/9</span></span> étape atteinte <span class="g-late">!</span> en retard <span class="g-wait">Att.</span> attente client <span class="g-todo">·</span> à faire</span>
       </div>
       ${clients.length ? `
       <div class="grid-wrap card flush">
@@ -1452,7 +1483,7 @@
           <tfoot><tr><td class="g-code"></td><th class="g-name">Terminées</th><td class="g-meta"></td><td class="g-meta"></td>${totals.map((t) => `<td>${t.all ? `${t.done}/${t.all}` : ''}</td>`).join('')}</tr></tfoot>
         </table>
       </div>
-      <p class="muted small">${clients.length} dossier${clients.length > 1 ? 's' : ''}, triés par ${esc(GRILLE_TRIS[sort.key].toLowerCase())}${sort.dir > 0 ? '' : ' (ordre inverse)'} — cliquez sur un titre de colonne pour trier. ${mode === 'pointage' ? '<strong>Pointage rapide :</strong> un clic sur une case la passe à OK, un second clic annule.' : mode === 'etapes' ? '<strong>Étapes :</strong> un clic sur une case affiche les étapes de la mission ; cochez celle qui est faite (les précédentes le sont aussi, la saisie des ventes et celle des achats se cochent séparément, la dernière étape termine la mission).' : 'Cliquez sur une case pour ouvrir la mission.'} Les missions mensuelles (« MM/AAAA »), trimestrielles (« T1 AAAA ») et annuelles (« AAAA ») de l'année choisie apparaissent ici.</p>`
+      <p class="muted small">${clients.length} dossier${clients.length > 1 ? 's' : ''}, triés par ${esc(GRILLE_TRIS[sort.key].toLowerCase())}${sort.dir > 0 ? '' : ' (ordre inverse)'} — cliquez sur un titre de colonne pour trier. ${mode === 'pointage' ? '<strong>Pointage rapide :</strong> un clic sur une case la passe à OK, un second clic annule.' : mode === 'etapes' ? '<strong>Étapes :</strong> un clic sur une case affiche les étapes de la mission ; cochez celle qui est faite (les précédentes le sont aussi ; banque importée, banque affectée, saisie des ventes et saisie des achats se cochent séparément ; la dernière étape termine la mission).' : 'Cliquez sur une case pour ouvrir la mission.'} Les missions mensuelles (« MM/AAAA »), trimestrielles (« T1 AAAA ») et annuelles (« AAAA ») de l'année choisie apparaissent ici.</p>`
       : base.length
         ? emptyState(`Aucun dossier « ${esc(REGIME_FILTRES[g.regime])} » pour ces critères.`, '<button class="btn" data-action="grille-reset">Afficher tous les régimes</button>')
         : emptyState(`Aucune mission « ${esc((templateById(g.type) || {}).nom || '')} » pour ${year}.`, `<button class="btn primary" data-action="import-sheet">Importer mon tableau Excel</button>`)}`;
@@ -2227,7 +2258,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '17';
+  const ASSET_VERSION = '18';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -5468,7 +5499,7 @@
       ${item('Suivi mensuel (grille)', `<ul>
         <li>Reproduit votre tableau Excel : un dossier par ligne, un mois par colonne. Filtrez par type de mission, régime de TVA (mensuel, trimestriel, CA12) et responsable.</li>
         <li><strong>Tri</strong> : cliquez sur un titre de colonne (N°, Dossier, TVA, Jour) ou choisissez « Trier par » (clôture, responsable, retards et avancement) ; un second clic inverse l'ordre. Le tri est conservé.</li>
-        <li><strong>Étapes</strong> (mode par défaut) : un clic sur une case affiche les étapes de la mission ; cliquez sur une étape faite pour la cocher (les précédentes le sont aussi), recliquez pour la décocher. Pour la TVA, la <strong>saisie des ventes</strong> et la <strong>saisie des achats</strong> se cochent séparément, dans l'ordre où vous les faites. La case indique l'étape atteinte (« Ventes 2/7 », « Achats 2/7 », « Saisie 3/7 » quand les deux sont faites), et la dernière étape termine la mission. Survolez une case pour voir toutes les étapes.</li>
+        <li><strong>Étapes</strong> (mode par défaut) : un clic sur une case affiche les étapes de la mission ; cliquez sur une étape faite pour la cocher (les précédentes le sont aussi), recliquez pour la décocher. Pour la TVA, <strong>banque importée</strong>, <strong>banque affectée</strong>, <strong>saisie des ventes</strong> et <strong>saisie des achats</strong> se cochent séparément, dans l'ordre où vous les faites (« Banque affectée » coche aussi « Banque importée »). La case indique la dernière étape faite (« Bq import », « Bq affect », « Ventes », « Achats », puis « Saisie » quand les quatre sont faites), et la dernière étape termine la mission. Survolez une case pour voir toutes les étapes.</li>
         <li><strong>Pointage rapide</strong> : un clic sur une case la passe à OK, un second clic annule, comme dans Excel.</li>
         <li><strong>Exporter en Excel</strong> produit un fichier réimportable (attention : non chiffré).</li>
       </ul>`)}
