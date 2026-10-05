@@ -4,7 +4,7 @@
  * et n'effectue aucune requête vers un autre domaine.
  */
 // À garder identique aux ?v= de index.html et à ASSET_VERSION dans js/app.js.
-const VERSION = '20';
+const VERSION = '21';
 const CACHE = 'suivi-dossiers-v' + VERSION;
 const ASSETS = [
   './',
@@ -15,6 +15,7 @@ const ASSETS = [
   'js/xlsx-writer.js?v=' + VERSION,
   'js/fec-worker.js?v=' + VERSION,
   'js/bank-reader.js?v=' + VERSION,
+  'js/archive-reader.js?v=' + VERSION,
   'js/app.js?v=' + VERSION,
   'manifest.webmanifest',
   'icons/icon.svg',

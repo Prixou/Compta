@@ -15,7 +15,7 @@ const MAX_EXAMPLES = 8;
 
 self.onmessage = (e) => {
   try {
-    self.postMessage({ type: 'done', result: analyse(e.data.buffer, e.data.fileName || '', e.data.until || '') });
+    self.postMessage({ type: 'done', result: analyse(e.data.buffer, e.data.fileName || '', e.data.until || '', e.data.docs || null) });
   } catch (err) {
     self.postMessage({ type: 'error', message: err.message || String(err) });
   }
@@ -103,7 +103,8 @@ const fmt = (n) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximum
 // ---------- Analyse ----------
 
 // `until` (AAAA-MM-JJ, facultatif) : écritures postérieures ignorées, pour comparer une situation à la même période de l'exercice précédent.
-function analyse(buffer, fileName, until) {
+// `docs` (facultatif) : noms des justificatifs d'une archive .zip « FEC + pièces », pour repérer les écritures sans pièce.
+function analyse(buffer, fileName, until, docs) {
   const { text, encoding } = decode(buffer);
   const checks = [];
   const add = (id, label, level, count, detail, examples) => checks.push({ id, label, level, count, detail: detail || '', examples: examples || [] });
@@ -145,6 +146,8 @@ function analyse(buffer, fileName, until) {
   if (missing.some((c) => ['JournalCode', 'EcritureNum', 'EcritureDate', 'CompteNum'].includes(c)) || (!montantSens && (col('Debit') < 0 || col('Credit') < 0))) {
     throw new Error(`Colonnes indispensables absentes (${missing.join(', ')}) : analyse impossible.`);
   }
+  // Colonne supplémentaire qui désigne la pièce jointe (nom de fichier, lien), présente dans certains exports
+  const attIdx = header.findIndex((h) => !expected.includes(h) && !COLS_BNC.includes(h) && /jointe|justif|fichier|document|attach|lien|url/i.test(h));
   const I = {};
   COLS.concat(['Montant', 'Sens']).forEach((c) => { I[c] = col(c); });
 
@@ -299,6 +302,7 @@ function analyse(buffer, fileName, until) {
     }
     en.d += d;
     en.c += c;
+    if (attIdx >= 0 && !en.att && f[attIdx] && f[attIdx].trim()) en.att = f[attIdx].trim();
     if (/^5[13]/.test(compte)) en.has5 = true;
     if (/^4[01]/.test(compte)) en.has4 = true;
     if (date && !an) {
@@ -553,7 +557,7 @@ function analyse(buffer, fileName, until) {
   };
 
   perso.groups = Array.from(persoG.values()).sort((a, b) => b.total - a.total).slice(0, 30);
-  const cycles = buildCycles({ entries, aux, auxNames, accounts, chAcc, tresoAcc, cut, perso, amendes, weekend, gifts, closing, start, months, maxOp });
+  const cycles = buildCycles({ entries, aux, auxNames, accounts, chAcc, tresoAcc, cut, perso, amendes, weekend, gifts, closing, start, months, maxOp, docs, attCol: attIdx >= 0 ? header[attIdx] : '' });
 
   // ---------- Mensuel ----------
   let cumul = 0;
@@ -870,6 +874,7 @@ function buildCycles(x) {
   const noVatP = new Map(), overVatP = bucket(), autoliq = bucket(), noVatS = bucket(), overVatS = bucket();
   const cash = bucket(), notesFrais = bucket(), giftVat = bucket();
   const directSales = [];
+  const need = []; // pièces dont un justificatif est attendu (factures d'achat et de vente, dépenses payées directement)
   const das2 = new Map();
   const flux = {}, big = [];
   let avoirsP = 0, avoirsS = 0;
@@ -911,6 +916,7 @@ function buildCycles(x) {
       if (!a.first || date < a.first) a.first = date;
       if (date > a.last) a.last = date;
       purchases.push([supKey, date, ttc, en.piece || '', ref, ht, round2(tv6), main]);
+      need.push({ kind: 'achat', date, piece: en.piece || '', amt: ttc, lib: en.lib || '', num: supKey, tlib: a.lib, att: en.att || '' });
       if (ht >= 150 && tv6 < 0.01 && tv52 < 0.01 && !/^(616|627)/.test(main)) {
         let g = noVatP.get(main);
         if (!g) noVatP.set(main, (g = { compte: main, lib: libOf(main), ...bucket() }));
@@ -921,6 +927,7 @@ function buildCycles(x) {
         { date, sup: a.lib, piece: en.piece || '', amt: round2(tv52 - tv6), compte: main });
     } else if (supNet > 0.005 && ht < -0.005 && !hasTr) {
       const a = agg(sups, supKey);
+      need.push({ kind: 'achat', date, piece: en.piece || '', amt: -round2(supNet), lib: en.lib || '', num: supKey, tlib: a.lib, att: en.att || '', avoir: true });
       a.av++; a.avAmt += supNet; avoirsP += supNet;
     } else if (supNet > 0.005 && tr < -0.005) {
       const a = agg(sups, supKey);
@@ -934,6 +941,7 @@ function buildCycles(x) {
       if (!a.first || date < a.first) a.first = date;
       if (date > a.last) a.last = date;
       sales.push([cliKey, date, round2(cliNet), en.piece || '', ref, ek]);
+      need.push({ kind: 'vente', date, piece: en.piece || '', amt: round2(cliNet), lib: en.lib || '', num: cliKey, tlib: a.lib, att: en.att || '' });
       const cm = (a.months = a.months || {});
       cm[date.slice(0, 7)] = round2((cm[date.slice(0, 7)] || 0) + cliNet);
       if (ven >= 150 && tv7 < 0.01) addEx(noVatS, ven, `${ref} · ${a.lib} · ${fmt(round2(ven))} € HT`);
@@ -946,6 +954,11 @@ function buildCycles(x) {
       a.pay++; a.payAmt -= cliNet;
     } else if (hasTr && tr > 0.005 && ven > 0.005 && Math.abs(cliNet) < 0.005 && directSales.length < 5000) {
       directSales.push([date, round2(tr), (en.lib || '').slice(0, 60)]); // encaissement comptabilisé en vente sans compte client
+    }
+
+    // Dépense payée directement (banque ou caisse → charge, sans compte fournisseur) : justificatif attendu
+    if (hasTr && Math.abs(supNet) < 0.005 && Math.abs(cliNet) < 0.005 && chg > 0.005 && main && !/^(627|6[3-9])/.test(main)) {
+      need.push({ kind: 'direct', date, piece: en.piece || '', amt: round2(chg + Math.max(0, tv6)), lib: en.lib || '', num: '', tlib: '', att: en.att || '', compte: main });
     }
 
     // Charges externes : paiements directs, honoraires (DAS2), notes de frais, cadeaux
@@ -1116,6 +1129,7 @@ function buildCycles(x) {
   const spanDays = start && closing ? daysBetween(start, closing) + 1 : 365;
 
   return {
+    justif: matchDocs(need, x.docs, x.attCol),
     achats: {
       invoices: purchases.length, ttc: ttcP, avoirs: round2(avoirsP), suppliers: supF.list, nbSuppliers: supF.count, delay: supF.delay,
       dupStrong, dupPossible, recurringRefs: recurring.size, noVat: Array.from(noVatP.values()).sort((a, b) => b.total - a.total), overVat: overVatP, autoliq, cut: cut.achats,
@@ -1134,5 +1148,42 @@ function buildCycles(x) {
       flux: Object.values(flux).map((f) => ({ ...f, enc: round2(f.enc), dec: round2(f.dec) })).sort((a, b) => (b.enc + b.dec) - (a.enc + a.dec)),
       big: big.filter((m) => !/^4[0-3]/.test(m.cp)).slice(0, 40), // hors clients, fournisseurs et paie
     },
+  };
+}
+
+// Rapprochement des écritures et des justificatifs d'une archive : nom de pièce jointe indiqué dans le FEC,
+// sinon n° de pièce retrouvé dans le nom d'un fichier. Les pièces au n° trop court ou générique ne sont pas jugées.
+function matchDocs(need, docs, attCol) {
+  if ((!docs || !docs.length) && !attCol) return null;
+  docs = docs || [];
+  const nk = (str) => normTxt(str).replace(/[^a-z0-9]/g, '');
+  const strip = (b) => String(b).split(/[\\/]/).pop().replace(/\.[a-z0-9]{1,5}$/i, '');
+  const all = '\u0001' + docs.map((d) => nk(strip(d.base))).join('\u0001') + '\u0001';
+  const has = (n) => {
+    if (n.att) return !docs.length || all.includes(nk(strip(n.att))) || all.includes('\u0001' + nk(strip(n.att)));
+    if (attCol) return false; // la colonne de pièce jointe est vide : pas de justificatif
+    const k = nk(n.piece);
+    if (k.length < 4 || !/\d/.test(k) || /^0+$/.test(k)) return null;
+    return all.includes(k);
+  };
+  const kinds = { achat: { n: 0, ok: 0, unk: 0 }, vente: { n: 0, ok: 0, unk: 0 }, direct: { n: 0, ok: 0, unk: 0 } };
+  const missing = [];
+  need.forEach((n) => {
+    const k = kinds[n.kind];
+    k.n++;
+    const h = has(n);
+    if (h === null) k.unk++;
+    else if (h) k.ok++;
+    else missing.push({ kind: n.kind, date: n.date, piece: n.piece, amt: n.amt, lib: String(n.lib).slice(0, 60), num: n.num, tlib: n.tlib, avoir: !!n.avoir, compte: n.compte || '' });
+  });
+  missing.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const judged = Object.values(kinds).reduce((t, k) => t + k.n - k.unk, 0);
+  const ok = Object.values(kinds).reduce((t, k) => t + k.ok, 0);
+  return {
+    docs: docs.length, attCol: attCol || '', kinds, judged, ok,
+    // Fiable si au moins une pièce sur cinq est retrouvée : sinon les noms de fichiers ne suivent pas les n° de pièce.
+    reliable: judged > 0 && ok / judged >= 0.2,
+    missing: missing.slice(0, 3000), missingTotal: missing.length,
+    samples: { docs: docs.slice(0, 6).map((d) => d.base), pieces: need.filter((n) => n.piece).slice(0, 6).map((n) => n.piece) },
   };
 }

@@ -2265,7 +2265,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '20';
+  const ASSET_VERSION = '21';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -2352,8 +2352,16 @@
 
   const fecAlive = (st) => !!data && (ui.fecStates.classique === st || ui.fecStates.pharmacie === st);
 
+  // Contenu à analyser : le FEC lui-même, ou celui d'une archive .zip « FEC + justificatifs » (seuls les noms des justificatifs sont lus).
+  const isZip = (file) => /\.zip$/i.test(file.name || '') || /zip/.test(file.type || '');
+  async function fecSource(file) {
+    if (!isZip(file)) return { buffer: await file.arrayBuffer(), name: file.name, docs: null };
+    const a = await ArchiveReader.read(file);
+    return { buffer: a.fec.buffer, name: a.fec.name, docs: a.docs.map((d) => ({ base: d.base })), archive: file.name };
+  }
+
   function runFecWorker(file, st, onDone, until) {
-    file.arrayBuffer().then((buffer) => {
+    fecSource(file).then(({ buffer, name, docs, archive }) => {
       fecWorker = new Worker('js/fec-worker.js?v=' + ASSET_VERSION);
       fecWorker.onmessage = (e) => {
         const m = e.data;
@@ -2369,6 +2377,7 @@
         }
         fecWorker.terminate();
         fecWorker = null;
+        if (m.type === 'done' && archive) m.result.meta.archive = archive;
         if (onDone) return onDone(m.type === 'done' ? m.result : null, m.type === 'error' ? m.message : '');
         if (m.type === 'error') Object.assign(st, { status: 'error', message: m.message });
         else {
@@ -2385,7 +2394,7 @@
         Object.assign(st, { status: 'error', message: err.message || 'Erreur pendant l\'analyse.' });
         refresh();
       };
-      fecWorker.postMessage({ buffer, fileName: file.name, until: until || '' }, [buffer]);
+      fecWorker.postMessage({ buffer, fileName: name, until: until || '', docs }, [buffer]);
     }, (err) => {
       if (!fecAlive(st)) return;
       if (onDone) return onDone(null, err.message);
@@ -2520,7 +2529,7 @@
         <div class="fec-drop card" data-action="fec-pick" role="button" tabindex="0">
           ${icon('chart', 'fec-drop-ico')}
           <p><strong>Déposez le FEC ${pharma ? 'd\'une pharmacie' : 'd\'une entreprise'} ici</strong> ou cliquez pour le choisir</p>
-          <p class="muted small">Fichier .txt ou .csv au format de l'article A47 A-1 du LPF (tabulation ou « | », UTF-8 ou ISO-8859-15)${pharma ? '' : ', y compris BNC / BA'}.</p>
+          <p class="muted small">Fichier .txt ou .csv au format de l'article A47 A-1 du LPF (tabulation ou « | », UTF-8 ou ISO-8859-15)${pharma ? '' : ', y compris BNC / BA'}, ou archive <strong>.zip « FEC + justificatifs »</strong> (export Pennylane) pour repérer les écritures sans pièce.</p>
         </div>
         <div class="grid2">
           <section class="card"><h2>Ce que l'analyse vérifie</h2><ul class="bullets">
@@ -2587,6 +2596,7 @@
           ${tile('Trésorerie', eurK(k.tresorerie), k.tresorerie < 0 ? 'kpi-late' : '')}`}
         </div>
         ${cyclesCard(r)}
+        ${justifCard(r)}
         ${r.monthly.length ? `
         <section class="card"><h2>Chiffre d'affaires et charges par mois</h2>
           ${legend([['--series-1', 'Chiffre d\'affaires (70)'], ['--series-2', 'Charges (classe 6)']])}
@@ -2674,6 +2684,7 @@
           <div><div class="muted small">SIREN · clôture</div>${esc(m.siren || '—')} · ${dmy(m.closing)}</div>
           <div><div class="muted small">Période des écritures</div>${dmy(m.minDate)} → ${dmy(m.maxDate)}</div>
           <div><div class="muted small">Volume</div>${m.lines.toLocaleString('fr-FR')} lignes · ${m.entries.toLocaleString('fr-FR')} écritures · ${m.accounts.toLocaleString('fr-FR')} comptes</div>
+          ${r.cycles && r.cycles.justif ? `<div><div class="muted small">Justificatifs${m.archive ? ` (${esc(m.archive)})` : ''}</div>${r.cycles.justif.docs.toLocaleString('fr-FR')} fichier(s) · ${r.cycles.justif.judged ? `${Math.round((r.cycles.justif.ok / r.cycles.justif.judged) * 100)} % des pièces retrouvées` : 'rapprochement impossible'}</div>` : ''}
         </div>
         <div class="fec-link">
           <label>Dossier<select data-fec="client">${options(Object.fromEntries(clients.map((c) => [c.id, `${c.code ? c.code + ' — ' : ''}${clientLabel(c)}`])), f.clientId, '— Rattacher à un dossier —')}</select></label>
@@ -2818,6 +2829,10 @@
 
     // Règlements fournisseurs et encaissements clients du mois non affectés à une facture (paiement par paiement)
     const asked = unmatchedPieces(r, push, start, end, ym);
+    // Archive de justificatifs : écritures du mois sans pièce (exact), à la place de la liste des dépenses payées directement.
+    // Les abonnements dont la facture n'est pas saisie du tout restent détectés : l'archive ne peut pas les voir.
+    const exact = justifOk(r);
+    justifPieces(r, push, start, end, ym);
     // Abonnements : fournisseurs facturés chaque mois pour un montant stable, sans facture ce mois-ci
     p.suppliers.forEach((sp) => {
       if (Math.abs(sp.months[ym] || 0) >= 0.01 || asked.has('401|' + sp.num)) return;
@@ -2826,7 +2841,7 @@
     });
     // Dépenses payées directement (banque ou caisse → charge, sans facture fournisseur)
     const groups = new Map();
-    (p.directLines || []).filter((l) => inM(l[0])).forEach(([date, compte, clib, elib, amt]) => {
+    (exact ? [] : p.directLines || []).filter((l) => inM(l[0])).forEach(([date, compte, clib, elib, amt]) => {
       const lib = String(elib).replace(/\S*\d\S*/g, '').replace(/\s+/g, ' ').trim() || elib;
       const k = compte + '|' + norm(lib);
       const g = groups.get(k) || groups.set(k, { lib, clib, n: 0, total: 0, date }).get(k);
@@ -2912,6 +2927,10 @@
       if (t.racine === '411' && t.s < 0 && !pharma) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} : règlement de ${eur(-t.s)} € reçu sans facture correspondante`);
     });
 
+    // Archive de justificatifs : écritures sans pièce (exact), à la place de la liste des dépenses payées directement
+    const exact = justifOk(r);
+    justifPieces(r, push, r.meta.start || '0000-00-00', arrete, 'per');
+
     // Abonnements (montant mensuel stable) dont des factures manquent ; jamais d'estimation pour les dépenses ponctuelles
     p.suppliers.forEach((sp) => {
       if (RE_DIVERS.test(sp.lib || '') || asked.has('401|' + sp.num)) return;
@@ -2935,7 +2954,7 @@
     }));
 
     // Dépenses payées directement (banque ou caisse → charge, sans compte fournisseur)
-    p.direct.filter((g) => g.first <= arrete).forEach((g, i) => {
+    (exact ? [] : p.direct).filter((g) => g.first <= arrete).forEach((g, i) => {
       const months = Object.keys(g.months).filter((ym) => ym <= endYm);
       const when = g.count === 1 ? `du ${d(g.first)}` : `: ${g.count} paiements (${fmtMonths(months)})`;
       const label = g.label.replace(/\S*\d\S*/g, '').replace(/\s+/g, ' ').trim() || g.label;
@@ -3074,8 +3093,10 @@
     const { from, to } = supplierPeriod(r);
     const re = ignoredRe();
     const map = new Map();
-    const get = (num, lib) => map.get(num) || map.set(num, { num, lib, pays: [], months: [] }).get(num);
+    const get = (num, lib) => map.get(num) || map.set(num, { num, lib, pays: [], months: [], docs: [] }).get(num);
     (r.pieces.unmatched || []).filter((u) => u.racine === '401' && u.date >= from && u.date <= to).forEach((u) => get(u.num, u.lib).pays.push(u));
+    const exact = justifOk(r);
+    if (exact) r.cycles.justif.missing.filter((x) => x.kind === 'achat' && x.date >= from && x.date <= to).forEach((x) => get(x.num, x.tlib).docs.push(x));
     const endYm = ymOf(to), startYm = ymOf(from);
     r.pieces.suppliers.forEach((sp) => {
       if (RE_DIVERS.test(sp.lib || '')) return;
@@ -3103,6 +3124,10 @@
     const nom = c ? c.nom : '';
     const periode = `du ${fmtDate(from)} au ${fmtDate(to)}`;
     const lines = [];
+    if (x.docs.length) {
+      lines.push('- le duplicata des factures suivantes :');
+      x.docs.forEach((u) => lines.push(`    • ${u.avoir ? 'avoir' : 'facture'}${u.piece ? ` n° ${u.piece}` : ''} du ${fmtDate(u.date)} : ${eur(Math.abs(u.amt))} €`));
+    }
     if (x.pays.length) {
       lines.push('- le duplicata des factures correspondant aux règlements suivants :');
       x.pays.forEach((u) => lines.push(`    • règlement du ${fmtDate(u.date)} : ${eur(u.amt)} €${u.label ? ` (${u.label})` : ''}`));
@@ -3132,7 +3157,7 @@
       ${!c ? '<p class="banner info">Rattachez l\'analyse à un dossier (en haut de page) pour enregistrer les n° clients et préparer les mails.</p>' : ''}
       ${list.length ? `<div class="supp-list">${list.map((x) => {
         const info = supplierInfo(c, x.num);
-        const what = [x.pays.length ? `${x.pays.length} règlement(s) sans facture, ${eur(x.total)} €` : '', x.months.length ? `factures de ${fmtMonths(x.months)}` : ''].filter(Boolean).join(' · ');
+        const what = [x.docs.length ? `${x.docs.length} facture(s) sans justificatif` : '', x.pays.length ? `${x.pays.length} règlement(s) sans facture, ${eur(x.total)} €` : '', x.months.length ? `factures de ${fmtMonths(x.months)}` : ''].filter(Boolean).join(' · ');
         return `<div class="supp-row">
           <div class="supp-name"><strong>${esc(x.lib)}</strong> <span class="muted small">${esc(x.num)}</span><div class="muted small">${esc(what)}${info.sentAt ? ` · demandé le ${fmtDate(info.sentAt.slice(0, 10))}` : ''}</div></div>
           <label class="inline-label">N° client <input type="text" data-supp="numClient" data-k="${esc(x.num)}" data-lib="${esc(x.lib)}" value="${esc(info.numClient || '')}" placeholder="chez ce fournisseur" spellcheck="false"${c ? '' : ' disabled'}></label>
@@ -3154,7 +3179,7 @@
     const mail = supplierMail(f.result, c, x);
     c.fournisseurs = c.fournisseurs || {};
     c.fournisseurs[num] = Object.assign(c.fournisseurs[num] || {}, { lib: x.lib, sentAt: nowIso() });
-    log(c.id, `Demande de factures adressée au fournisseur ${x.lib} (${x.pays.length} règlement(s), ${x.months.length} mois).`, true);
+    log(c.id, `Demande de factures adressée au fournisseur ${x.lib} (${x.docs.length} facture(s), ${x.pays.length} règlement(s), ${x.months.length} mois).`, true);
     persist();
     if (copy) {
       const text = `Objet : ${mail.subject}\n\n${mail.body}`;
@@ -4460,6 +4485,41 @@
     }).join('')}</div></section>`;
   }
 
+  // ---------- Justificatifs (archive FEC + pièces) ----------
+
+  const justifOk = (r) => !!(r.cycles && r.cycles.justif && r.cycles.justif.reliable);
+  const JUSTIF_KINDS = { achat: 'Factures fournisseurs', vente: 'Factures de vente', direct: 'Dépenses payées directement' };
+
+  function justifCard(r) {
+    const j = r.cycles && r.cycles.justif;
+    if (!j) return '';
+    const pc = (a, b) => (b ? `${Math.round((a / b) * 100)} %` : '—');
+    return `<section class="card"><h2>Justificatifs de l'archive</h2>
+      <p class="muted small">${j.docs.toLocaleString('fr-FR')} fichier(s) dans l'archive${j.attCol ? `, colonne « ${esc(j.attCol)} » du FEC utilisée` : ''}. Chaque écriture est rapprochée d'un justificatif par ${j.attCol ? 'le nom de pièce jointe indiqué dans le FEC' : 'son n° de pièce, retrouvé dans le nom du fichier'} ; seuls les noms des fichiers sont lus.</p>
+      <div class="grid-wrap"><table class="dtable num"><thead><tr><th>Écritures</th><th></th><th>Total</th><th>Avec justificatif</th><th>Sans justificatif</th><th>Non rapprochables</th></tr></thead>
+      <tbody>${Object.entries(JUSTIF_KINDS).map(([k, l]) => { const x = j.kinds[k]; return `<tr><td>${l}</td><td></td><td>${x.n}</td><td>${x.ok} <span class="muted small">${pc(x.ok, x.n - x.unk)}</span></td><td class="${x.n - x.unk - x.ok ? 'cred' : ''}">${x.n - x.unk - x.ok}</td><td>${x.unk || ''}</td></tr>`; }).join('')}</tbody></table></div>
+      ${j.reliable ? `<p class="muted small">Les ${j.missingTotal} écriture(s) sans justificatif sont reprises une par une dans les <strong>pièces à demander</strong> (au client ou directement au fournisseur).</p>`
+        : `<div class="banner warn"><span><strong>Rapprochement peu fiable</strong> : ${j.judged ? `seulement ${j.ok} pièce(s) sur ${j.judged} retrouvée(s)` : 'aucun n° de pièce exploitable'}. Les noms des fichiers ne semblent pas reprendre le n° de pièce des écritures, les pièces à demander restent donc établies sans l'archive. Exemples de fichiers : ${j.samples.docs.map((x) => `« ${esc(x)} »`).join(', ') || '—'} ; exemples de n° de pièce : ${j.samples.pieces.map((x) => `« ${esc(x)} »`).join(', ') || '—'}. Indiquez à votre interlocuteur comment Pennylane nomme les fichiers pour adapter le rapprochement.</span></div>`}
+    </section>`;
+  }
+
+  // Écritures sans justificatif sur la période, regroupées par tiers.
+  function justifPieces(r, push, from, to, scope) {
+    if (!justifOk(r)) return;
+    const d = fmtDate;
+    const list = r.cycles.justif.missing.filter((x) => x.date >= from && x.date <= to);
+    const desc = (x) => `${x.avoir ? 'avoir' : 'facture'}${x.piece ? ` n° ${x.piece}` : ''} du ${d(x.date)} (${eur(Math.abs(x.amt))} €)`;
+    const groups = new Map();
+    list.filter((x) => x.kind !== 'direct').forEach((x) => { const k = x.kind + '|' + x.num; (groups.get(k) || groups.set(k, []).get(k)).push(x); });
+    groups.forEach((l) => {
+      const x0 = l[0];
+      const items = l.slice(0, 12).map(desc).join(', ') + (l.length > 12 ? ` et ${l.length - 12} autre(s)` : '');
+      if (x0.kind === 'achat') push('achats', `jm:${scope}:${x0.num}`, `${l.length > 1 ? 'Factures' : 'Facture'} ${x0.tlib} : ${items}`);
+      else push('ventes', `jv:${scope}:${x0.num}`, `${l.length > 1 ? 'Factures de vente' : 'Facture de vente'} à ${x0.tlib} : ${items}`);
+    });
+    list.filter((x) => x.kind === 'direct').slice(0, 60).forEach((x, i) => push('justif', `jd:${scope}:${i}`, `Justificatif « ${x.lib} » du ${d(x.date)} (${eur(x.amt)} €)`));
+  }
+
   // Pièces et questions issues des cycles.
   function cyclePieces(r, mode, arrete, push) {
     if (!r.cycles) return;
@@ -4504,18 +4564,19 @@
 
   // Analyse d'un fichier dans son propre Web Worker (indépendant de l'analyse affichée).
   function analyseFile(file) {
-    return file.arrayBuffer().then((buffer) => new Promise((resolve) => {
+    return fecSource(file).then(({ buffer, name, docs, archive }) => new Promise((resolve) => {
       const w = new Worker('js/fec-worker.js?v=' + ASSET_VERSION);
       w.onmessage = (e) => {
         if (e.data.type === 'progress') return;
         w.terminate();
+        if (e.data.type === 'done' && archive) e.data.result.meta.archive = archive;
         resolve(e.data.type === 'done' ? { result: e.data.result } : { error: e.data.message });
       };
       w.onerror = (err) => {
         w.terminate();
         resolve({ error: err.message || "Erreur pendant l'analyse." });
       };
-      w.postMessage({ buffer, fileName: file.name }, [buffer]);
+      w.postMessage({ buffer, fileName: name, docs }, [buffer]);
     }), (err) => ({ error: err.message }));
   }
 
@@ -4541,7 +4602,7 @@
   }
 
   async function batchRun(files) {
-    const list = files.filter((f) => /\.(txt|csv|tsv)$/i.test(f.name));
+    const list = files.filter((f) => /\.(txt|csv|tsv|zip)$/i.test(f.name));
     if (!list.length) return toast('Aucun fichier FEC (.txt, .csv) sélectionné.', true);
     const b = (ui.batch = { items: [], total: list.length, done: 0, running: true });
     refresh();
@@ -5628,6 +5689,7 @@
       </ul>`)}
       ${item('Analyse FEC', `<ul>
         <li>Menu <strong>Analyse FEC</strong> : déposez le fichier des écritures comptables (.txt) d'un dossier. Il est analysé sur l'appareil, sans envoi ni conservation.</li>
+        <li><strong>Archive Pennylane (.zip FEC + justificatifs)</strong> : déposez directement l'archive exportée. Le FEC est extrait et seuls les <em>noms</em> des justificatifs sont lus (les fichiers ne sont pas ouverts) : les écritures sans justificatif sont listées exactement dans la synthèse, et les pièces à demander (client, mensuel, mails fournisseurs) citent ces factures précises au lieu d'estimations. Si les noms de fichiers ne reprennent pas les n° de pièce, l'application le signale et revient aux estimations.</li>
         <li><strong>Conformité</strong> : les contrôles de l'article A47 A-1 du LPF (colonnes, dates, équilibre, numérotation…), avec des exemples de lignes en cause.</li>
         <li><strong>Points de révision</strong> : caisse créditrice, comptes d'attente, clients créditeurs, fournisseurs débiteurs, compte courant d'associé débiteur, doublons, dimanches et jours fériés, loi de Benford.</li>
         <li>SIG, bilan simplifié, balance, graphiques mensuels, journaux et tiers ; export Excel complet.</li>
@@ -6608,7 +6670,7 @@
       else updateGrilleCell(m);
     },
     'export-grille': () => exportGrille(),
-    'batch-pick': async () => batchRun(await pickFiles('.txt,.csv,.tsv,text/plain')),
+    'batch-pick': async () => batchRun(await pickFiles('.txt,.csv,.tsv,.zip,text/plain,application/zip')),
     'batch-open': (el) => {
       const it = ui.batch && ui.batch.items[Number(el.dataset.i)];
       if (!it || !it.st) return;
@@ -6625,7 +6687,7 @@
       const ok = await ask({ title: 'Export Excel non chiffré', message: 'Le fichier liste les dossiers et leurs chiffres clés, <strong>non chiffrés</strong>. Supprimez-le après usage.', okLabel: 'Exporter' });
       if (ok) batchExport();
     },
-    'fec-pick': async () => startFec(await pickFile('.txt,.csv,.tsv,text/plain', true)),
+    'fec-pick': async () => startFec(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true)),
     'fec-tab': (el) => {
       ui.fec.section = el.dataset.tab;
       refresh();
@@ -6662,7 +6724,7 @@
       if (st) st.section = 'synthese';
       location.hash = el.dataset.to === 'pharmacie' ? '#/fec/pharma' : '#/fec';
     },
-    'fec-prev': async () => startFec(await pickFile('.txt,.csv,.tsv,text/plain', true), 'prev'),
+    'fec-prev': async () => startFec(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true), 'prev'),
     'fec-note': () => openNote(),
     'prev-mode': (el) => {
       ui.fec.prevMode = el.dataset.mode;
