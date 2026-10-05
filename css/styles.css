@@ -698,3 +698,26 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .wp-el.wait .wp-el-text { color: var(--wait); }
 .note-table tr.wp-sub td { font-size: .85em; color: #52606d; }
 @media (max-width: 900px) { .fec-ex.wp-els li.wp-el { grid-template-columns: 1fr; } .wp-el-ctl { flex-wrap: wrap; } .wp-el-ctl input[type=text] { flex: 1 1 10rem; width: auto; } }
+
+/* Suivi mensuel : tri et étapes */
+.grille th.g-sort { cursor: pointer; user-select: none; }
+.grille th.g-sort:hover, .grille th.g-sort.on { color: var(--primary); }
+.grille td.g-progress, .grille td.g-late, .grille td.g-wait { line-height: 1.05; }
+.grille td .g-step { display: block; font-size: .7rem; font-weight: 700; padding: 0 .2rem; white-space: nowrap; }
+.grille td .g-frac { display: block; font-size: .62rem; font-weight: 600; opacity: .75; }
+.grille td { min-width: 58px; }
+.legend .g-leg { display: inline-flex; flex-direction: column; align-items: center; line-height: 1; padding: .15rem .35rem; }
+.legend .g-leg .g-step { font-size: .68rem; font-weight: 700; }
+.legend .g-leg .g-frac { font-size: .6rem; opacity: .75; }
+#grille-pop { position: absolute; z-index: 60; width: min(320px, calc(100vw - 16px)); background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0, 0, 0, .18); padding: .7rem .75rem; }
+#grille-pop .gp-head { display: flex; flex-direction: column; gap: .1rem; margin-bottom: .5rem; }
+#grille-pop .gp-steps { list-style: none; margin: 0 0 .3rem; padding: 0; display: flex; flex-direction: column; gap: .2rem; }
+#grille-pop .gp-steps button { width: 100%; display: flex; align-items: center; gap: .55rem; text-align: left; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px; padding: .4rem .55rem; font: inherit; font-size: .88rem; cursor: pointer; min-height: 36px; }
+#grille-pop .gp-steps button span { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); font-size: .72rem; font-weight: 700; color: var(--muted); flex: none; }
+#grille-pop .gp-steps button.done { background: var(--ok-soft); border-color: transparent; }
+#grille-pop .gp-steps button.done span { background: var(--ok); border-color: var(--ok); color: #fff; }
+#grille-pop .gp-steps button.current { outline: 2px solid var(--ok); outline-offset: -1px; font-weight: 700; }
+#grille-pop .gp-steps button:hover { border-color: var(--primary); }
+#grille-pop .gp-foot { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; margin-top: .4rem; }
+@media (prefers-color-scheme: dark) { #grille-pop .gp-steps button.done span { color: #11161d; } }
+.legend .g-leg span { display: block; margin-left: 0; min-width: 0; padding: 0; background: none; }
