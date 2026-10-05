@@ -50,7 +50,7 @@
     },
     {
       id: 'tva', nom: 'Déclaration de TVA', recurrence: 'mensuelle',
-      etapes: ['Pièces reçues', 'Saisie ventes / achats', 'Contrôle et calcul de la TVA', 'Validation', 'Télédéclaration', 'Télépaiement'],
+      etapes: ['Pièces reçues', 'Saisie des ventes', 'Saisie des achats', 'Contrôle et calcul de la TVA', 'Validation', 'Télédéclaration', 'Télépaiement'],
     },
     {
       id: 'paie', nom: 'Paie', recurrence: 'mensuelle',
@@ -296,6 +296,18 @@
     d.missions.forEach((m) => {
       m.etapes = Array.isArray(m.etapes) ? m.etapes : [];
       m.statut = STATUTS[m.statut] ? m.statut : 'a_faire';
+    });
+    // Saisie des ventes et saisie des achats suivies séparément (elles se font dans n'importe quel ordre).
+    const SAISIE_VA = /^saisie\s+ventes\s*\/\s*achats$/i;
+    d.templates.forEach((t) => {
+      const i = (t.etapes || []).findIndex((e) => SAISIE_VA.test(String(e).trim()));
+      if (i >= 0) t.etapes.splice(i, 1, 'Saisie des ventes', 'Saisie des achats');
+    });
+    d.missions.forEach((m) => {
+      const i = m.etapes.findIndex((e) => SAISIE_VA.test(String(e.label || '').trim()));
+      if (i < 0) return;
+      const e = m.etapes[i];
+      m.etapes.splice(i, 1, Object.assign({}, e, { id: uid(), label: 'Saisie des ventes' }), Object.assign({}, e, { id: uid(), label: 'Saisie des achats' }));
     });
     d.version = 1;
     return d;
@@ -1218,10 +1230,29 @@
 
   // Libellé court d'une étape, affiché dans la case (« Saisie », « Contrôle », « Télédécl. »).
   function stepShort(label) {
+    const sv = String(label || '').match(/^saisie\s+(?:des?\s+|du\s+|de\s+la\s+)?(\S+)/i);
+    if (sv && !/^[/(]/.test(sv[1])) { const w2 = sv[1].charAt(0).toUpperCase() + sv[1].slice(1); return w2.length > 9 ? w2.slice(0, 8) + '.' : w2; }
     const w = String(label || '').replace(/^(la|le|les|l'|de|des|du)\s+/i, '').split(/[\s/(,–-]+/)[0] || String(label || '');
     return w.length > 9 ? w.slice(0, 8) + '.' : w;
   }
   const lastDoneIndex = (m) => m.etapes.reduce((k, e, i) => (e.done ? i : k), -1);
+
+  // Étapes faisables dans n'importe quel ordre : saisies consécutives (ventes, achats…). Renvoie [début, fin] du groupe.
+  function stepGroup(etapes, i) {
+    const isS = (k) => k >= 0 && k < etapes.length && /^saisie\b/i.test(etapes[k].label || '');
+    if (!isS(i)) return [i, i];
+    let a = i, b = i;
+    while (isS(a - 1)) a--;
+    while (isS(b + 1)) b++;
+    return [a, b];
+  }
+  // Libellé de l'étape atteinte : « Saisie » quand toutes les saisies du groupe sont faites, sinon celle qui est faite.
+  function stepReached(m) {
+    const last = lastDoneIndex(m);
+    if (last < 0) return '';
+    const [a, b] = stepGroup(m.etapes, last);
+    return a !== b && m.etapes.slice(a, b + 1).every((e) => e.done) ? 'Saisie' : stepShort(m.etapes[last].label);
+  }
 
   function grilleCellState(m) {
     if (!m) return 'none';
@@ -1268,11 +1299,10 @@
     let cls = 'g-todo', html = '·';
     const n = m.etapes.length;
     const done = m.etapes.filter((e) => e.done).length;
-    const last = lastDoneIndex(m);
     if (!isOpen(m)) { cls = 'g-ok'; html = 'OK'; }
     else {
       cls = isLate(m) ? 'g-late' : m.statut === 'attente_client' ? 'g-wait' : done || m.statut !== 'a_faire' ? 'g-progress' : 'g-todo';
-      if (done && n) html = `<span class="g-step">${esc(stepShort(m.etapes[last].label))}</span><span class="g-frac">${done}/${n}</span>`;
+      if (done && n) html = `<span class="g-step">${esc(stepReached(m))}</span><span class="g-frac">${done}/${n}</span>`;
       else html = isLate(m) ? '!' : m.statut === 'attente_client' ? 'Att.' : m.statut !== 'a_faire' ? 'En cours' : '·';
     }
     const hint = mode === 'pointage' ? `Cliquer pour ${isOpen(m) ? 'pointer OK' : 'annuler'}` : mode === 'etapes' ? 'Cliquer pour choisir l\'étape atteinte' : 'Cliquer pour ouvrir la mission';
@@ -1314,11 +1344,11 @@
     pop.setAttribute('aria-label', `Étapes — ${m.titre}`);
     pop.dataset.id = m.id;
     pop.innerHTML = `<div class="gp-head"><strong>${esc(c ? clientLabel(c) : '')}</strong><span class="muted small">${esc(m.titre)}${m.echeance ? ` · échéance ${fmtDate(m.echeance)}` : ''}</span></div>
-      ${m.etapes.length ? `<ol class="gp-steps">${m.etapes.map((e, i) => `<li><button class="${e.done ? 'done' : ''}${i + 1 === k ? ' current' : ''}" data-action="grille-step" data-id="${m.id}" data-k="${i + 1}"><span aria-hidden="true">${e.done ? '✓' : i + 1}</span>${esc(e.label)}</button></li>`).join('')}</ol>
-        <p class="muted small">Cliquez sur la dernière étape faite. La dernière étape termine la mission.</p>`
-        : `<div class="gp-foot"><button class="btn small primary" data-action="grille-step" data-id="${m.id}" data-k="1">Marquer terminée</button></div>`}
+      ${m.etapes.length ? `<ol class="gp-steps">${m.etapes.map((e, i) => { const [ga, gb] = stepGroup(m.etapes, i); return `<li class="${ga !== gb ? 'gp-par' : ''}"><button class="${e.done ? 'done' : ''}${i + 1 === k ? ' current' : ''}" data-action="grille-step" data-id="${m.id}" data-i="${i}" aria-pressed="${e.done}"><span aria-hidden="true">${e.done ? '✓' : i + 1}</span>${esc(e.label)}</button></li>`; }).join('')}</ol>
+        <p class="muted small">Un clic coche l'étape et celles qui la précèdent ; un second clic la décoche. La saisie des ventes et celle des achats se cochent indépendamment, dans l'ordre où vous les faites. La dernière étape termine la mission.</p>`
+        : `<div class="gp-foot"><button class="btn small primary" data-action="grille-step" data-id="${m.id}" data-i="all">Marquer terminée</button></div>`}
       <div class="gp-foot">
-        <button class="btn small" data-action="grille-step" data-id="${m.id}" data-k="0">Remettre à faire</button>
+        <button class="btn small" data-action="grille-step" data-id="${m.id}" data-i="-1">Remettre à faire</button>
         <button class="btn small" data-action="open-mission" data-id="${m.id}">Ouvrir la mission</button>
       </div>`;
     document.body.appendChild(pop);
@@ -1331,23 +1361,39 @@
     if (first) first.focus();
   }
 
-  // Étapes 1 à k cochées, les suivantes décochées ; statut ajusté (à faire, en cours, terminée).
-  function setGrilleStep(m, k) {
+  // Clic sur l'étape i : cochée avec les étapes qui la précèdent (hors saisies parallèles), ou décochée avec celles qui suivent.
+  // i = -1 : tout décocher ; i = 'all' : mission sans étapes à terminer. Statut ajusté (à faire, en cours, terminée).
+  function setGrilleStep(m, i) {
     if (!m) return;
-    const n = m.etapes.length;
-    if (n && k === lastDoneIndex(m) + 1 && k > 0 && isOpen(m)) k--; // un second clic sur la dernière étape faite la décoche
+    const et = m.etapes;
     const count = data.missions.length;
-    m.etapes.forEach((e, i) => {
-      if (i < k && !e.done) Object.assign(e, { done: true, doneAt: nowIso() });
-      if (i >= k && e.done) Object.assign(e, { done: false, doneAt: null });
-    });
-    const target = (n ? k >= n : k > 0) ? 'termine' : k === 0 ? 'a_faire' : 'en_cours';
+    const check = (e) => { if (!e.done) Object.assign(e, { done: true, doneAt: nowIso() }); };
+    const uncheck = (e) => { if (e.done) Object.assign(e, { done: false, doneAt: null }); };
+    let msg;
+    if (i === -1) { et.forEach(uncheck); msg = 'à faire'; }
+    else if (i === 'all' || !et[i]) { et.forEach(check); msg = 'terminée'; }
+    else {
+      const [ga, gb] = stepGroup(et, i);
+      if (!isOpen(m)) {
+        // Mission terminée : on revient à l'étape choisie (elle et ce qui la précède restent cochés, le reste est décoché).
+        et.forEach((e, j) => (j === i || j < ga ? check(e) : uncheck(e)));
+        msg = `revenue à « ${et[i].label} »`;
+      } else if (et[i].done) {
+        et.forEach((e, j) => { if (j === i || j > gb) uncheck(e); });
+        msg = `${et[i].label} décochée`;
+      } else {
+        et.forEach((e, j) => { if (j === i || j < ga) check(e); });
+        msg = `${et[i].label} faite`;
+      }
+    }
+    const done = et.filter((e) => e.done).length;
+    const target = (et.length ? done === et.length : i === 'all') ? 'termine' : done === 0 ? 'a_faire' : 'en_cours';
     setStatus(m, target);
     m.updatedAt = nowIso();
     persist();
     closeGrillePop();
     const c = clientById(m.clientId);
-    toast(`${clientLabel(c)} — ${m.titre} : ${target === 'termine' ? 'terminée' : k ? `${m.etapes[k - 1].label} (${k}/${n})` : 'à faire'}`);
+    toast(`${clientLabel(c)} — ${m.titre} : ${target === 'termine' ? 'terminée' : `${msg}${et.length ? ` (${done}/${et.length})` : ''}`}`);
     if (data.missions.length !== count) refresh();
     else updateGrilleCell(m);
   }
@@ -1396,7 +1442,7 @@
           <button class="${mode === 'pointage' ? 'on' : ''}" data-action="grille-mode" data-mode="pointage" title="Un clic pointe la case OK">Pointage rapide</button>
           <button class="${mode === 'fiche' ? 'on' : ''}" data-action="grille-mode" data-mode="fiche" title="Un clic ouvre la mission">Ouvrir</button>
         </div>
-        <span class="legend"><span class="g-ok">OK</span> terminée <span class="g-progress g-leg"><span class="g-step">Saisie</span><span class="g-frac">2/6</span></span> dernière étape faite <span class="g-late">!</span> en retard <span class="g-wait">Att.</span> attente client <span class="g-todo">·</span> à faire</span>
+        <span class="legend"><span class="g-ok">OK</span> terminée <span class="g-progress g-leg"><span class="g-step">Ventes</span><span class="g-frac">2/7</span></span> étape atteinte <span class="g-late">!</span> en retard <span class="g-wait">Att.</span> attente client <span class="g-todo">·</span> à faire</span>
       </div>
       ${clients.length ? `
       <div class="grid-wrap card flush">
@@ -1406,7 +1452,7 @@
           <tfoot><tr><td class="g-code"></td><th class="g-name">Terminées</th><td class="g-meta"></td><td class="g-meta"></td>${totals.map((t) => `<td>${t.all ? `${t.done}/${t.all}` : ''}</td>`).join('')}</tr></tfoot>
         </table>
       </div>
-      <p class="muted small">${clients.length} dossier${clients.length > 1 ? 's' : ''}, triés par ${esc(GRILLE_TRIS[sort.key].toLowerCase())}${sort.dir > 0 ? '' : ' (ordre inverse)'} — cliquez sur un titre de colonne pour trier. ${mode === 'pointage' ? '<strong>Pointage rapide :</strong> un clic sur une case la passe à OK, un second clic annule.' : mode === 'etapes' ? '<strong>Étapes :</strong> un clic sur une case affiche les étapes de la mission ; choisissez la dernière étape faite (les précédentes sont cochées, la dernière termine la mission).' : 'Cliquez sur une case pour ouvrir la mission.'} Les missions mensuelles (« MM/AAAA »), trimestrielles (« T1 AAAA ») et annuelles (« AAAA ») de l'année choisie apparaissent ici.</p>`
+      <p class="muted small">${clients.length} dossier${clients.length > 1 ? 's' : ''}, triés par ${esc(GRILLE_TRIS[sort.key].toLowerCase())}${sort.dir > 0 ? '' : ' (ordre inverse)'} — cliquez sur un titre de colonne pour trier. ${mode === 'pointage' ? '<strong>Pointage rapide :</strong> un clic sur une case la passe à OK, un second clic annule.' : mode === 'etapes' ? '<strong>Étapes :</strong> un clic sur une case affiche les étapes de la mission ; cochez celle qui est faite (les précédentes le sont aussi, la saisie des ventes et celle des achats se cochent séparément, la dernière étape termine la mission).' : 'Cliquez sur une case pour ouvrir la mission.'} Les missions mensuelles (« MM/AAAA »), trimestrielles (« T1 AAAA ») et annuelles (« AAAA ») de l'année choisie apparaissent ici.</p>`
       : base.length
         ? emptyState(`Aucun dossier « ${esc(REGIME_FILTRES[g.regime])} » pour ces critères.`, '<button class="btn" data-action="grille-reset">Afficher tous les régimes</button>')
         : emptyState(`Aucune mission « ${esc((templateById(g.type) || {}).nom || '')} » pour ${year}.`, `<button class="btn primary" data-action="import-sheet">Importer mon tableau Excel</button>`)}`;
@@ -2181,7 +2227,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '16';
+  const ASSET_VERSION = '17';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -5422,7 +5468,7 @@
       ${item('Suivi mensuel (grille)', `<ul>
         <li>Reproduit votre tableau Excel : un dossier par ligne, un mois par colonne. Filtrez par type de mission, régime de TVA (mensuel, trimestriel, CA12) et responsable.</li>
         <li><strong>Tri</strong> : cliquez sur un titre de colonne (N°, Dossier, TVA, Jour) ou choisissez « Trier par » (clôture, responsable, retards et avancement) ; un second clic inverse l'ordre. Le tri est conservé.</li>
-        <li><strong>Étapes</strong> (mode par défaut) : un clic sur une case affiche les étapes de la mission ; choisissez la dernière étape faite. La case indique alors l'étape atteinte, par exemple « Saisie 2/6 », et la dernière étape termine la mission. Recliquer sur l'étape en cours la décoche. Survolez une case pour voir toutes les étapes.</li>
+        <li><strong>Étapes</strong> (mode par défaut) : un clic sur une case affiche les étapes de la mission ; cliquez sur une étape faite pour la cocher (les précédentes le sont aussi), recliquez pour la décocher. Pour la TVA, la <strong>saisie des ventes</strong> et la <strong>saisie des achats</strong> se cochent séparément, dans l'ordre où vous les faites. La case indique l'étape atteinte (« Ventes 2/7 », « Achats 2/7 », « Saisie 3/7 » quand les deux sont faites), et la dernière étape termine la mission. Survolez une case pour voir toutes les étapes.</li>
         <li><strong>Pointage rapide</strong> : un clic sur une case la passe à OK, un second clic annule, comme dans Excel.</li>
         <li><strong>Exporter en Excel</strong> produit un fichier réimportable (attention : non chiffré).</li>
       </ul>`)}
@@ -6386,7 +6432,7 @@
       refresh();
     },
     'grille-steps': (el) => openGrillePop(el, missionById(el.dataset.id)),
-    'grille-step': (el) => setGrilleStep(missionById(el.dataset.id), Number(el.dataset.k)),
+    'grille-step': (el) => setGrilleStep(missionById(el.dataset.id), el.dataset.i === 'all' ? 'all' : Number(el.dataset.i)),
     'grille-toggle': (el) => {
       const m = missionById(el.dataset.id);
       if (!m) return;

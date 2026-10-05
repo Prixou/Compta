@@ -721,3 +721,4 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 #grille-pop .gp-foot { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; margin-top: .4rem; }
 @media (prefers-color-scheme: dark) { #grille-pop .gp-steps button.done span { color: #11161d; } }
 .legend .g-leg span { display: block; margin-left: 0; min-width: 0; padding: 0; background: none; }
+#grille-pop .gp-steps li.gp-par button { border-left: 3px solid var(--primary); }
