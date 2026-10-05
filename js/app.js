@@ -2265,7 +2265,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '19';
+  const ASSET_VERSION = '20';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -3056,7 +3056,115 @@
           <button class="btn" data-action="pieces-xlsx"${kept.length ? '' : ' disabled'}>Liste Excel pour le client</button>
         </div>
         ${c ? '' : '<p class="muted small">Rattachez l\'analyse à un dossier (en haut de page) pour créer la demande : une mission dont chaque étape est une pièce, avec relance automatique de ce qui manque encore.</p>'}
-      </section>`;
+      </section>
+      ${supplierRequestsCard()}`;
+  }
+
+  // ---------- Demandes de factures directement aux fournisseurs (laboratoires, grossistes…) ----------
+
+  // Période couverte par la demande : l'exercice jusqu'à la date d'arrêté, ou le mois en mode mensuel.
+  function supplierPeriod(r) {
+    const st = piecesState();
+    if (st.mode === 'mois') return { from: `${ymOf(st.arrete)}-01`, to: endOfMonth(`${ymOf(st.arrete)}-01`) };
+    return { from: r.meta.start || r.pieces.minOp || st.arrete, to: st.mode === 'bilan' ? r.meta.closing || st.arrete : st.arrete };
+  }
+
+  // Factures manquantes par fournisseur : paiements sans facture et mois d'abonnement absents, sur la période.
+  function supplierRequests(r) {
+    const { from, to } = supplierPeriod(r);
+    const re = ignoredRe();
+    const map = new Map();
+    const get = (num, lib) => map.get(num) || map.set(num, { num, lib, pays: [], months: [] }).get(num);
+    (r.pieces.unmatched || []).filter((u) => u.racine === '401' && u.date >= from && u.date <= to).forEach((u) => get(u.num, u.lib).pays.push(u));
+    const endYm = ymOf(to), startYm = ymOf(from);
+    r.pieces.suppliers.forEach((sp) => {
+      if (RE_DIVERS.test(sp.lib || '')) return;
+      const months = Object.keys(sp.months).filter((ym) => ym <= endYm).sort();
+      if (months.length < 3) return;
+      const window = monthsBetween(months[0], endYm);
+      if (months.length / window.length < 0.6) return;
+      const med = median(months.map((ym) => sp.months[ym]));
+      if (med <= 0 || !months.every((ym) => Math.abs(sp.months[ym] - med) <= med * 0.2)) return;
+      const missing = window.filter((ym) => ym >= startYm && !sp.months[ym]);
+      if (missing.length) get(sp.num, sp.lib).months.push(...missing);
+    });
+    return Array.from(map.values()).filter((x) => !re || !re.test(norm(x.lib)))
+      .map((x) => Object.assign(x, { total: x.pays.reduce((t, u) => t + u.amt, 0) }))
+      .sort((a, b) => b.total - a.total || a.lib.localeCompare(b.lib, 'fr'));
+  }
+
+  // Coordonnées du dossier chez chaque fournisseur (n° de compte client, e-mail), conservées chiffrées dans le dossier.
+  const supplierInfo = (c, num) => (c && c.fournisseurs && c.fournisseurs[num]) || {};
+
+  function supplierMail(r, c, x) {
+    const s = data.settings;
+    const info = supplierInfo(c, x.num);
+    const { from, to } = supplierPeriod(r);
+    const nom = c ? c.nom : '';
+    const periode = `du ${fmtDate(from)} au ${fmtDate(to)}`;
+    const lines = [];
+    if (x.pays.length) {
+      lines.push('- le duplicata des factures correspondant aux règlements suivants :');
+      x.pays.forEach((u) => lines.push(`    • règlement du ${fmtDate(u.date)} : ${eur(u.amt)} €${u.label ? ` (${u.label})` : ''}`));
+    }
+    if (x.months.length) lines.push(`- les factures de ${fmtMonths(x.months)}`);
+    lines.push(`- un relevé de compte (factures, avoirs et règlements) pour la période ${periode}`);
+    const subject = `Demande de factures — ${nom}${info.numClient ? ` — compte client n° ${info.numClient}` : ''} — période ${periode}`;
+    const body = ['Bonjour,', '',
+      `Nous sommes l'expert-comptable de ${nom}${c && c.siren ? ` (SIREN ${c.siren})` : ''}${info.numClient ? `, votre client sous le n° ${info.numClient}` : ''}.`,
+      `Afin d'établir ses comptes pour la période ${periode}, pourriez-vous nous adresser :`, '',
+      ...lines, '',
+      'Vous pouvez nous les transmettre en réponse à ce message.', '',
+      'Avec nos remerciements,', s.signature || [s.utilisateur, s.cabinet].filter(Boolean).join('\n')].join('\n');
+    return { subject, body, to: info.email || '' };
+  }
+
+  function supplierRequestsCard() {
+    const f = ui.fec;
+    const r = f.result;
+    if (!r.pieces.unmatched) return '';
+    const c = clientById(f.clientId);
+    const list = supplierRequests(r);
+    const { from, to } = supplierPeriod(r);
+    return `<section class="card">
+      <h2>Demandes directes aux fournisseurs <span class="count">${list.length}</span></h2>
+      <p class="muted small">Pour les laboratoires, grossistes et autres fournisseurs dont des factures manquent du ${fmtDate(from)} au ${fmtDate(to)} : un mail par fournisseur, avec le n° de compte client du dossier chez lui, la dénomination et la période, demandant le duplicata des factures et un relevé de compte. Le n° client et l'e-mail saisis sont conservés, chiffrés, dans le dossier pour les prochaines demandes. À envoyer avec l'accord du client, dans le cadre de votre mission.</p>
+      ${!c ? '<p class="banner info">Rattachez l\'analyse à un dossier (en haut de page) pour enregistrer les n° clients et préparer les mails.</p>' : ''}
+      ${list.length ? `<div class="supp-list">${list.map((x) => {
+        const info = supplierInfo(c, x.num);
+        const what = [x.pays.length ? `${x.pays.length} règlement(s) sans facture, ${eur(x.total)} €` : '', x.months.length ? `factures de ${fmtMonths(x.months)}` : ''].filter(Boolean).join(' · ');
+        return `<div class="supp-row">
+          <div class="supp-name"><strong>${esc(x.lib)}</strong> <span class="muted small">${esc(x.num)}</span><div class="muted small">${esc(what)}${info.sentAt ? ` · demandé le ${fmtDate(info.sentAt.slice(0, 10))}` : ''}</div></div>
+          <label class="inline-label">N° client <input type="text" data-supp="numClient" data-k="${esc(x.num)}" data-lib="${esc(x.lib)}" value="${esc(info.numClient || '')}" placeholder="chez ce fournisseur" spellcheck="false"${c ? '' : ' disabled'}></label>
+          <label class="inline-label">E-mail <input type="email" data-supp="email" data-k="${esc(x.num)}" data-lib="${esc(x.lib)}" value="${esc(info.email || '')}" placeholder="comptabilite@…" spellcheck="false"${c ? '' : ' disabled'}></label>
+          <span class="supp-actions">
+            <button class="btn small primary" data-action="supp-mail" data-k="${esc(x.num)}"${c ? '' : ' disabled'}>${icon('mail')}Mail</button>
+            <button class="btn small" data-action="supp-copy" data-k="${esc(x.num)}"${c ? '' : ' disabled'}>Copier</button>
+          </span>
+        </div>`;
+      }).join('')}</div>` : '<p class="muted">Aucune facture fournisseur manquante sur la période.</p>'}
+    </section>`;
+  }
+
+  function supplierSend(num, copy) {
+    const f = ui.fec;
+    const c = clientById(f.clientId);
+    const x = supplierRequests(f.result).find((y) => y.num === num);
+    if (!c || !x) return;
+    const mail = supplierMail(f.result, c, x);
+    c.fournisseurs = c.fournisseurs || {};
+    c.fournisseurs[num] = Object.assign(c.fournisseurs[num] || {}, { lib: x.lib, sentAt: nowIso() });
+    log(c.id, `Demande de factures adressée au fournisseur ${x.lib} (${x.pays.length} règlement(s), ${x.months.length} mois).`, true);
+    persist();
+    if (copy) {
+      const text = `Objet : ${mail.subject}\n\n${mail.body}`;
+      navigator.clipboard.writeText(text).then(() => toast(`Mail pour ${x.lib} copié : collez-le dans votre messagerie.`), () => toast('Copie impossible sur ce navigateur.', true));
+      refresh();
+      return;
+    }
+    refresh();
+    window.location.href = `mailto:${encodeURIComponent(mail.to).replace(/%40/g, '@')}?subject=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}`;
+    toast(`Messagerie ouverte pour ${x.lib}. Demande notée dans le journal du dossier.`);
   }
 
   function createPiecesRequest() {
@@ -5538,6 +5646,7 @@
         <li><strong>Situation</strong> : avec le FEC N-1, la situation est comparée à la <strong>même période</strong> de l'exercice précédent, et une projection du résultat de fin d'exercice est calculée, avec les charges annuelles absentes de la situation.</li>
         <li><strong>Portefeuille</strong> : sélectionnez les FEC de plusieurs dossiers en une fois ; ils sont analysés l'un après l'autre, rattachés par SIREN et classés par charge de révision (anomalies, points à traiter, pièces, écritures).</li>
         <li><strong>Demande mensuelle</strong> : Pièces à demander → « Mois », choisissez le mois. L'application liste, pour les achats et les ventes, les factures des fournisseurs et clients habituels absentes, les règlements et encaissements sans facture, les dépenses payées directement, les numéros de facture manquants et les opérations à identifier. Envoyez la demande dès la saisie du mois : la situation et le bilan seront prêts plus vite. Le Portefeuille indique ce nombre pour chaque dossier.</li>
+        <li><strong>Demandes directes aux fournisseurs</strong> (sous les pièces à demander) : pour chaque laboratoire, grossiste ou fournisseur dont des factures manquent, un mail avec le n° de compte client du dossier chez lui, la dénomination et la période, qui demande le duplicata des factures et un relevé de compte. Le n° client et l'e-mail sont conservés dans le dossier. Le FEC ne contient pas les pièces jointes : seules les écritures sont analysées.</li>
         <li><strong>Pièces à demander</strong> : choisissez « Situation » ou « Bilan » et la date d'arrêté ; l'application liste les relevés bancaires manquants, les factures récurrentes absentes, les paiements sans facture, les opérations à identifier (471), les acquisitions d'immobilisations, les mois de paie manquants et, pour un bilan, les documents de clôture et les questions sur les créances et dettes anciennes. « Créer la demande » prépare le mail et une mission dont chaque étape est une pièce : cochez-les à réception, la relance ne reprendra que ce qui manque.</li>
         <li><strong>Revue N / N-1</strong> : chargez aussi le FEC de l'exercice précédent. Les postes et les comptes sont comparés, et les variations au-delà du seuil de signification sont listées pour que vous les justifiez. Contrôles de cohérence automatiques : TVA / CA, charges sociales / salaires, amortissements, intérêts, capitaux propres, points fiscaux. La <strong>note de synthèse</strong> s'imprime ou s'enregistre en PDF pour le rendez-vous bilan.</li>
         <li><strong>Rapprochement</strong> : importez le relevé bancaire (CFONB / EBICS, OFX, CAMT.053, CSV ou Excel de la banque). L'application affiche les opérations non comptabilisées, les écritures absentes du relevé et l'état de rapprochement. Les opérations non comptabilisées s'ajoutent aux pièces à demander.</li>
@@ -6429,6 +6538,8 @@
       ui.msg.modele = el.dataset.model;
       renderMessage();
     },
+    'supp-mail': (el) => supplierSend(el.dataset.k, false),
+    'supp-copy': (el) => supplierSend(el.dataset.k, true),
     'msg-copy': async () => {
       const text = $('#msg-body').value;
       try {
@@ -6705,6 +6816,14 @@
       $('#modal .note-preview').innerHTML = noteHtml();
     } else if (t.dataset.device !== undefined && t.type === 'checkbox') {
       setDeviceMode(t);
+    } else if (t.dataset.supp && ui.fec && ui.fec.result) {
+      const c = clientById(ui.fec.clientId);
+      if (!c) return;
+      c.fournisseurs = c.fournisseurs || {};
+      const it = (c.fournisseurs[t.dataset.k] = c.fournisseurs[t.dataset.k] || {});
+      it.lib = t.dataset.lib;
+      it[t.dataset.supp] = t.value.trim();
+      persist();
     } else if (t.dataset.wp && ui.fec && ui.fec.result) {
       const w = t.dataset.wp;
       if (w === 'st') { wpSetItem(t.dataset.k, { st: t.value }); refresh(); }
