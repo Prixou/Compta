@@ -3,7 +3,7 @@
  * Il ne manipule jamais les données des dossiers (stockées chiffrées dans IndexedDB)
  * et n'effectue aucune requête vers un autre domaine.
  */
-// À garder identique aux ?v= de index.html et à ASSET_VERSION dans js/app.js.
+// À garder identique aux ?v= de index.html et à ASSET_VERSION dans js/app/10-fec.js.
 const VERSION = '25';
 const CACHE = 'suivi-dossiers-v' + VERSION;
 const ASSETS = [
@@ -16,7 +16,31 @@ const ASSETS = [
   'js/fec-worker.js?v=' + VERSION,
   'js/bank-reader.js?v=' + VERSION,
   'js/archive-reader.js?v=' + VERSION,
-  'js/app.js?v=' + VERSION,
+  'js/app/01-core.js?v=' + VERSION,
+  'js/app/02-ui.js?v=' + VERSION,
+  'js/app/03-tableau.js?v=' + VERSION,
+  'js/app/04-dossiers.js?v=' + VERSION,
+  'js/app/05-missions.js?v=' + VERSION,
+  'js/app/06-grille.js?v=' + VERSION,
+  'js/app/07-messages.js?v=' + VERSION,
+  'js/app/08-calendrier.js?v=' + VERSION,
+  'js/app/09-import.js?v=' + VERSION,
+  'js/app/10-fec.js?v=' + VERSION,
+  'js/app/11-fec-pieces.js?v=' + VERSION,
+  'js/app/12-fec-revue.js?v=' + VERSION,
+  'js/app/13-fec-pharmacie.js?v=' + VERSION,
+  'js/app/14-fec-cycles.js?v=' + VERSION,
+  'js/app/15-fec-tva.js?v=' + VERSION,
+  'js/app/16-portefeuille.js?v=' + VERSION,
+  'js/app/17-revision.js?v=' + VERSION,
+  'js/app/18-fec-ecritures.js?v=' + VERSION,
+  'js/app/19-sauvegarde.js?v=' + VERSION,
+  'js/app/20-aide.js?v=' + VERSION,
+  'js/app/21-import-cabinet.js?v=' + VERSION,
+  'js/app/22-parametres.js?v=' + VERSION,
+  'js/app/23-modales.js?v=' + VERSION,
+  'js/app/24-actions.js?v=' + VERSION,
+  'js/app/25-formulaires.js?v=' + VERSION,
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',

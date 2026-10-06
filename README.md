@@ -124,7 +124,8 @@ js/xlsx-writer.js     écriture locale de fichiers .xlsx (exports), sans dépend
 js/fec-worker.js      analyse du FEC dans un Web Worker (contrôles, balance, SIG, pièces manquantes)
 js/archive-reader.js  lecture locale des archives .zip FEC + justificatifs (noms des fichiers uniquement)
 js/bank-reader.js     lecture locale des relevés bancaires (CFONB 120, OFX, CAMT.053, CSV, Excel)
-js/app.js             application (dossiers, missions, tableau de bord, paramètres)
+js/app/               application, en modules chargés dans l'ordre (voir js/app/README.md)
+tests/                tests de bout en bout sur données fictives (voir tests/README.md)
 sw.js                 service worker (fonctionnement hors ligne)
 manifest.webmanifest  installation comme application
 ```

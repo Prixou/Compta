@@ -104,7 +104,10 @@ const ok = (name, cond, info) => { R.push([cond ? 'OK ' : 'KO ', name, info || '
   await off.setOffline(true); await po.reload(); await po.waitForSelector('form[data-form=setup], form[data-form=unlock]', { timeout: 8000 }).catch(() => {});
   ok('Fonctionne hors ligne après une première visite', !!(await po.$('form[data-form=setup], form[data-form=unlock]')));
   const assets = await po.evaluate(async () => { const keys = await caches.keys(); const c = await caches.open(keys[keys.length - 1]); return (await c.keys()).map((r) => new URL(r.url).pathname + new URL(r.url).search); });
-  ok('Tous les fichiers de l\'application en cache hors ligne', ['/js/app.js', '/js/fec-worker.js', '/js/bank-reader.js', '/js/sheet-reader.js', '/js/xlsx-writer.js', '/js/vault.js', '/css/styles.css'].every((f) => assets.some((a) => a.startsWith(f))), assets.length + ' fichiers');
+  // Tous les scripts chargés par la page, le moteur d'analyse et la feuille de style doivent être en cache.
+  const needed = (await po.evaluate(() => Array.from(document.scripts).map((x) => new URL(x.src).pathname))).concat(['/js/fec-worker.js', '/css/styles.css']);
+  const missing = needed.filter((f) => !assets.some((a) => a.startsWith(f)));
+  ok('Tous les fichiers de l\'application en cache hors ligne', !missing.length && needed.length > 20, `${assets.length} fichiers${missing.length ? ' — manquants : ' + missing.join(', ') : ''}`);
 
   // 7. Mobile : pas de débordement horizontal, écran par écran
   await p.setViewportSize({ width: 375, height: 800 });
