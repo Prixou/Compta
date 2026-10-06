@@ -248,6 +248,7 @@
 
   let data = null;
   let saving = Promise.resolve();
+  let saveQueued = false;
 
   function emptyData() {
     return {
@@ -330,12 +331,19 @@
     return d;
   }
 
+  // Enregistrement chiffré. Les modifications rapprochées (étapes cochées d'affilée…) sont regroupées :
+  // une seule écriture couvre toutes celles faites pendant l'enregistrement précédent.
   function persist(opts) {
     data.updatedAt = nowIso();
-    const snapshot = data;
-    saving = saving
-      .then(() => Vault.save(snapshot))
-      .catch((err) => toast("Erreur d'enregistrement : " + err.message, true));
+    if (!saveQueued) {
+      saveQueued = true;
+      saving = saving
+        .then(() => {
+          saveQueued = false;
+          return data ? Vault.save(data) : null;
+        })
+        .catch((err) => toast("Erreur d'enregistrement : " + err.message, true));
+    }
     if (!(opts && opts.noAutoBackup)) scheduleAutoBackup();
     return saving;
   }
@@ -350,20 +358,31 @@
     }
     return clientIdx.get(id);
   }
+  // Index des missions par dossier : complété au fil des ajouts, reconstruit si la liste est remplacée.
   let missionIdx = null, missionIdxOf = null, missionIdxLen = -1;
+  const resetMissionIdx = () => { missionIdxOf = null; };
   function missionsOf(clientId) {
-    if (missionIdxOf !== data.missions || missionIdxLen !== data.missions.length) {
+    const list = data.missions;
+    if (missionIdxOf !== list || list.length < missionIdxLen) {
       missionIdx = new Map();
-      data.missions.forEach((m) => {
-        if (!missionIdx.has(m.clientId)) missionIdx.set(m.clientId, []);
-        missionIdx.get(m.clientId).push(m);
-      });
-      missionIdxOf = data.missions;
-      missionIdxLen = data.missions.length;
+      missionIdxLen = 0;
+      missionIdxOf = list;
     }
+    for (let i = missionIdxLen; i < list.length; i++) {
+      const m = list[i];
+      if (!missionIdx.has(m.clientId)) missionIdx.set(m.clientId, []);
+      missionIdx.get(m.clientId).push(m);
+    }
+    missionIdxLen = list.length;
     return missionIdx.get(clientId) || [];
   }
   const missionById = (id) => data.missions.find((m) => m.id === id);
+  // Dossier d'un SIREN (nom du FEC), de préférence parmi les dossiers actifs.
+  function clientBySiren(siren) {
+    if (!siren) return null;
+    const list = data.clients.filter((c) => (c.siren || '').replace(/\s/g, '').slice(0, 9) === siren);
+    return list.find((c) => !c.archive) || list[0] || null;
+  }
   const templateById = (id) => data.templates.find((t) => t.id === id);
   const isOpen = (m) => m.statut !== 'termine';
   const isLate = (m) => isOpen(m) && !!m.echeance && daysUntil(m.echeance) < 0;
@@ -373,6 +392,22 @@
     if (m.statut === 'termine') return 100;
     if (!m.etapes.length) return 0;
     return Math.round((m.etapes.filter((e) => e.done).length * 100) / m.etapes.length);
+  }
+
+  // Portefeuille d'un intervenant : dossiers dont il est responsable, collaborateur ou superviseur, et missions dont il a la charge.
+  const inPortfolio = (c, r) => !r || [c.responsable, c.collaborateur, c.superviseur].includes(r);
+  function missionInPortfolio(m, r) {
+    if (!r || m.responsable === r) return true;
+    const c = clientById(m.clientId);
+    return !!c && inPortfolio(c, r);
+  }
+  // Intervenants connus : collaborateurs déclarés, intervenants des dossiers et responsables des missions.
+  function allResps() {
+    const set = new Set(data.settings.collaborateurs);
+    data.clients.forEach((c) => [c.responsable, c.collaborateur, c.superviseur].forEach((x) => x && set.add(x)));
+    data.missions.forEach((m) => m.responsable && set.add(m.responsable));
+    set.delete('');
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'fr'));
   }
 
   function clientLabel(c) {
@@ -417,10 +452,37 @@
       m.termineLe = todayStr();
       log(m.clientId, `Mission « ${m.titre} » terminée.`, true);
       createNextOccurrence(m);
+      if (m.demandePieces) piecesReceived(m);
     } else if (prev === 'termine') {
       m.termineLe = null;
       log(m.clientId, `Mission « ${m.titre} » rouverte.`, true);
     }
+  }
+
+  // Coche l'étape d'une mission du dossier quand le travail correspondant est fait ailleurs dans l'application
+  // (demande de pièces soldée, révision signée). `periods` : exercices acceptés (« 2025 », « 08/2025 », '' pour une mission sans période).
+  function autoStep(clientId, types, periods, re, why) {
+    const m = missionsOf(clientId).find((x) => isOpen(x) && types.includes(x.type) && periods.includes(x.exercice || '') && x.etapes.some((e) => !e.done && re.test(e.label)));
+    if (!m) return '';
+    const e = m.etapes.find((x) => !x.done && re.test(x.label));
+    Object.assign(e, { done: true, doneAt: nowIso(), auto: why });
+    m.updatedAt = nowIso();
+    if (m.etapes.every((x) => x.done)) setStatus(m, 'termine');
+    else if (m.statut === 'a_faire') setStatus(m, 'en_cours');
+    log(clientId, `Étape « ${e.label} » de « ${m.titre} » cochée automatiquement : ${why}.`, true);
+    return `${m.titre} : « ${e.label} » cochée`;
+  }
+
+  // Demande de pièces entièrement reçue : étape « Pièces reçues » de la mission du mois (TVA, saisie), de la situation ou du bilan.
+  function piecesReceived(m) {
+    const dp = m.demandePieces;
+    const year = (dp.arrete || '').slice(0, 4);
+    const why = `toutes les pièces de « ${m.titre} » sont reçues`;
+    let done = '';
+    if (dp.mode === 'mois') done = autoStep(m.clientId, ['tva', 'saisie'], [`${dp.arrete.slice(5, 7)}/${year}`], /^pi[eè]ces/i, why);
+    else if (dp.mode === 'situation') done = autoStep(m.clientId, ['situation'], [year, ''], /^pi[eè]ces/i, why);
+    else done = autoStep(m.clientId, ['bilan'], [year], /^pi[eè]ces/i, why);
+    if (done) toast(`Pièces reçues — ${done}.`);
   }
 
   function createNextOccurrence(m) {
@@ -443,7 +505,7 @@
     }
     m.suiteCreee = true;
     // Déjà présente (ex. créée par un import) : on ne la duplique pas.
-    if (data.missions.some((x) => x.clientId === m.clientId && x.id !== m.id && x.titre === next.titre)) return;
+    if (missionsOf(m.clientId).some((x) => x.id !== m.id && x.titre === next.titre)) return;
     data.missions.push(next);
     toast(`Occurrence suivante créée${next.echeance ? ' — échéance ' + fmtDate(next.echeance) : ''}.`);
   }
@@ -453,6 +515,7 @@
     if (!step) return;
     step.done = done;
     step.doneAt = done ? nowIso() : null;
+    delete step.auto;
     const all = m.etapes.every((e) => e.done);
     if (all && m.statut !== 'termine') setStatus(m, 'termine');
     else if (!all && m.statut === 'termine') setStatus(m, 'en_cours');
@@ -694,12 +757,11 @@
   function viewDashboard() {
     const s = data.settings;
     const r = s.dashResp;
-    const clientInScope = (c) => !r || [c.responsable, c.collaborateur, c.superviseur].includes(r);
     const inScope = (m) => {
       const c = clientById(m.clientId);
-      return c && !c.archive && (!r || m.responsable === r || clientInScope(c));
+      return c && !c.archive && missionInPortfolio(m, r);
     };
-    const active = data.clients.filter((c) => !c.archive && clientInScope(c));
+    const active = data.clients.filter((c) => !c.archive && inPortfolio(c, r));
     const open = data.missions.filter((m) => isOpen(m) && inScope(m));
     const late = open.filter(isLate).sort(byDue);
     const soon = open.filter((m) => m.echeance && daysUntil(m.echeance) >= 0 && daysUntil(m.echeance) <= 14).sort(byDue);
@@ -707,7 +769,7 @@
     const relances = wait.filter(relanceDue);
     const review = open.filter((m) => m.statut === 'a_valider').sort(byDue);
     const compliance = active.map((c) => ({ c, issues: complianceIssues(c) })).filter((x) => x.issues.length);
-    const resps = Array.from(new Set(s.collaborateurs.concat(data.clients.flatMap((c) => [c.responsable, c.collaborateur, c.superviseur])).filter(Boolean))).sort();
+    const resps = allResps();
 
     const hour = new Date().getHours();
     const hello = (hour < 18 ? 'Bonjour' : 'Bonsoir') + (s.utilisateur ? ' ' + s.utilisateur : '');
@@ -948,7 +1010,7 @@
               <div class="small">${x.errors ? `<span class="lvl lvl-error"><b aria-hidden="true">✕</b>${x.errors} anomalie(s)</span>` : '<span class="lvl lvl-ok"><b aria-hidden="true">✓</b>Aucune anomalie</span>'} ${x.warnings ? `<span class="lvl lvl-warn"><b aria-hidden="true">!</b>${x.warnings} à vérifier</span>` : ''}</div>
               <div class="muted small">CA ${eur(x.kpi.ca, 0)} € · Résultat ${eur(x.kpi.resultat, 0)} € · EBE ${eur(x.kpi.ebe, 0)} € · Trésorerie ${eur(x.kpi.tresorerie, 0)} €</div>
             </li>`).join('')}</ul>
-            <a class="btn small" href="#/fec">Nouvelle analyse</a></section>` : ''}
+            <a class="btn small" href="${c.fec[c.fec.length - 1].profil === 'pharmacie' ? '#/fec/pharma' : '#/fec'}">Nouvelle analyse</a></section>` : ''}
           ${c.revisionMemo && Object.keys(c.revisionMemo).length ? `<section class="card"><h2>Mémoire de révision <span class="count">${Object.keys(c.revisionMemo).length}</span></h2>
             <p class="muted small">Éléments justifiés lors d'une revue, qui ne sont plus signalés par l'analyse FEC de ce dossier.</p>
             <ul class="memo-list">${Object.entries(c.revisionMemo).map(([k, m]) => `<li><div><strong>${discret ? hidden : esc(m.label)}</strong>${m.note ? `<div class="muted small">${discret ? '' : esc(m.note)}</div>` : ''}<div class="muted small">${esc(m.by || '')} ${m.at ? fmtDate(m.at.slice(0, 10)) : ''}</div></div>
@@ -1010,7 +1072,7 @@
 
   function viewMissions() {
     const f = ui.mf;
-    const resps = Array.from(new Set(data.settings.collaborateurs.concat(data.missions.map((m) => m.responsable)).filter(Boolean))).sort();
+    const resps = allResps();
     return `
       <div class="page-head"><h1>Missions</h1>
         <div class="head-actions"><button class="btn" data-action="open-cal">${icon('calendar')}Calendrier fiscal</button><button class="btn primary" data-action="new-mission">${icon('plus')}Nouvelle mission</button></div>
@@ -1020,7 +1082,7 @@
         <select data-filter="mf.statut" aria-label="Statut">${options(Object.assign({ ouvertes: 'Non terminées', toutes: 'Tous statuts' }, STATUTS), f.statut)}</select>
         <select data-filter="mf.periode" aria-label="Échéance">${options({ toutes: 'Toutes échéances', retard: 'En retard', '7': '7 prochains jours', '30': '30 prochains jours', mois: 'Ce mois-ci' }, f.periode)}</select>
         <select data-filter="mf.type" aria-label="Type">${options(Object.fromEntries(data.templates.map((t) => [t.id, t.nom])), f.type, 'Tous types')}</select>
-        <select data-filter="mf.resp" aria-label="Responsable">${options(resps, f.resp, 'Tous responsables')}</select>
+        <select data-filter="mf.resp" aria-label="Portefeuille">${options(resps, f.resp, 'Tous les portefeuilles')}</select>
       </div>
       <div id="mission-list"></div>`;
   }
@@ -1036,7 +1098,7 @@
       if (!c) return false;
       if (f.statut === 'ouvertes' ? !isOpen(m) : f.statut !== 'toutes' && m.statut !== f.statut) return false;
       if (f.type && m.type !== f.type) return false;
-      if (f.resp && m.responsable !== f.resp) return false;
+      if (f.resp && !missionInPortfolio(m, f.resp)) return false;
       if (f.periode === 'retard' && !isLate(m)) return false;
       if ((f.periode === '7' || f.periode === '30') && !(m.echeance && daysUntil(m.echeance) >= 0 && daysUntil(m.echeance) <= Number(f.periode))) return false;
       if (f.periode === 'mois' && !(m.echeance || '').startsWith(month)) return false;
@@ -1075,7 +1137,7 @@
           <div class="prog big">${bar(p)}<span class="pct">${p} %</span></div>
           ${m.etapes.length ? `<ul class="steps">${m.etapes.map((e) => `
             <li><label class="check"><input type="checkbox" data-action="toggle-step" data-mission="${m.id}" data-step="${e.id}"${e.done ? ' checked' : ''}>
-              <span>${esc(e.label)}${e.done && e.doneAt ? `<small class="muted"> — ${fmtDateTime(e.doneAt)}</small>` : ''}</span></label></li>`).join('')}</ul>`
+              <span>${esc(e.label)}${e.done && e.doneAt ? `<small class="muted"> — ${fmtDateTime(e.doneAt)}${e.auto ? ` · automatique (${esc(e.auto)})` : ''}</small>` : ''}</span></label></li>`).join('')}</ul>`
             : '<p class="muted">Aucune étape définie. Utilisez le statut pour suivre l\'avancement, ou ajoutez des étapes via « Modifier ».</p>'}
           ${m.notes ? `<h3>Notes</h3><div class="notes">${data.settings.discret ? '<span class="masked">Masqué</span>' : esc(m.notes)}</div>` : ''}
         </div>
@@ -1203,7 +1265,7 @@
     });
     const base = data.clients
       .filter((c) => grid.has(c.id) && !c.archive)
-      .filter((c) => !g.resp || [c.responsable, c.collaborateur, c.superviseur].includes(g.resp));
+      .filter((c) => inPortfolio(c, g.resp));
     const counts = base.reduce((acc, c) => {
       acc[regimeGroup(c)] = (acc[regimeGroup(c)] || 0) + 1;
       return acc;
@@ -1215,7 +1277,7 @@
     const clients = base
       .filter((c) => !g.regime || regimeGroup(c) === g.regime)
       .sort((a, b) => sort.dir * grilleCompare(sort.key, a, b, grid) || (a.code || '').localeCompare(b.code || '', 'fr', { numeric: true }) || a.nom.localeCompare(b.nom, 'fr'));
-    const resps = Array.from(new Set(data.clients.flatMap((c) => [c.responsable, c.collaborateur, c.superviseur]).filter(Boolean))).sort();
+    const resps = allResps();
     // Colonne « Année » affichée seulement s'il existe des missions annuelles (ex. CA12 « 2026 »).
     const cols = clients.some((c) => grid.get(c.id)[13]) ? 13 : 12;
     return { g, year, grid, years, base, clients, resps, regimeOptions, cols, sort };
@@ -1374,12 +1436,17 @@
     pop.setAttribute('aria-label', `Étapes — ${m.titre}`);
     pop.dataset.id = m.id;
     const n = m.etapes.length, nd = m.etapes.filter((e) => e.done).length;
+    // Demande de pièces du même mois en cours (issue de l'analyse FEC mensuelle).
+    const per = (m.exercice || '').match(/^(\d{2})\/(\d{4})$/);
+    const req = per && missionsOf(m.clientId).find((x) => isOpen(x) && x.demandePieces && x.demandePieces.mode === 'mois' && x.demandePieces.arrete.slice(0, 7) === `${per[2]}-${per[1]}`);
+    const reqLeft = req ? req.etapes.filter((e) => !e.done).length : 0;
     pop.innerHTML = `<div class="gp-head"><div><strong>${esc(c ? clientLabel(c) : '')}</strong><span class="muted small">${esc(m.titre)}${m.echeance ? ` · échéance ${fmtDate(m.echeance)}` : ''}</span>
         <span class="gp-state ${isOpen(m) ? '' : 'ok'}">${isOpen(m) ? `${nd} / ${n} étape(s) faite(s)` : 'Terminée'}</span></div>
         <button class="icon-btn gp-close" data-action="grille-pop-close" title="Fermer (Échap)" aria-label="Fermer">✕</button></div>
       ${m.etapes.length ? `<ol class="gp-steps">${m.etapes.map((e, i) => { const [ga, gb] = stepGroup(m.etapes, i); return `<li class="${ga !== gb ? 'gp-par' : ''}"><button class="${e.done ? 'done' : ''}${i + 1 === k ? ' current' : ''}" data-action="grille-step" data-id="${m.id}" data-i="${i}" aria-pressed="${e.done}"><span aria-hidden="true">${e.done ? '✓' : i + 1}</span>${esc(e.label)}</button></li>`; }).join('')}</ol>
         <p class="muted small">Un clic coche l'étape et celles qui la précèdent ; un second clic la décoche. Banque, ventes et achats (repère bleu) se cochent indépendamment, dans l'ordre où vous les faites ; « Banque affectée » coche aussi « Banque importée ». La dernière étape termine la mission. La fenêtre reste ouverte : fermez-la avec ✕, Échap ou un clic à côté.</p>`
         : `<div class="gp-foot"><button class="btn small primary" data-action="grille-step" data-id="${m.id}" data-i="all">Marquer terminée</button></div>`}
+      ${req ? `<p class="gp-req small">Demande de pièces en cours : <strong>${reqLeft} pièce(s) attendue(s)</strong>${lastRelance(req) ? `, demandée(s) le ${fmtDate(lastRelance(req).slice(0, 10))}` : ''}. <button class="link-btn" data-action="open-mission" data-id="${req.id}">Voir la demande</button></p>` : ''}
       <div class="gp-foot">
         <button class="btn small" data-action="grille-step" data-id="${m.id}" data-i="-1">Remettre à faire</button>
         <button class="btn small" data-action="open-mission" data-id="${m.id}">Ouvrir la mission</button>
@@ -1401,7 +1468,7 @@
     const et = m.etapes;
     const count = data.missions.length;
     const check = (e) => { if (!e.done) Object.assign(e, { done: true, doneAt: nowIso() }); };
-    const uncheck = (e) => { if (e.done) Object.assign(e, { done: false, doneAt: null }); };
+    const uncheck = (e) => { if (e.done) { Object.assign(e, { done: false, doneAt: null }); delete e.auto; } };
     let msg;
     if (i === -1) { et.forEach(uncheck); msg = 'à faire'; }
     else if (i === 'all' || !et[i]) { et.forEach(check); msg = 'terminée'; }
@@ -1472,7 +1539,7 @@
         <select data-grille="type" aria-label="Type de mission">${options(Object.fromEntries(data.templates.map((t) => [t.id, t.nom])), g.type)}</select>
         <select data-grille="annee" aria-label="Année">${options(Array.from(years).sort().map(String), String(year))}</select>
         <select data-grille="regime" aria-label="Régime de TVA">${options(regimeOptions, g.regime)}</select>
-        <select data-grille="resp" aria-label="Responsable">${options(resps, g.resp, 'Tous responsables')}</select>
+        <select data-grille="resp" aria-label="Portefeuille">${options(resps, g.resp, 'Tous les portefeuilles')}</select>
         <label class="inline-label">Trier par <select data-grille-sort aria-label="Trier les dossiers">${options(GRILLE_TRIS, sort.key)}</select></label>
         <button class="btn small" data-action="grille-sort" data-key="${sort.key}" title="Inverser l'ordre">${sort.dir > 0 ? '↑ Croissant' : '↓ Décroissant'}</button>
         <div class="seg" role="group" aria-label="Mode de clic">
@@ -1602,7 +1669,7 @@
   function openMessage(clientId, missionId) {
     const c = clientById(clientId);
     if (!c) return;
-    const open = data.missions.filter((m) => m.clientId === c.id && isOpen(m)).sort(byDue);
+    const open = missionsOf(c.id).filter(isOpen).sort(byDue);
     let selected = missionId ? [missionId] : open.filter((m) => m.statut === 'attente_client').map((m) => m.id);
     if (!selected.length && open.length) selected = [open[0].id];
     const first = missionById(selected[0]);
@@ -1616,7 +1683,7 @@
   function renderMessage() {
     const st = ui.msg;
     const c = clientById(st.clientId);
-    const open = data.missions.filter((m) => m.clientId === c.id && isOpen(m)).sort(byDue);
+    const open = missionsOf(c.id).filter(isOpen).sort(byDue);
     const missions = open.filter((m) => st.selected.has(m.id));
     const msg = buildMessage(c, missions.length ? missions : open.slice(0, 1), st.modele);
     modalRefresh = null;
@@ -1809,7 +1876,7 @@
     return data.clients
       .filter((c) => !c.archive)
       .filter((c) => !cal.only || c.id === cal.only)
-      .filter((c) => !cal.resp || [c.responsable, c.collaborateur, c.superviseur].includes(cal.resp))
+      .filter((c) => inPortfolio(c, cal.resp))
       .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'fr', { numeric: true }));
   }
 
@@ -1822,7 +1889,7 @@
       OBLIGATIONS.forEach((ob) => {
         if (!cal.obligations.has(ob.id) || !ob.applies(c)) return;
         ob.plan(c, cal.year).forEach((p) => {
-          if (data.missions.some((m) => m.clientId === c.id && m.titre === p.titre)) { res.existing++; return; }
+          if (missionsOf(c.id).some((m) => m.titre === p.titre)) { res.existing++; return; }
           if (cal.skipPast && (p.echeance || p.ref) < today) { res.past++; return; }
           res.items.push(Object.assign({ c }, p));
           res.byOb[ob.id] = (res.byOb[ob.id] || 0) + 1;
@@ -1861,7 +1928,7 @@
       year: prev ? prev.year : new Date().getFullYear(),
       skipPast: true,
       obligations: prev ? prev.obligations : new Set(OBLIGATIONS.map((o) => o.id)),
-      resp: '',
+      resp: data.settings.dashResp || '',
       excluded: new Set(),
       only: onlyClient || '',
     };
@@ -1872,7 +1939,7 @@
     const cal = ui.cal;
     const res = calPlan();
     const clients = calClients();
-    const resps = Array.from(new Set(data.clients.flatMap((c) => [c.responsable, c.collaborateur, c.superviseur]).filter(Boolean))).sort();
+    const resps = allResps();
     const only = cal.only && clientById(cal.only);
     modalRefresh = null;
     openModal(`
@@ -2139,7 +2206,7 @@
       months.forEach((p) => {
         const titre = `${imp.titre || tpl.nom} ${p.label}`.trim();
         const done = p.statut === 'termine';
-        const m = data.missions.find((x) => x.clientId === c.id && x.titre === titre);
+        const m = missionsOf(c.id).find((x) => x.titre === titre);
         if (m) {
           if (done && isOpen(m)) {
             m.statut = 'termine';
@@ -2265,7 +2332,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '21';
+  const ASSET_VERSION = '22';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -2382,7 +2449,7 @@
         if (m.type === 'error') Object.assign(st, { status: 'error', message: m.message });
         else {
           const siren = m.result.meta.siren;
-          const match = siren && data.clients.find((c) => (c.siren || '').replace(/\s/g, '').slice(0, 9) === siren);
+          const match = clientBySiren(siren);
           Object.assign(st, { status: 'done', result: m.result, clientId: match ? match.id : '' });
         }
         if (location.hash.startsWith('#/fec') && ui.fec === st) refresh();
@@ -2792,6 +2859,19 @@
     return prior.every((v) => Math.abs(v - med) <= med * 0.2) ? med : null;
   }
 
+  // Abonnement sur l'exercice : facturé au moins 3 mois et 60 % des mois depuis le premier, montant stable (20 % près).
+  // Renvoie le montant mensuel habituel et les mois sans facture jusqu'à `endYm`, ou null.
+  function subscriptionGaps(sp, endYm) {
+    if (RE_DIVERS.test(sp.lib || '')) return null;
+    const months = Object.keys(sp.months).filter((ym) => ym <= endYm).sort();
+    if (months.length < 3) return null;
+    const window = monthsBetween(months[0], endYm);
+    if (months.length / window.length < 0.6) return null;
+    const med = median(months.map((ym) => sp.months[ym]));
+    if (med <= 0 || !months.every((ym) => Math.abs(sp.months[ym] - med) <= med * 0.2)) return null;
+    return { med, missing: window.filter((ym) => !sp.months[ym]) };
+  }
+
   // Règlements et encaissements non affectés à une facture, regroupés par tiers : une demande par tiers, chaque paiement daté.
   function unmatchedPieces(r, push, from, to, scope) {
     const pharma = ui.fecProfile === 'pharmacie';
@@ -2933,16 +3013,8 @@
 
     // Abonnements (montant mensuel stable) dont des factures manquent ; jamais d'estimation pour les dépenses ponctuelles
     p.suppliers.forEach((sp) => {
-      if (RE_DIVERS.test(sp.lib || '') || asked.has('401|' + sp.num)) return;
-      const months = Object.keys(sp.months).filter((ym) => ym <= endYm).sort();
-      if (months.length < 3) return;
-      const window = monthsBetween(months[0], endYm);
-      if (months.length / window.length < 0.6) return;
-      const med = median(months.map((ym) => sp.months[ym]));
-      if (med <= 0 || !months.every((ym) => Math.abs(sp.months[ym] - med) <= med * 0.2)) return;
-      const missing = window.filter((ym) => !sp.months[ym]);
-      if (!missing.length) return;
-      push('achats', sp.num, `Factures ${sp.lib} : ${fmtMonths(missing)} (abonnement de ${eur(med)} € par mois)`);
+      const sub = !asked.has('401|' + sp.num) && subscriptionGaps(sp, endYm);
+      if (sub && sub.missing.length) push('achats', sp.num, `Factures ${sp.lib} : ${fmtMonths(sub.missing)} (abonnement de ${eur(sub.med)} € par mois)`);
     });
     if (pharma && r.aging) pharmaPieces(r, mode, arrete, push);
     cyclePieces(r, mode, arrete, push);
@@ -3099,14 +3171,8 @@
     if (exact) r.cycles.justif.missing.filter((x) => x.kind === 'achat' && x.date >= from && x.date <= to).forEach((x) => get(x.num, x.tlib).docs.push(x));
     const endYm = ymOf(to), startYm = ymOf(from);
     r.pieces.suppliers.forEach((sp) => {
-      if (RE_DIVERS.test(sp.lib || '')) return;
-      const months = Object.keys(sp.months).filter((ym) => ym <= endYm).sort();
-      if (months.length < 3) return;
-      const window = monthsBetween(months[0], endYm);
-      if (months.length / window.length < 0.6) return;
-      const med = median(months.map((ym) => sp.months[ym]));
-      if (med <= 0 || !months.every((ym) => Math.abs(sp.months[ym] - med) <= med * 0.2)) return;
-      const missing = window.filter((ym) => ym >= startYm && !sp.months[ym]);
+      const sub = subscriptionGaps(sp, endYm);
+      const missing = sub ? sub.missing.filter((ym) => ym >= startYm) : [];
       if (missing.length) get(sp.num, sp.lib).months.push(...missing);
     });
     return Array.from(map.values()).filter((x) => !re || !re.test(norm(x.lib)))
@@ -3201,7 +3267,7 @@
     const label = piecesLabel(st.mode, st.arrete);
     const titre = `Demande de pièces — ${label}`;
     const stamp = nowIso();
-    let m = data.missions.find((x) => x.clientId === c.id && x.titre === titre && isOpen(x));
+    let m = missionsOf(c.id).find((x) => x.titre === titre && isOpen(x));
     const steps = items.map((i) => ({ id: uid(), label: i.text, cat: PIECES_CATS[i.cat], done: false, doneAt: null }));
     if (m) {
       m.etapes = m.etapes.concat(steps.filter((e) => !m.etapes.some((x) => x.label === e.label)));
@@ -4617,7 +4683,7 @@
       else {
         const r = res.result;
         const siren = r.meta.siren;
-        const c = siren && data.clients.find((x) => (x.siren || '').replace(/\s/g, '').slice(0, 9) === siren);
+        const c = clientBySiren(siren);
         it.st = { status: 'done', result: r, clientId: c ? c.id : '', section: 'synthese', q: '', classe: '', fileName: file.name, pct: 100 };
         it.profile = withFec(it.st, 'classique', () => looksLikePharmacy(r)) ? 'pharmacie' : 'classique';
         it.sum = batchSummary(it);
@@ -4646,7 +4712,7 @@
       return `${head}
         <div class="fec-drop card" data-action="batch-pick" role="button" tabindex="0">
           ${icon('chart', 'fec-drop-ico')}
-          <p><strong>Sélectionnez les FEC de plusieurs dossiers</strong> (par exemple tous les dossiers d'un collaborateur)</p>
+          <p><strong>Sélectionnez ou déposez ici les FEC de plusieurs dossiers</strong> (par exemple tous les dossiers d'un collaborateur), ou leurs archives .zip</p>
           <p class="muted small">Chaque fichier est analysé sur cet appareil, l'un après l'autre, puis rattaché à son dossier par le SIREN du nom de fichier. Rien n'est envoyé ni conservé.</p>
         </div>
         <section class="card"><h2>À quoi ça sert</h2><ul class="bullets">
@@ -4742,7 +4808,9 @@
     return (ui.fec.memo = ui.fec.memo || {});
   }
   function wpSave() {
-    if (clientById(ui.fec.clientId)) persist();
+    if (!clientById(ui.fec.clientId)) return;
+    syncReviewMission();
+    persist();
   }
 
   // Applique la mémoire du dossier : éléments et contrôles justifiés lors d'une revue précédente.
@@ -4884,6 +4952,50 @@
       ${rev ? `<span class="lvl lvl-ok"><b aria-hidden="true">✓</b>Revu${rev.by ? ` par ${esc(rev.by)}` : ''} le ${fmtDate(rev.at.slice(0, 10))}</span><button class="link-btn" data-action="wp-review" data-cycle="${cycle}" data-undo="1">Annuler</button>`
         : `<button class="btn small" data-action="wp-review" data-cycle="${cycle}">Marquer le cycle comme revu</button>`}
     </div>`;
+  }
+
+  // Année de l'exercice analysé (titre de la mission de revue, rattachement au bilan).
+  const fecYear = (r) => (r.meta.closing ? r.meta.closing.slice(0, 4) : (r.meta.maxDate || '').slice(0, 4));
+
+  // Tous les cycles revus : étape « Révision des comptes » du bilan (ou de la situation) de l'exercice cochée.
+  function revisionSigned() {
+    const f = ui.fec;
+    const r = f.result;
+    const c = clientById(f.clientId);
+    const cc = cycleChecks(r);
+    if (!c || !cc) return;
+    const keys = Object.keys(CYCLES).filter((k) => k !== 'clients' || ui.fecProfile !== 'pharmacie');
+    if (!keys.every((k) => wpStore().cycles[k])) return;
+    const year = fecYear(r);
+    const why = 'tous les cycles sont marqués comme revus dans la feuille de travail';
+    const done = isSituation(r) ? autoStep(c.id, ['situation'], [year, ''], /^r[ée]vision/i, why) : autoStep(c.id, ['bilan'], [year], /^r[ée]vision/i, why);
+    if (done) setTimeout(() => toast(`Révision signée — ${done}.`), 0);
+  }
+
+  // Mission de revue du FEC : chaque étape liée à un point de la feuille de travail suit son statut (traité ou non).
+  function syncReviewMission() {
+    const f = ui.fec;
+    const c = clientById(f.clientId);
+    if (!c || !f.result) return;
+    const r = f.result;
+    const m = missionsOf(c.id).filter((x) => x.titre === `Revue FEC ${fecYear(r)}` && x.etapes.some((e) => e.key)).sort((a, b) => isOpen(b) - isOpen(a))[0];
+    if (!m) return;
+    const treated = new Map();
+    const note = (cycle, x) => treated.set(wpKey(cycle, x.label), x.level === 'ok' || WP_DONE.includes(checkState(cycle, x)));
+    genPoints(r).forEach((x) => note('gen', x));
+    const cc = cycleChecks(r) || {};
+    Object.keys(cc).forEach((k) => cc[k].forEach((x) => note(k, x)));
+    let changed = 0;
+    m.etapes.forEach((e) => {
+      if (!e.key || !treated.has(e.key) || treated.get(e.key) === !!e.done) return;
+      Object.assign(e, { done: treated.get(e.key), doneAt: treated.get(e.key) ? nowIso() : null });
+      changed++;
+    });
+    if (!changed) return;
+    const n = m.etapes.filter((e) => e.done).length;
+    if (n === m.etapes.length) setStatus(m, 'termine');
+    else if (!isOpen(m) || (n && m.statut === 'a_faire')) setStatus(m, 'en_cours');
+    m.updatedAt = nowIso();
   }
 
   function wpSetItem(k, patch) {
@@ -5365,15 +5477,19 @@
     const c = clientById(f.clientId);
     if (!c) return;
     const r = f.result;
-    const year = r.meta.closing ? r.meta.closing.slice(0, 4) : (r.meta.maxDate || '').slice(0, 4);
-    const items = r.checks.concat(genPoints(r), cyclePoints(r)).filter((x) => x.level === 'error' || x.level === 'warn')
+    const year = fecYear(r);
+    // Chaque étape garde la clé du point de la feuille de travail : elle se coche quand le point y est traité.
+    const gen = genPoints(r).map((x) => Object.assign({}, x, { key: wpKey('gen', x.label) }));
+    const cyc = cyclePoints(r).map((x) => Object.assign({}, x, { key: wpKey(x.cycle, x.label) }));
+    const items = r.checks.concat(gen, cyc).filter((x) => x.level === 'error' || x.level === 'warn')
       .sort((a, b) => (a.level === 'error' ? 0 : 1) - (b.level === 'error' ? 0 : 1))
-      .map((x) => `${x.cycle ? CYCLES[x.cycle] + ' — ' : ''}${FEC_FAIL[x.id] || x.label}${x.count ? ` (${x.count})` : ''}`);
+      .map((x) => ({ key: x.key, label: `${x.cycle ? CYCLES[x.cycle] + ' — ' : ''}${FEC_FAIL[x.id] || x.label}${x.count ? ` (${x.count})` : ''}` }));
     const titre = `Revue FEC ${year}`;
-    const existing = data.missions.find((m) => m.clientId === c.id && m.titre === titre && isOpen(m));
+    const existing = missionsOf(c.id).find((m) => m.titre === titre && isOpen(m));
     const stamp = nowIso();
-    const etapes = items.map((label) => ({ id: uid(), label, done: false, doneAt: null }));
+    const etapes = items.map((x) => Object.assign({ id: uid(), label: x.label, done: false, doneAt: null }, x.key ? { key: x.key } : {}));
     if (existing) {
+      existing.etapes.forEach((e) => { const x = !e.key && etapes.find((y) => y.label === e.label && y.key); if (x) e.key = x.key; });
       existing.etapes = existing.etapes.concat(etapes.filter((e) => !existing.etapes.some((x) => x.label === e.label)));
       existing.updatedAt = stamp;
     } else {
@@ -5384,6 +5500,7 @@
       });
       log(c.id, `Mission « ${titre} » créée depuis l'analyse du FEC (${items.length} point(s)).`, true);
     }
+    syncReviewMission();
     persist();
     toast(`${existing ? 'Mission mise à jour' : 'Mission créée'} : ${items.length} point(s) à traiter, dans le dossier ${clientLabel(c)}.`);
   }
@@ -5444,7 +5561,9 @@
   document.addEventListener('drop', (e) => {
     if (data && location.hash.startsWith('#/fec')) {
       e.preventDefault();
-      if (e.dataTransfer.files[0]) startFec(e.dataTransfer.files[0]);
+      const files = Array.from(e.dataTransfer.files || []);
+      if (location.hash.startsWith('#/fec/lot')) { if (files.length && !(ui.batch && ui.batch.running)) batchRun(files); }
+      else if (files[0]) startFec(files[0]);
     }
   });
 
@@ -5564,7 +5683,7 @@
   // ---------------------------------------------------------------------------
 
   function icsEscape(s) {
-    return String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+    return String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
   }
 
   // Replie les lignes à 75 octets comme l'exige le format iCalendar.
@@ -5596,7 +5715,7 @@
       .filter((m) => isOpen(m) && m.echeance && m.echeance >= today && m.echeance <= end)
       .filter((m) => {
         const c = clientById(m.clientId);
-        return c && !c.archive && (!resp || m.responsable === resp || [c.responsable, c.collaborateur, c.superviseur].includes(resp));
+        return c && !c.archive && missionInPortfolio(m, resp);
       })
       .sort(byDue);
     const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Suivi Dossiers//FR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Échéances du cabinet'];
@@ -5625,7 +5744,7 @@
 
   function icsForm() {
     const s = data.settings;
-    const resps = Array.from(new Set(s.collaborateurs.concat(data.clients.flatMap((c) => [c.responsable, c.collaborateur])).filter(Boolean))).sort();
+    const resps = allResps();
     modalRefresh = null;
     openModal(`
       <form data-form="ics" autocomplete="off">
@@ -5660,9 +5779,11 @@
         <li><strong>Sauvegarde</strong> : activez la sauvegarde automatique (sur ordinateur) ou exportez une sauvegarde chiffrée chaque semaine.</li>
       </ol>`, true)}
       ${item('Au quotidien', `<ul>
-        <li>Le <strong>tableau de bord</strong> liste ce qui est en retard, les échéances des 14 prochains jours, les clients à relancer et les missions à valider. Choisissez « Mes dossiers » pour ne voir que votre portefeuille.</li>
+        <li>Le <strong>tableau de bord</strong> liste ce qui est en retard, les échéances des 14 prochains jours, les clients à relancer et les missions à valider. Choisissez « Mes dossiers » pour ne voir que votre portefeuille : ce choix s'applique aussi aux missions, au suivi mensuel et au calendrier fiscal.</li>
         <li>Cliquez sur une mission pour cocher ses étapes : elle passe « en cours » à la première étape cochée, et « terminée » à la dernière. Le bouton <strong>✓ Terminée</strong> valide tout d'un coup.</li>
         <li>Les missions récurrentes (TVA, paie, acomptes…) créent automatiquement l'occurrence suivante lorsqu'elles sont terminées.</li>
+        <li><strong>Étapes cochées automatiquement</strong> (signalées « automatique » dans la mission et notées au journal du dossier) : quand une demande de pièces issue du FEC est entièrement reçue, l'étape « Pièces reçues » de la TVA ou de la saisie du mois, de la situation ou du bilan est cochée ; quand les quatre cycles sont marqués « revus » dans la feuille de travail, l'étape « Révision des comptes » du bilan (ou de la situation) l'est aussi ; la mission « Revue FEC » suit les points traités dans la feuille de travail.</li>
+        <li>Paramètres → <strong>Modèles de missions</strong> : si vous modifiez les étapes d'un modèle, l'application propose de mettre à jour les missions en cours qui ont encore les anciennes étapes (les étapes cochées le restent).</li>
       </ul>`)}
       ${item('Importer le classeur du cabinet', `<p>Dossiers → <strong>Importer</strong>, puis choisissez votre classeur de suivi. S'il contient les onglets INFO DOSSIER, SUIVI TVA, SUIVI RÉVISION, SUIVI SITUATION, SUIVI DÉCLARATION ou SUIVI SAISIE, ils sont tous repris en une fois :</p>
         <ul>
@@ -5676,6 +5797,7 @@
         <li>Reproduit votre tableau Excel : un dossier par ligne, un mois par colonne. Filtrez par type de mission, régime de TVA (mensuel, trimestriel, CA12) et responsable.</li>
         <li><strong>Tri</strong> : cliquez sur un titre de colonne (N°, Dossier, TVA, Jour) ou choisissez « Trier par » (clôture, responsable, retards et avancement) ; un second clic inverse l'ordre. Le tri est conservé.</li>
         <li><strong>Étapes</strong> (mode par défaut) : un clic sur une case affiche les étapes de la mission ; cliquez sur une étape faite pour la cocher (les précédentes le sont aussi), recliquez pour la décocher. Pour la TVA, <strong>banque importée</strong>, <strong>banque affectée</strong>, <strong>saisie des ventes</strong> et <strong>saisie des achats</strong> se cochent séparément, dans l'ordre où vous les faites (« Banque affectée » coche aussi « Banque importée »). La case indique la dernière étape faite (« Bq import », « Bq affect », « Ventes », « Achats », puis « Saisie » quand les quatre sont faites), et la dernière étape termine la mission. La fenêtre des étapes reste ouverte pour en cocher plusieurs d'affilée (✕, Échap ou un clic à côté pour la fermer). Survolez une case pour voir toutes les étapes.</li>
+        <li>Si une <strong>demande de pièces du mois</strong> (analyse FEC mensuelle) est en cours, la fenêtre des étapes l'indique avec le nombre de pièces encore attendues.</li>
         <li><strong>Pointage rapide</strong> : un clic sur une case la passe à OK, un second clic annule, comme dans Excel.</li>
         <li><strong>Exporter en Excel</strong> produit un fichier réimportable (attention : non chiffré).</li>
       </ul>`)}
@@ -5986,7 +6108,7 @@
     const tpl = templateById(spec.type) || DEFAULT_TEMPLATES.find((t) => t.id === spec.type) || templateById('libre');
     if (!templateById(tpl.id)) data.templates.push(clone(tpl));
     const labels = spec.steps ? spec.steps : tpl.etapes.map((label) => ({ label, done: !!spec.done }));
-    let m = data.missions.find((x) => x.clientId === c.id && x.titre === spec.titre);
+    let m = missionsOf(c.id).find((x) => x.titre === spec.titre);
     if (!m) {
       m = {
         id: uid(), clientId: c.id, type: tpl.id, titre: spec.titre, exercice: spec.exercice, echeance: spec.echeance, statut: 'a_faire',
@@ -6233,7 +6355,7 @@
           <label>Nom *<input name="nom" required value="${esc(t.nom)}"></label>
           <label>Récurrence par défaut<select name="recurrence">${options(RECURRENCES, t.recurrence)}</select></label>
           <label>Étapes (une par ligne)<textarea name="etapes" rows="10">${esc(t.etapes.join('\n'))}</textarea></label>
-          <p class="muted small">Les modifications s'appliquent aux nouvelles missions uniquement.</p>
+          <p class="muted small">Les nouvelles missions reprennent ces étapes. Si vous les modifiez, l'application propose de mettre aussi à jour les missions en cours de ce modèle.</p>
         </div>
         <footer class="modal-foot">
           ${!isNew && data.templates.length > 1 ? `<button type="button" class="btn danger" data-action="delete-template" data-id="${t.id}">Supprimer</button>` : ''}
@@ -6468,6 +6590,9 @@
 
   async function afterUnlock() {
     lastActivity = Date.now();
+    // Le portefeuille choisi au tableau de bord (« Mes dossiers ») s'applique aussi aux missions et au suivi mensuel.
+    ui.mf.resp = data.settings.dashResp || '';
+    ui.grille.resp = data.settings.dashResp || '';
     await initAutoBackup();
     if (navigator.storage && navigator.storage.persist) {
       try {
@@ -6565,7 +6690,7 @@
       renderMissionList();
     },
     'filter-missions': (el) => {
-      ui.mf = { q: '', statut: el.dataset.statut || 'ouvertes', resp: '', periode: el.dataset.periode || 'toutes', type: '' };
+      ui.mf = { q: '', statut: el.dataset.statut || 'ouvertes', resp: data.settings.dashResp || '', periode: el.dataset.periode || 'toutes', type: '' };
     },
     'close-modal': () => closeModal(),
     'new-template': () => templateForm(),
@@ -6703,6 +6828,7 @@
       const cy = wpStore().cycles;
       if (el.dataset.undo) delete cy[el.dataset.cycle];
       else cy[el.dataset.cycle] = { by: data.settings.utilisateur || '', at: nowIso() };
+      if (!el.dataset.undo) revisionSigned();
       wpSave();
       refresh();
     },
@@ -6928,6 +7054,8 @@
       refresh();
     } else if (t.dataset.dash) {
       data.settings.dashResp = t.value;
+      ui.mf.resp = t.value;
+      ui.grille.resp = t.value;
       persist();
       refresh();
     } else if (t.dataset.grilleSort !== undefined && t.tagName === 'SELECT') {
@@ -6982,6 +7110,8 @@
     }
   }
 
+  // Recherche : la liste est redessinée une fois la frappe terminée (pas à chaque lettre sur un gros portefeuille).
+  let filterTimer = null;
   document.addEventListener('input', (e) => {
     const t = e.target;
     if (t.dataset.filter && data) {
@@ -6989,8 +7119,13 @@
       const value = t.type === 'checkbox' ? t.checked : t.value;
       if (path.length === 2) ui[path[0]][path[1]] = value;
       else ui[path[0]] = value;
-      if (path[0] === 'mf') { ui.mfLimit = 300; renderMissionList(); }
-      else renderDossierList();
+      const render = () => {
+        if (path[0] === 'mf') { ui.mfLimit = 300; renderMissionList(); }
+        else renderDossierList();
+      };
+      clearTimeout(filterTimer);
+      if (t.type === 'search' && data.clients.length > 150) filterTimer = setTimeout(render, 150);
+      else render();
     }
     if (t.dataset.fec === 'q' && ui.fec) {
       ui.fec.q = t.value;
@@ -7104,6 +7239,7 @@
       const statut = val(form, 'statut');
       let m;
       if (existing) {
+        if (existing.clientId !== values.clientId) resetMissionIdx();
         m = Object.assign(existing, values, { updatedAt: nowIso() });
       } else {
         m = Object.assign({ id: uid(), type: val(form, 'type'), statut: 'a_faire', createdAt: nowIso(), updatedAt: nowIso() }, values);
@@ -7176,10 +7312,32 @@
         recurrence: val(form, 'recurrence'),
         etapes: form.etapes.value.split('\n').map((s) => s.trim()).filter(Boolean),
       };
+      const before = id ? templateById(id).etapes.slice() : null;
       if (id) Object.assign(templateById(id), values);
       else data.templates.push(Object.assign({ id: uid() }, values));
-      await persist();
       closeModal();
+      // Étapes modifiées : proposées aux missions en cours de ce modèle restées conformes à l'ancien modèle.
+      if (before && before.join('\n') !== values.etapes.join('\n')) {
+        const same = (m) => m.etapes.map((e) => e.label).join('\n') === before.join('\n');
+        const open = data.missions.filter((m) => m.type === id && isOpen(m));
+        const list = open.filter(same);
+        if (list.length && await ask({
+          title: 'Mettre à jour les missions en cours ?',
+          message: `<strong>${list.length} mission(s) en cours</strong> du modèle « ${esc(values.nom)} » ont encore les anciennes étapes. Leur appliquer les nouvelles ? Les étapes déjà cochées le restent.${open.length > list.length ? ` ${open.length - list.length} mission(s) aux étapes personnalisées ne seront pas modifiées.` : ''}`,
+          okLabel: 'Mettre à jour',
+        })) {
+          list.forEach((m) => {
+            const pool = m.etapes.slice();
+            m.etapes = values.etapes.map((label) => {
+              const i = pool.findIndex((e) => e.label === label);
+              return i >= 0 ? pool.splice(i, 1)[0] : { id: uid(), label, done: false, doneAt: null };
+            });
+            m.updatedAt = nowIso();
+          });
+          toast(`${list.length} mission(s) mise(s) à jour avec les nouvelles étapes.`);
+        }
+      }
+      await persist();
       refresh();
     },
   };

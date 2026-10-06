@@ -719,6 +719,7 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 #grille-pop .gp-steps button.current { outline: 2px solid var(--ok); outline-offset: -1px; font-weight: 700; }
 #grille-pop .gp-steps button:hover { border-color: var(--primary); }
 #grille-pop .gp-foot { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; margin-top: .4rem; }
+#grille-pop .gp-req { margin: .4rem 0 0; padding: .4rem .5rem; border-radius: 6px; background: var(--wait-soft); }
 @media (prefers-color-scheme: dark) { #grille-pop .gp-steps button.done span { color: #11161d; } }
 .legend .g-leg span { display: block; margin-left: 0; min-width: 0; padding: 0; background: none; }
 #grille-pop .gp-steps li.gp-par button { border-left: 3px solid var(--primary); }

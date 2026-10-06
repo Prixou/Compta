@@ -35,7 +35,16 @@ const pad = (n) => String(n).padStart(2, '0');
 const round2 = (n) => Math.round(n * 100) / 100 || 0;
 
 // Renvoie AAAA-MM-JJ, ou null ; `std` indique le format réglementaire AAAAMMJJ.
+// Les mêmes dates reviennent sur des milliers de lignes : résultat mis en cache.
+const dateCache = new Map();
 function parseDate(s) {
+  const hit = dateCache.get(s);
+  if (hit) return hit;
+  const res = parseDateRaw(s);
+  if (dateCache.size < 20000) dateCache.set(s, res);
+  return res;
+}
+function parseDateRaw(s) {
   s = (s || '').trim();
   let y, m, d, std = false;
   let r = s.match(/^(\d{4})(\d{2})(\d{2})$/);
@@ -355,10 +364,8 @@ function analyse(buffer, fileName, until, docs) {
       if (closing && pd.iso && /^(60|61|62|70)/.test(compte)) {
         const cyc = compte[0] === '7' ? 'ventes' : compte.startsWith('60') ? 'achats' : 'charges';
         const amt = round2(compte[0] === '7' ? c - d : d - c);
-        const exm = `Pièce du ${dmy(pd.iso)} saisie le ${dmy(date)} · ${compte} · ${elib.slice(0, 50)} · ${fmt(amt)} €`;
-        const it = { date, pdate: pd.iso, compte, lib: elib.slice(0, 60), amt, piece };
-        if (pd.iso > closing && date <= closing) addEx(cut[cyc].after, amt, exm, 30, it);
-        else if (start && pd.iso < start) addEx(cut[cyc].before, amt, exm, 30, it);
+        const b = pd.iso > closing && date <= closing ? cut[cyc].after : start && pd.iso < start ? cut[cyc].before : null;
+        if (b) addEx(b, amt, `Pièce du ${dmy(pd.iso)} saisie le ${dmy(date)} · ${compte} · ${elib.slice(0, 50)} · ${fmt(amt)} €`, 30, { date, pdate: pd.iso, compte, lib: elib.slice(0, 60), amt, piece });
       }
       if (/^6[12]/.test(compte)) {
         let ca = chAcc.get(compte);
@@ -370,11 +377,12 @@ function analyse(buffer, fileName, until, docs) {
       }
       if (d > 0 && /^(606|61|62|65)/.test(compte)) {
         const t = normTxt(elib);
-        const exm = `${dmy(date)} · ${compte} ${clib.slice(0, 25)} · ${elib.slice(0, 50)} · ${fmt(d)} €`;
-        const item = { date, lib: elib.slice(0, 60), amt: round2(d), compte };
-        if (RE_AMENDE.test(t)) addEx(amendes, d, exm, 12, item);
+        // Exemple et élément construits seulement pour les lignes retenues (formatage coûteux sur de gros FEC).
+        const exm = () => `${dmy(date)} · ${compte} ${clib.slice(0, 25)} · ${elib.slice(0, 50)} · ${fmt(d)} €`;
+        const item = () => ({ date, lib: elib.slice(0, 60), amt: round2(d), compte });
+        if (RE_AMENDE.test(t)) addEx(amendes, d, exm(), 12, item());
         else if (RE_PERSO.test(t)) {
-          addEx(perso, d, exm, 20, item);
+          addEx(perso, d, exm(), 20, item());
           const k = labelKey(elib);
           const g = persoG.get(k) || persoG.set(k, { lib: elib.replace(/\s+/g, ' ').trim().slice(0, 60), n: 0, total: 0, first: date, last: date }).get(k);
           g.n++;
@@ -384,9 +392,9 @@ function analyse(buffer, fileName, until, docs) {
         }
         if (compte.startsWith('625')) {
           const dow = new Date(date + 'T00:00:00Z').getUTCDay();
-          if (dow === 0 || dow === 6) addEx(weekend, d, `${dow ? 'Samedi' : 'Dimanche'} ${exm}`);
+          if (dow === 0 || dow === 6) addEx(weekend, d, `${dow ? 'Samedi' : 'Dimanche'} ${exm()}`);
         }
-        if (compte.startsWith('6234') && d > 73) { addEx(gifts, d, exm); en.gift = compte; }
+        if (compte.startsWith('6234') && d > 73) { addEx(gifts, d, exm()); en.gift = compte; }
       }
     }
 
