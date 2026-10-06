@@ -2332,7 +2332,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '24';
+  const ASSET_VERSION = '25';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -4181,6 +4181,7 @@
     const { mv, solde } = sums(r);
     const pharma = ui.fecProfile === 'pharmacie';
     linkedAlerts(r, out, ['Fournisseurs débiteurs']);
+    mispostCheck(r, out, '401');
     if (a.dupStrong.n) out.add('warn', 'Factures fournisseurs en double', `${a.dupStrong.n} facture(s) saisie(s) deux fois (même fournisseur, même montant, même n° de pièce, à moins de 15 jours d'écart) : ${eur(a.dupStrong.total)} € de charges et de TVA déductible en trop ?`, a.dupStrong.ex, { full: a.dupStrong.ex.length >= a.dupStrong.n });
     else if (a.invoices) out.add('ok', 'Aucune facture fournisseur en double', `${a.invoices.toLocaleString('fr-FR')} factures contrôlées (fournisseur, montant et n° de pièce)${a.recurringRefs ? ` ; ${a.recurringRefs} référence(s) d'échéancier mensuel (loyer, crédit-bail, abonnement) écartée(s)` : ''}.`);
     if (a.dupPossible.n) out.add('info', "Factures de même montant à quelques jours d'intervalle", `${a.dupPossible.n} cas chez un même fournisseur (3 jours au plus) : livraisons distinctes ou doublon ?`, a.dupPossible.ex, { full: a.dupPossible.ex.length >= a.dupPossible.n });
@@ -4207,6 +4208,16 @@
       if (news.length) out.add('info', 'Nouveaux fournisseurs significatifs', `${news.length} fournisseur(s) absent(s) de l'exercice précédent : existence et coordonnées bancaires à vérifier (fraude au faux fournisseur).`, news.slice(0, 10).map((s) => `${s.lib} : ${eur(s.ttc, 0)} € TTC`));
     }
     return out;
+  }
+
+  // Factures et règlements imputés sur un autre compte de tiers que le leur.
+  const MISPOST = { 401: 'Factures ou règlements imputés sur un autre fournisseur', 411: 'Factures ou règlements imputés sur un autre client' };
+  const mispostEx = (x) => `${fmtDate(x.date)}${x.ref ? ` · ${x.ref}` : ''} · « ${x.lib} » · ${eur(x.amt)} € : ${x.kind} passé${x.kind === 'facture' ? 'e' : ''} sur ${x.from.lib} (${x.from.num}) — ${x.reason === 'libelle' ? `le libellé désigne ${x.to.lib} (${x.to.num})` : `montant identique à la facture de ${x.to.lib} (${x.to.num}) du ${fmtDate(x.invDate)}, sans facture de ce montant sur ${x.from.lib}`}`;
+  function mispostCheck(r, out, racine) {
+    const list = (r.misposted && r.misposted[racine]) || [];
+    const who = racine === '401' ? 'fournisseur' : ui.fecProfile === 'pharmacie' ? 'organisme ou patient' : 'client';
+    if (list.length) out.add('warn', MISPOST[racine].replace(/client$/, who), `${list.length} écriture(s), ${eur(list.reduce((t, x) => t + x.amt, 0))} € : imputation à corriger (le solde des deux comptes est faux, et les relances, lettrages et demandes de pièces en dépendent). L'écriture de reclassement est proposée dans l'onglet Écritures.`, list.map(mispostEx), { full: true });
+    else if (r.misposted) out.add('ok', `Imputation des ${racine === '401' ? 'factures et règlements fournisseurs' : 'factures et encaissements clients'}`, `Aucune écriture dont le libellé ou le montant désigne un autre ${who}.`);
   }
 
   const ccaEx = (x) => `${fmtDate(x.date)} · ${x.compte} ${x.lib} · ${x.label} · ${eur(x.amt, 0)} € → ${eur(x.cca, 0)} € (période présumée de ${x.cover} mois)`;
@@ -4257,6 +4268,7 @@
     const out = checksList();
     const { solde } = sums(r);
     linkedAlerts(r, out, ['Clients créditeurs']);
+    mispostCheck(r, out, '411');
     const nb = cl.numbering.filter((g) => !g.sparse);
     if (!cl.numbering.length && cl.invoices >= 10) out.add('info', 'Numérotation des factures de vente non contrôlable', 'Les n° de pièce des factures de vente ne se terminent pas par un numéro.');
     else if (cl.numbering.length && !nb.length) out.add('info', 'Numérotation des factures non exploitable', `Les n° de pièce (${cl.numbering[0].first}…) semblent être des n° d'écriture : le n° de facture n'est pas repris dans le FEC.`);
@@ -4302,6 +4314,7 @@
     const { mv } = sums(r);
     const pharma = ui.fecProfile === 'pharmacie';
     linkedAlerts(r, out, ['Caisse créditrice', 'Banque créditrice en fin de période']);
+    if (pharma) mispostCheck(r, out, '411');
     const banks = t.accounts.filter((a) => /^51[2-9]/.test(a.compte));
     banks.filter((a) => a.negDays > 0).forEach((a) => out.add(a.negDays > 30 ? 'warn' : 'info', `Découvert : ${a.lib || a.compte}`, `${a.negDays} jour(s) à découvert en comptabilité, plus bas ${eur(a.min)} € le ${fmtDate(a.minDate)} : autorisation de découvert, agios et rapprochement à vérifier.`));
     if (banks.length && !banks.some((a) => a.negDays)) out.add('ok', 'Aucun découvert bancaire en comptabilité', `${banks.length} compte(s) bancaire(s) toujours créditeurs.`);
@@ -5786,6 +5799,21 @@
       make: (a) => [L(acctOf(r, '4456'), 'TVA autoliquidée déductible', a, 0), L(x.compte, 'TVA autoliquidée déductible', 0, a)],
     }));
 
+    // 6. Reclassement des écritures imputées sur un autre compte de tiers
+    ['401', '411'].forEach((racine) => ((r.misposted && r.misposted[racine]) || []).forEach((x, i) => {
+      const cycle = racine === '401' ? 'achats' : ui.fecProfile === 'pharmacie' ? 'treso' : 'clients';
+      const lab = MISPOST[racine].replace(/client$/, racine === '411' && ui.fecProfile === 'pharmacie' ? 'organisme ou patient' : 'client');
+      add({
+        src: { cycle, check: lab, ex: mispostEx(x) },
+        id: `mis:${racine}:${x.from.num}:${x.date}:${i}`, group: 'Reclassements entre comptes de tiers', extournable: false, editable: false, amount: x.amt,
+        label: `Reclassement ${x.kind === 'facture' ? 'de la facture' : 'du règlement'} « ${x.lib} » de ${x.from.lib} vers ${x.to.lib}`,
+        why: `${x.kind === 'facture' ? 'Facture' : 'Règlement'} du ${dt(x.date)} de ${eur(x.amt)} € : ${x.reason === 'libelle' ? `le libellé désigne ${x.to.lib}` : `montant identique à une facture de ${x.to.lib}`}. À confirmer sur la pièce avant import.`,
+        // Compte auxiliaire seulement quand le FEC en utilise (sinon un compte 401 / 411 par tiers).
+        make: () => [L(x.from.compte, `Reclassement ${x.lib}`, x.c, x.d, x.from.num !== x.from.compte ? { num: x.from.num, lib: x.from.lib } : null),
+          L(x.to.compte, `Reclassement ${x.lib}`, x.d, x.c, x.to.num !== x.to.compte ? { num: x.to.num, lib: x.to.lib } : null)],
+      });
+    }));
+
     const finish = (p) => {
       p.amount = round2(st.amounts[p.id] !== undefined ? st.amounts[p.id] : p.amount);
       p.cpteValue = p.cpte ? st.cptes[p.id] || p.cpte : null;
@@ -6367,6 +6395,7 @@
         <li><strong>Conformité</strong> : les contrôles de l'article A47 A-1 du LPF (colonnes, dates, équilibre, numérotation…), avec des exemples de lignes en cause.</li>
         <li><strong>Points de révision</strong> : caisse créditrice, comptes d'attente, clients créditeurs, fournisseurs débiteurs, compte courant d'associé débiteur, doublons, dimanches et jours fériés, loi de Benford.</li>
         <li>SIG, bilan simplifié, balance, graphiques mensuels, journaux et tiers ; export Excel complet.</li>
+        <li><strong>Imputation sur le bon compte de tiers</strong> (onglets Achats et Clients, Trésorerie pour une pharmacie) : factures et règlements passés sur un autre fournisseur ou client que le leur, repérés par le libellé (il désigne un autre tiers et ne ressemble pas aux libellés habituels du compte) ou par le montant (règlement sans facture de ce montant sur son compte, mais du montant exact d'une facture d'un autre tiers, non réglée). Chaque cas se traite un par un, et l'écriture de reclassement entre les deux comptes est proposée dans l'onglet Écritures.</li>
         <li><strong>Contrôle de la TVA</strong> (onglet TVA), pour le mois ou le trimestre choisi :
           <ul>
             <li><strong>brouillon de déclaration CA3</strong> reconstitué depuis les écritures : ventes par taux (taux lu sur les comptes de TVA, sinon déduit de chaque écriture, écritures à plusieurs taux ventilées), exportations, livraisons intracommunautaires, autoliquidation (lignes 2A, 03, 17), TVA déductible sur immobilisations et autres biens et services, crédit reporté, TVA nette ou crédit ;</li>

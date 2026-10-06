@@ -105,6 +105,8 @@ const addEx = (o, amt, example, max, item) => {
   if (item && o.items.length < (max || 12)) o.items.push(item);
 };
 const bucket = () => ({ n: 0, total: 0, ex: [], items: [] });
+// Variante paresseuse : l'exemple (formatage coûteux) n'est construit que s'il sera conservé.
+const addLazy = (o, amt, mk, max) => addEx(o, amt, o.ex.length < (max || 12) ? mk() : '', max);
 
 const isAN = (code, lib) => /^(AN|ANO|RAN|OUV|NOUV|A-N|A\.N)/i.test(code) || /nouveau|ouverture|report/i.test(lib);
 const fmt = (n) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -723,6 +725,8 @@ function analyse(buffer, fileName, until, docs) {
       open: open.slice(0, 200).map(({ date, amt, lib, an }) => ({ date, amt, lib, an })),
     });
   });
+  const misposted = { 401: misposting(aux, '401', opEntries, remap), 411: misposting(aux, '411', opEntries, remap) };
+
   const clientsCred = auxList.filter((t) => t.racine === '411' && t.s <= -0.01).sort((x, y) => x.s - y.s);
   if (clientsCred.length) alert('warn', 'Clients créditeurs', `${clientsCred.length} client(s) au solde créditeur : avoir, double règlement ou facture non saisie ?`, clientsCred.slice(0, MAX_EXAMPLES).map((t) => `${t.num} ${t.lib} : ${fmt(t.s)} €`));
   const fournDeb = auxList.filter((t) => t.racine === '401' && t.s >= 0.01).sort((x, y) => y.s - x.s);
@@ -827,6 +831,7 @@ function analyse(buffer, fileName, until, docs) {
     pieces,
     bankLines,
     aging,
+    misposted,
     cycles,
     kpi: {
       ca: P(['70']), marge, va, ebe, rex, resultat,
@@ -1411,8 +1416,8 @@ function buildTva({ entries, accounts, auxNames }) {
           rateCount[r] = (rateCount[r] || 0) + 1;
           const own = snapRate(base, v7);
           const rl = r70.length && r70.every(([x]) => x !== null && x === r70[0][0]) ? r70[0][0] : null;
-          if (rl !== null && rl !== r) addEx(M.chk.mismatch, Math.abs(v7), `${ref} · compte de vente à ${String(rl).replace('.', ',')} %, TVA en compte à ${String(r).replace('.', ',')} % (${fmt(round2(v7))} €)`, 15);
-          else if (own === null || own !== r) addEx(M.chk.rate, Math.abs(v7 - (base * r) / 100), `${ref} · base ${fmt(round2(base))} € · TVA ${fmt(round2(v7))} € en compte à ${String(r).replace('.', ',')} % (${(v7 / base * 100).toFixed(2).replace('.', ',')} %)`, 15);
+          if (rl !== null && rl !== r) addLazy(M.chk.mismatch, Math.abs(v7), () => `${ref} · compte de vente à ${String(rl).replace('.', ',')} %, TVA en compte à ${String(r).replace('.', ',')} % (${fmt(round2(v7))} €)`, 15);
+          else if (own === null || own !== r) addLazy(M.chk.rate, Math.abs(v7 - (base * r) / 100), () => `${ref} · base ${fmt(round2(base))} € · TVA ${fmt(round2(v7))} € en compte à ${String(r).replace('.', ',')} % (${(v7 / base * 100).toFixed(2).replace('.', ',')} %)`, 15);
         } else if (allRated && rates.length > 1) {
           const exact = r70.every(([r]) => r !== null);
           rates.forEach((r) => {
@@ -1426,7 +1431,7 @@ function buildTva({ entries, accounts, auxNames }) {
             addRate(M, r, base, v7);
             rateCount[r] = (rateCount[r] || 0) + 1;
             const rl = r70.length && r70.every(([x]) => x !== null && x === r70[0][0]) ? r70[0][0] : null;
-            if (rl !== null && rl !== r) addEx(M.chk.mismatch, Math.abs(v7), `${ref} · compte de vente à ${String(rl).replace('.', ',')} %, TVA appliquée ${String(r).replace('.', ',')} % (${fmt(round2(v7))} €)`, 15);
+            if (rl !== null && rl !== r) addLazy(M.chk.mismatch, Math.abs(v7), () => `${ref} · compte de vente à ${String(rl).replace('.', ',')} %, TVA appliquée ${String(r).replace('.', ',')} % (${fmt(round2(v7))} €)`, 15);
           } else unresolved.push({ ym, base, v7, ref });
         }
       } else {
@@ -1443,21 +1448,21 @@ function buildTva({ entries, accounts, auxNames }) {
     M.dedImmo += v6i;
     M.dedAbs += v6 - v6i;
     const ht = ch + im;
-    if (im > 0.01 && v6 - v6i > 0.01 && v6i < 0.01) addEx(M.chk.immoAbs, v6 - v6i, `${ref} · immobilisation de ${fmt(round2(im))} € HT · TVA ${fmt(round2(v6 - v6i))} € en ${Object.keys(M.mv).find((c) => kindOf(c) === 'ded') || '44566'}`, 15);
-    if (im < 0.01 && ch > 0.01 && v6i > 0.01) addEx(M.chk.absImmo, v6i, `${ref} · charge de ${fmt(round2(ch))} € HT · TVA ${fmt(round2(v6i))} € en TVA sur immobilisations`, 15);
+    if (im > 0.01 && v6 - v6i > 0.01 && v6i < 0.01) addLazy(M.chk.immoAbs, v6 - v6i, () => `${ref} · immobilisation de ${fmt(round2(im))} € HT · TVA ${fmt(round2(v6 - v6i))} € en ${Object.keys(M.mv).find((c) => kindOf(c) === 'ded') || '44566'}`, 15);
+    if (im < 0.01 && ch > 0.01 && v6i > 0.01) addLazy(M.chk.absImmo, v6i, () => `${ref} · charge de ${fmt(round2(ch))} € HT · TVA ${fmt(round2(v6i))} € en TVA sur immobilisations`, 15);
     if (v6 > 0.01 && v52 < 0.01) {
       const share = (re) => (re.test(txt) ? v6 : 0);
       const ex = (v) => `${ref} · TVA déduite ${fmt(round2(v))} €`;
       const fuel = share(RE_FUEL), lodging = share(RE_LODGING), vehicle = /\b2182/.test(en.l.filter((_, i) => i % 4 === 0).join(' ')) || RE_VEHICLE.test(txt) ? v6 : 0;
-      if (fuel) addEx(M.chk.fuel, fuel, ex(fuel), 15);
-      else if (vehicle) addEx(M.chk.vehicle, vehicle, ex(vehicle), 15);
-      if (lodging) addEx(M.chk.lodging, lodging, ex(lodging), 15);
-      if (en.gift) addEx(M.chk.gift, v6, ex(v6), 15);
-      if (RE_PERSO.test(normTxt(en.lib || ''))) addEx(M.chk.perso, v6, ex(v6), 15);
-      if (ht > 0.01 && v6 > ht * 0.2 + 1) addEx(M.chk.overP, v6, `${ref} · HT ${fmt(round2(ht))} € · TVA ${fmt(round2(v6))} € (${(v6 / ht * 100).toFixed(1).replace('.', ',')} %)`, 15);
+      if (fuel) addLazy(M.chk.fuel, fuel, () => ex(fuel), 15);
+      else if (vehicle) addLazy(M.chk.vehicle, vehicle, () => ex(vehicle), 15);
+      if (lodging) addLazy(M.chk.lodging, lodging, () => ex(lodging), 15);
+      if (en.gift) addLazy(M.chk.gift, v6, () => ex(v6), 15);
+      if (RE_PERSO.test(normTxt(en.lib || ''))) addLazy(M.chk.perso, v6, () => ex(v6), 15);
+      if (ht > 0.01 && v6 > ht * 0.2 + 1) addLazy(M.chk.overP, v6, () => `${ref} · HT ${fmt(round2(ht))} € · TVA ${fmt(round2(v6))} € (${(v6 / ht * 100).toFixed(1).replace('.', ',')} %)`, 15);
     }
     if (sup > 0.005 && ht >= 150 && v6 < 0.01 && v52 < 0.01 && !tr && !en.l.some((x, i) => i % 4 === 0 && /^(616|627|63|64|65|66|67|68|6226)/.test(x))) {
-      addEx(M.chk.noVatP, ht, `${ref} · ${fmt(round2(ht))} € HT sans TVA`, 15);
+      addLazy(M.chk.noVatP, ht, () => `${ref} · ${fmt(round2(ht))} € HT sans TVA`, 15);
     }
     // Autoliquidation (acquisitions intracommunautaires, services de prestataires étrangers, sous-traitance du BTP)
     if (v52 > 0.01) {
@@ -1466,7 +1471,7 @@ function buildTva({ entries, accounts, auxNames }) {
       a.base += ht; a.tva += v52; a.n++;
       const r = snapRate(ht, v52) || 'x';
       a.rates[r] = (a.rates[r] || 0) + v52;
-      if (v6 < v52 - 1) addEx(M.chk.autoliqND, v52 - v6, `${ref} · TVA autoliquidée ${fmt(round2(v52))} €, déduite ${fmt(round2(Math.max(0, v6)))} €`, 15);
+      if (v6 < v52 - 1) addLazy(M.chk.autoliqND, v52 - v6, () => `${ref} · TVA autoliquidée ${fmt(round2(v52))} €, déduite ${fmt(round2(Math.max(0, v6)))} €`, 15);
     }
   });
 
@@ -1486,7 +1491,7 @@ function buildTva({ entries, accounts, auxNames }) {
       }
     }
     M.unrated.base += base; M.unrated.tva += v7; M.unrated.n++;
-    addEx(M.chk.rate, Math.abs(v7), `${ref} · base ${fmt(round2(base))} € · TVA ${fmt(round2(v7))} € (${(v7 / base * 100).toFixed(2).replace('.', ',')} %) : taux non identifié`, 15);
+    addLazy(M.chk.rate, Math.abs(v7), () => `${ref} · base ${fmt(round2(base))} € · TVA ${fmt(round2(v7))} € (${(v7 / base * 100).toFixed(2).replace('.', ',')} %) : taux non identifié`, 15);
   });
 
   // TVA sur les encaissements (estimation) : part de TVA des factures de chaque client appliquée à ses règlements
@@ -1508,4 +1513,118 @@ function buildTva({ entries, accounts, auxNames }) {
     ['biens', 'services'].forEach((k) => { r2(M.autoliq[k]); Object.keys(M.autoliq[k].rates).forEach((x) => { M.autoliq[k].rates[x] = round2(M.autoliq[k].rates[x]); }); });
   });
   return { meta, months, usual };
+}
+
+// ---------- Factures et règlements imputés sur un autre compte de tiers ----------
+
+// Mots sans valeur pour reconnaître un tiers (formes juridiques, mots des libellés bancaires, mois…).
+const TIERS_STOP = new Set([...STOP, 'fac', 'facture', 'factures', 'avoir', 'avoirs', 'reglement', 'regl', 'rglt', 'reglt', 'prelevt', 'vrt', 'cheque', 'chq', 'remise', 'carte',
+  'sasu', 'eurl', 'sci', 'scp', 'scm', 'selarl', 'selas', 'snc', 'ste', 'societe', 'ets', 'etablissements', 'etablissement', 'groupe', 'cie', 'compagnie', 'holding', 'international',
+  'the', 'and', 'avec', 'sur', 'aux', 'par', 'une', 'echeance', 'numero', 'client', 'clients', 'fournisseur', 'fournisseurs', 'frs', 'fourn', 'achats', 'vente', 'ventes',
+  'commande', 'cde', 'livraison', 'note', 'frais', 'abonnement', 'abt', 'ttc', 'tva', 'euro', 'eur', 'euros', 'total', 'montant', 'solde', 'acompte', 'divers', 'diverse',
+  'auto', 'sepa', 'emis', 'recu', 'recus', 'paiement', 'paiements', 'janvier', 'fevrier', 'mars', 'avril', 'mai', 'juin', 'juillet', 'aout', 'septembre', 'octobre', 'novembre',
+  'decembre', 'janv', 'fevr', 'avr', 'juil', 'sept', 'oct', 'nov', 'dec', 'annee', 'trimestre', 'mensuel', 'mensuelle', 'service', 'services', 'prestation', 'prestations',
+  'dossier', 'compte', 'banque', 'bank', 'debit', 'credit', 'retour', 'escompte', 'rem', 'remb', 'remboursement', 'regul', 'regularisation', 'extourne', 'report', 'nouveau']);
+const tokCache = new Map();
+function tiersTokens(str) {
+  const hit = tokCache.get(str);
+  if (hit) return hit;
+  const set = tiersTokensRaw(str);
+  if (tokCache.size < 200000) tokCache.set(str, set);
+  return set;
+}
+function tiersTokensRaw(str) {
+  return new Set(normTxt(str).replace(/[^a-z ]+/g, ' ').split(/\s+/).filter((w) => w.length >= 3 && !TIERS_STOP.has(w)));
+}
+
+// Repère les lignes d'un compte de tiers dont le libellé désigne un autre tiers (mots propres à cet autre tiers, absents
+// des habitudes du compte utilisé), et les règlements sans facture sur leur compte mais du montant exact d'une facture
+// restée ouverte chez un autre tiers.
+function misposting(aux, racine, opEntries, remap) {
+  const list = [];
+  aux.forEach((t) => { if (t.racine === racine) list.push(t); });
+  if (list.length < 2) return [];
+  // Profil de chaque tiers : mots de son nom et mots présents dans au moins la moitié de ses libellés (3 fois au moins)
+  const prof = new Map(), own = new Map(), nameOf = new Map();
+  list.forEach((t) => {
+    const lines = t.lines.filter((l) => !l[5]);
+    const freq = new Map();
+    lines.forEach((l) => tiersTokens(l[4]).forEach((w) => freq.set(w, (freq.get(w) || 0) + 1)));
+    const names = tiersTokens(t.lib);
+    const p = new Set(names);
+    freq.forEach((n, w) => { if (n >= 3 && n >= lines.length * 0.5) p.add(w); });
+    prof.set(t.num, p);
+    own.set(t.num, freq);
+    nameOf.set(t.num, names);
+  });
+  // Mots propres à un seul tiers
+  const df = new Map();
+  prof.forEach((p) => p.forEach((w) => df.set(w, (df.get(w) || 0) + 1)));
+  const owner = new Map();
+  prof.forEach((p, num) => p.forEach((w) => { if (df.get(w) === 1 && w.length >= 4) owner.set(w, num); }));
+  const byNum = new Map(list.map((t) => [t.num, t]));
+  const out = [];
+  const seen = new Set();
+  const sideOf = (d, c) => (racine === '401' ? (c > d ? 'facture' : 'règlement') : (d > c ? 'facture' : 'règlement'));
+  list.forEach((t) => {
+    const mine = prof.get(t.num), freq = own.get(t.num);
+    t.lines.forEach(([date, d, c, , lib, isAn, ek]) => {
+      if (isAn || !lib || !(d || c)) return;
+      const L = tiersTokens(lib);
+      if (!L.size || [...L].some((w) => mine.has(w))) return;
+      // Mots d'un autre tiers, que ce compte n'emploie pas d'habitude (au plus une fois)
+      const hits = new Map();
+      L.forEach((w) => {
+        const o = owner.get(w);
+        if (!o || o === t.num || (freq.get(w) || 0) > 1) return;
+        (hits.get(o) || hits.set(o, []).get(o)).push(w);
+      });
+      let best = null;
+      hits.forEach((ws, o) => {
+        const inName = ws.filter((w) => nameOf.get(o).has(w)).length;
+        const sc = ws.length + inName;
+        if (ws.length >= 2 || inName >= 1) if (!best || sc > best.sc) best = { o, ws, sc };
+      });
+      if (!best) return;
+      const b = byNum.get(best.o);
+      const en = opEntries.get(remap.get(ek) || ek) || {};
+      const amt = round2(Math.abs(d - c));
+      const key = `${ek}|${t.num}|${amt}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ reason: 'libelle', kind: sideOf(d, c), date, ref: `${en.jc || ''} ${en.num || ''}`.trim(), piece: en.piece || '', amt, d: round2(d), c: round2(c), lib: String(lib).slice(0, 60),
+        from: { num: t.num, lib: t.lib, compte: t.compte }, to: { num: b.num, lib: b.lib, compte: b.compte }, words: best.ws });
+    });
+  });
+  // Règlements d'un montant qui ne correspond à aucune facture du compte, mais exactement à une facture d'un autre tiers
+  // (datée de 62 jours au plus avant le règlement) que cet autre tiers n'a pas réglée de ce montant.
+  const sign = racine === '401' ? -1 : 1; // facture > 0, règlement < 0
+  const inv = new Map(), paid = new Map(); // montant en centimes → [{ num, date }]
+  const push = (m, k, v) => (m.get(k) || m.set(k, []).get(k)).push(v);
+  const pays = [];
+  list.forEach((t) => t.lines.forEach(([date, d, c, , lib, isAn, ek]) => {
+    if (isAn) return;
+    const amt = round2(sign * (d - c));
+    if (Math.abs(amt) < 50) return;
+    const k = Math.round(Math.abs(amt) * 100);
+    const en = opEntries.get(remap.get(ek) || ek) || {};
+    if (amt > 0) push(inv, k, { num: t.num, date });
+    else if (en.has5) { push(paid, k, { num: t.num, date }); pays.push({ t, date, amt: -amt, k, lib, en }); }
+  }));
+  pays.forEach(({ t, date, amt, k, lib, en }) => {
+    const invs = inv.get(k) || [];
+    if (invs.some((x) => x.num === t.num)) return;
+    // Libellé qui désigne le compte utilisé (« VIR MGEN » sur MGEN) : coïncidence de montant, pas d'erreur d'imputation.
+    if ([...tiersTokens(lib)].some((w) => prof.get(t.num).has(w))) return;
+    const cands = invs.filter((x) => x.num !== t.num && daysBetween(x.date, date) >= -5 && daysBetween(x.date, date) <= 62);
+    const others = new Set(cands.map((x) => x.num));
+    if (others.size !== 1) return;
+    const o = byNum.get([...others][0]);
+    if ((paid.get(k) || []).some((x) => x.num === o.num && Math.abs(daysBetween(x.date, date)) <= 90)) return;
+    if (out.some((x) => x.from.num === t.num && x.date === date && x.amt === amt)) return;
+    out.push({ reason: 'montant', kind: 'règlement', date, ref: `${en.jc || ''} ${en.num || ''}`.trim(), piece: en.piece || '', amt, d: racine === '401' ? amt : 0, c: racine === '401' ? 0 : amt, lib: String(lib).slice(0, 60),
+      from: { num: t.num, lib: t.lib, compte: t.compte }, to: { num: o.num, lib: o.lib, compte: o.compte }, invDate: cands[0].date });
+  });
+  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return out.slice(0, 300);
 }
