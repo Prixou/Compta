@@ -1,0 +1,40 @@
+const { chromium } = require('playwright');
+const path = require('path');
+const D = path.join(__dirname, '../fixtures/');
+const O = path.join(__dirname, '../out/');
+(async () => {
+  const b = await chromium.launch();
+  const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', permissions: ['clipboard-read', 'clipboard-write'] });
+  const p = await ctx.newPage();
+  const errors = [];
+  p.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message)); p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await p.goto('http://localhost:8765/');
+  await p.fill('input[name=p1]', 'Cabinet-Test-2026!'); await p.fill('input[name=p2]', 'Cabinet-Test-2026!');
+  await p.check('input[name=ack]'); await p.click('button[type=submit]'); await p.waitForSelector('.layout');
+  await p.click('a[data-nav=parametres]'); await p.fill('input[name=cabinet]', 'Cabinet Test'); await p.fill('input[name=utilisateur]', 'Q. Dupont');
+  await p.click('form[data-form=settings] button[type=submit]');
+  await p.click('a[data-nav=dossiers]'); await p.click('main [data-action=new-client]');
+  await p.fill('#modal input[name=nom]', 'SARL CYCLES'); await p.fill('#modal input[name=siren]', '444444444'); await p.click('#modal button[type=submit]'); await p.waitForSelector('.grid-detail');
+  await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-drop');
+  const [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
+  await ch.setFiles(D + '444444444FEC20251231.txt'); await p.waitForSelector('.fec-meta');
+  await p.click('button[data-tab=pieces]'); await p.waitForTimeout(200);
+  console.log('fournisseurs :', await p.$$eval('.supp-row .supp-name', (l) => l.map((x) => x.textContent.replace(/\s+/g, ' ').trim())));
+  const row = '.supp-row:has-text("PAPETERIE NIMOISE")';
+  await p.fill(`${row} input[data-supp=numClient]`, 'CL-778899'); await p.press(`${row} input[data-supp=numClient]`, 'Tab');
+  await p.fill(`${row} input[data-supp=email]`, 'compta@papeterie.example'); await p.press(`${row} input[data-supp=email]`, 'Tab');
+  await p.click(`${row} button[data-action=supp-copy]`); await p.waitForTimeout(300);
+  console.log('toast :', await p.textContent('#toast'));
+  console.log('--- mail ---\n' + await p.evaluate(() => navigator.clipboard.readText()));
+  console.log('ligne après envoi :', (await p.textContent(row)).replace(/\s+/g, ' ').trim().slice(0, 140));
+  // Mode mois : septembre seulement
+  await p.click('button[data-action=pieces-mode][data-mode=mois]'); await p.fill('input[data-pieces=mois]', '2025-09'); await p.dispatchEvent('input[data-pieces=mois]', 'change'); await p.waitForTimeout(200);
+  console.log('mois de septembre :', await p.$$eval('.supp-row .supp-name', (l) => l.map((x) => x.textContent.replace(/\s+/g, ' ').trim())));
+  console.log('n° client conservé :', await p.$eval(`${row} input[data-supp=numClient]`, (i) => i.value));
+  await p.screenshot({ path: O + 'supp.png', fullPage: true });
+  // Journal du dossier
+  await p.click('a[data-nav=dossiers]'); await p.click('#dossier-list a, #dossier-list tbody tr'); await p.waitForSelector('.grid-detail');
+  console.log('journal :', (await p.textContent('main')).includes('Demande de factures adressée au fournisseur PAPETERIE NIMOISE'));
+  console.log('erreurs', errors);
+  await b.close();
+})();

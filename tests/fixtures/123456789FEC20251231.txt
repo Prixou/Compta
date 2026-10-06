@@ -1,0 +1,902 @@
+JournalCode	JournalLib	EcritureNum	EcritureDate	CompteNum	CompteLib	CompAuxNum	CompAuxLib	PieceRef	PieceDate	EcritureLib	Debit	Credit	EcritureLet	DateLet	ValidDate	Montantdevise	Idevise
+AN	A nouveaux	1	20250101	101000	Capital social			AN00001	20250101	A nouveau	0,00	10000,00			20250101		
+AN	A nouveaux	1	20250101	110000	Report à nouveau			AN00001	20250101	A nouveau	0,00	5000,00			20250101		
+AN	A nouveaux	1	20250101	164000	Emprunts			AN00001	20250101	A nouveau	0,00	3000,00			20250101		
+AN	A nouveaux	1	20250101	281540	Amort. matériel			AN00001	20250101	A nouveau	0,00	3000,00			20250101		
+AN	A nouveaux	1	20250101	401000	Fournisseurs	F001	Fournisseur Métro	AN00001	20250101	A nouveau	0,00	1500,00			20250101		
+AN	A nouveaux	1	20250101	512000	Banque Crédit Agricole			AN00001	20250101	A nouveau	12000,00	0,00			20250101		
+AN	A nouveaux	1	20250101	530000	Caisse			AN00001	20250101	A nouveau	500,00	0,00			20250101		
+AN	A nouveaux	1	20250101	215400	Matériel industriel			AN00001	20250101	A nouveau	8000,00	0,00			20250101		
+AN	A nouveaux	1	20250101	411000	Clients	C001	Client Durand	AN00001	20250101	A nouveau	2000,00	0,00			20250101		
+VT	Ventes	2	20250102	411000	Clients	C006	Client Richard	VT00002	20250102	Facture Client Richard	4568,52	0,00			20250102		
+VT	Ventes	2	20250102	706000	Prestations de services			VT00002	20250102	Facture Client Richard	0,00	3807,10			20250102		
+VT	Ventes	2	20250102	445710	TVA collectée			VT00002	20250102	Facture Client Richard	0,00	761,42			20250102		
+BQ	Banque	5	20250103	512000	Banque Crédit Agricole			BQ00003	20250103	Règlement Client Richard	4568,52	0,00			20250103		
+BQ	Banque	5	20250103	411000	Clients	C006	Client Richard	BQ00003	20250103	Règlement Client Richard	0,00	4568,52			20250103		
+VT	Ventes	6	20250106	411000	Clients	C007	Client Dubois	VT00004	20250106	Facture Client Dubois	3250,15	0,00			20250106		
+VT	Ventes	6	20250106	706000	Prestations de services			VT00004	20250106	Facture Client Dubois	0,00	2708,46			20250106		
+VT	Ventes	6	20250106	445710	TVA collectée			VT00004	20250106	Facture Client Dubois	0,00	541,69			20250106		
+BQ	Banque	9	20250107	512000	Banque Crédit Agricole			BQ00005	20250107	Règlement Client Dubois	3250,15	0,00			20250107		
+BQ	Banque	9	20250107	411000	Clients	C007	Client Dubois	BQ00005	20250107	Règlement Client Dubois	0,00	3250,15			20250107		
+VT	Ventes	10	20250110	411000	Clients	C002	Client Martin	VT00006	20250110	Facture Client Martin	4006,45	0,00			20250110		
+VT	Ventes	10	20250110	706000	Prestations de services			VT00006	20250110	Facture Client Martin	0,00	3338,71			20250110		
+VT	Ventes	10	20250110	445710	TVA collectée			VT00006	20250110	Facture Client Martin	0,00	667,74			20250110		
+BQ	Banque	13	20250113	512000	Banque Crédit Agricole			BQ00007	20250113	Règlement Client Martin	4006,45	0,00			20250113		
+BQ	Banque	13	20250113	411000	Clients	C002	Client Martin	BQ00007	20250113	Règlement Client Martin	0,00	4006,45			20250113		
+VT	Ventes	16	20250114	411000	Clients	C002	Client Martin	VT00008	20250114	Facture Client Martin	1983,66	0,00			20250114		
+VT	Ventes	16	20250114	706000	Prestations de services			VT00008	20250114	Facture Client Martin	0,00	1653,05			20250114		
+VT	Ventes	16	20250114	445710	TVA collectée			VT00008	20250114	Facture Client Martin	0,00	330,61			20250114		
+BQ	Banque	17	20250115	512000	Banque Crédit Agricole			BQ00009	20250115	Règlement Client Martin	1983,66	0,00			20250115		
+BQ	Banque	17	20250115	411000	Clients	C002	Client Martin	BQ00009	20250115	Règlement Client Martin	0,00	1983,66			20250115		
+VT	Ventes	21	20250120	411000	Clients	C001	Client Durand	VT00010	20250120	Facture Client Durand	4399,09	0,00			20250120		
+VT	Ventes	21	20250120	706000	Prestations de services			VT00010	20250120	Facture Client Durand	0,00	3665,91			20250120		
+VT	Ventes	21	20250120	445710	TVA collectée			VT00010	20250120	Facture Client Durand	0,00	733,18			20250120		
+BQ	Banque	22	20250120	512000	Banque Crédit Agricole			BQ00011	20250120	Règlement Client Durand	4399,09	0,00			20250120		
+BQ	Banque	22	20250120	411000	Clients	C001	Client Durand	BQ00011	20250120	Règlement Client Durand	0,00	4399,09			20250120		
+VT	Ventes	26	20250122	411000	Clients	C004	Client Petit	VT00012	20250122	Facture Client Petit	526,48	0,00			20250122		
+VT	Ventes	26	20250122	706000	Prestations de services			VT00012	20250122	Facture Client Petit	0,00	438,73			20250122		
+VT	Ventes	26	20250122	445710	TVA collectée			VT00012	20250122	Facture Client Petit	0,00	87,75			20250122		
+BQ	Banque	27	20250123	512000	Banque Crédit Agricole			BQ00013	20250123	Règlement Client Petit	526,48	0,00			20250123		
+BQ	Banque	27	20250123	411000	Clients	C004	Client Petit	BQ00013	20250123	Règlement Client Petit	0,00	526,48			20250123		
+AC	Achats	7	20250106	607000	Achats de marchandises			AC00014	20250106	Achat Fournisseur Leclerc	869,08	0,00			20250106		
+AC	Achats	7	20250106	445660	TVA déductible sur ABS			AC00014	20250106	Achat Fournisseur Leclerc	173,82	0,00			20250106		
+AC	Achats	7	20250106	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00014	20250106	Achat Fournisseur Leclerc	0,00	1042,90			20250106		
+BQ	Banque	8	20250106	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00015	20250106	Paiement Fournisseur Leclerc	1042,90	0,00			20250106		
+BQ	Banque	8	20250106	512000	Banque Crédit Agricole			BQ00015	20250106	Paiement Fournisseur Leclerc	0,00	1042,90			20250106		
+AC	Achats	11	20250110	607000	Achats de marchandises			AC00016	20250110	Achat Fournisseur Métro	345,14	0,00			20250110		
+AC	Achats	11	20250110	445660	TVA déductible sur ABS			AC00016	20250110	Achat Fournisseur Métro	69,03	0,00			20250110		
+AC	Achats	11	20250110	401000	Fournisseurs	F001	Fournisseur Métro	AC00016	20250110	Achat Fournisseur Métro	0,00	414,17			20250110		
+BQ	Banque	14	20250113	401000	Fournisseurs	F001	Fournisseur Métro	BQ00017	20250113	Paiement Fournisseur Métro	414,17	0,00			20250113		
+BQ	Banque	14	20250113	512000	Banque Crédit Agricole			BQ00017	20250113	Paiement Fournisseur Métro	0,00	414,17			20250113		
+AC	Achats	18	20250115	607000	Achats de marchandises			AC00018	20250115	Achat Fournisseur Leclerc	294,58	0,00			20250115		
+AC	Achats	18	20250115	445660	TVA déductible sur ABS			AC00018	20250115	Achat Fournisseur Leclerc	58,92	0,00			20250115		
+AC	Achats	18	20250115	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00018	20250115	Achat Fournisseur Leclerc	0,00	353,50			20250115		
+BQ	Banque	20	20250116	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00019	20250116	Paiement Fournisseur Leclerc	353,50	0,00			20250116		
+BQ	Banque	20	20250116	512000	Banque Crédit Agricole			BQ00019	20250116	Paiement Fournisseur Leclerc	0,00	353,50			20250116		
+AC	Achats	23	20250120	607000	Achats de marchandises			AC00020	20250120	Achat Fournisseur Bureau Vallée	398,08	0,00			20250120		
+AC	Achats	23	20250120	445660	TVA déductible sur ABS			AC00020	20250120	Achat Fournisseur Bureau Vallée	79,62	0,00			20250120		
+AC	Achats	23	20250120	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00020	20250120	Achat Fournisseur Bureau Vallée	0,00	477,70			20250120		
+BQ	Banque	25	20250121	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00021	20250121	Paiement Fournisseur Bureau Vallée	477,70	0,00			20250121		
+BQ	Banque	25	20250121	512000	Banque Crédit Agricole			BQ00021	20250121	Paiement Fournisseur Bureau Vallée	0,00	477,70			20250121		
+AC	Achats	3	20250102	613200	Locations immobilières			AC00022	20250102	Loyer	1000,00	0,00			20250102		
+AC	Achats	3	20250102	445660	TVA déductible sur ABS			AC00022	20250102	Loyer	200,00	0,00			20250102		
+AC	Achats	3	20250102	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00022	20250102	Loyer	0,00	1200,00			20250102		
+BQ	Banque	4	20250102	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00023	20250102	Loyer	1200,00	0,00			20250102		
+BQ	Banque	4	20250102	512000	Banque Crédit Agricole			BQ00023	20250102	Loyer	0,00	1200,00			20250102		
+OD	Opérations diverses	28	20250128	641000	Rémunérations du personnel			OD00024	20250128	Salaires	2500,00	0,00			20250128		
+OD	Opérations diverses	28	20250128	645000	Charges sociales			OD00024	20250128	Charges sociales	1050,00	0,00			20250128		
+OD	Opérations diverses	28	20250128	421000	Personnel - rémunérations dues			OD00024	20250128	Salaires	0,00	1950,00			20250128		
+OD	Opérations diverses	28	20250128	431000	Urssaf			OD00024	20250128	Urssaf	0,00	1600,00			20250128		
+BQ	Banque	29	20250128	421000	Personnel - rémunérations dues			BQ00025	20250128	Virement salaires	1950,00	0,00			20250128		
+BQ	Banque	29	20250128	512000	Banque Crédit Agricole			BQ00025	20250128	Virement salaires	0,00	1950,00			20250128		
+BQ	Banque	19	20250115	431000	Urssaf			BQ00026	20250115	Urssaf	1600,00	0,00			20250115		
+BQ	Banque	19	20250115	512000	Banque Crédit Agricole			BQ00026	20250115	Urssaf	0,00	1600,00			20250115		
+BQ	Banque	24	20250120	661100	Intérêts des emprunts			BQ00027	20250120	Intérêts	25,00	0,00			20250120		
+BQ	Banque	24	20250120	164000	Emprunts			BQ00027	20250120	Echéance emprunt	230,00	0,00			20250120		
+BQ	Banque	24	20250120	627000	Frais bancaires			BQ00027	20250120	Frais	12,50	0,00			20250120		
+BQ	Banque	24	20250120	512000	Banque Crédit Agricole			BQ00027	20250120	Echéance	0,00	267,50			20250120		
+CA	Caisse	12	20250110	530000	Caisse			CA00028	20250110	Ventes comptoir	360,00	0,00			20250110		
+CA	Caisse	12	20250110	707000	Ventes de marchandises			CA00028	20250110	Ventes comptoir	0,00	300,00			20250110		
+CA	Caisse	12	20250110	445710	TVA collectée			CA00028	20250110	Ventes comptoir	0,00	60,00			20250110		
+CA	Caisse	15	20250113	606100	Fournitures non stockables			CA00029	20250113	Petites fournitures	45,00	0,00			20250113		
+CA	Caisse	15	20250113	530000	Caisse			CA00029	20250113	Petites fournitures	0,00	45,00			20250113		
+VT	Ventes	30	20250203	411000	Clients	C004	Client Petit	VT00030	20250203	Facture Client Petit	3159,98	0,00			20250203		
+VT	Ventes	30	20250203	706000	Prestations de services			VT00030	20250203	Facture Client Petit	0,00	2633,32			20250203		
+VT	Ventes	30	20250203	445710	TVA collectée			VT00030	20250203	Facture Client Petit	0,00	526,66			20250203		
+BQ	Banque	31	20250203	512000	Banque Crédit Agricole			BQ00031	20250203	Règlement Client Petit	3159,98	0,00			20250203		
+BQ	Banque	31	20250203	411000	Clients	C004	Client Petit	BQ00031	20250203	Règlement Client Petit	0,00	3159,98			20250203		
+VT	Ventes	35	20250206	411000	Clients	C010	Client Simon	VT00032	20250206	Facture Client Simon	4567,82	0,00			20250206		
+VT	Ventes	35	20250206	706000	Prestations de services			VT00032	20250206	Facture Client Simon	0,00	3806,52			20250206		
+VT	Ventes	35	20250206	445710	TVA collectée			VT00032	20250206	Facture Client Simon	0,00	761,30			20250206		
+BQ	Banque	37	20250207	512000	Banque Crédit Agricole			BQ00033	20250207	Règlement Client Simon	4567,82	0,00			20250207		
+BQ	Banque	37	20250207	411000	Clients	C010	Client Simon	BQ00033	20250207	Règlement Client Simon	0,00	4567,82			20250207		
+VT	Ventes	38	20250210	411000	Clients	C010	Client Simon	VT00034	20250210	Facture Client Simon	2959,80	0,00			20250210		
+VT	Ventes	38	20250210	706000	Prestations de services			VT00034	20250210	Facture Client Simon	0,00	2466,50			20250210		
+VT	Ventes	38	20250210	445710	TVA collectée			VT00034	20250210	Facture Client Simon	0,00	493,30			20250210		
+BQ	Banque	41	20250211	512000	Banque Crédit Agricole			BQ00035	20250211	Règlement Client Simon	2959,80	0,00			20250211		
+BQ	Banque	41	20250211	411000	Clients	C010	Client Simon	BQ00035	20250211	Règlement Client Simon	0,00	2959,80			20250211		
+VT	Ventes	44	20250214	411000	Clients	C001	Client Durand	VT00036	20250214	Facture Client Durand	4694,57	0,00			20250214		
+VT	Ventes	44	20250214	706000	Prestations de services			VT00036	20250214	Facture Client Durand	0,00	3912,14			20250214		
+VT	Ventes	44	20250214	445710	TVA collectée			VT00036	20250214	Facture Client Durand	0,00	782,43			20250214		
+BQ	Banque	45	20250217	512000	Banque Crédit Agricole			BQ00037	20250217	Règlement Client Durand	4694,57	0,00			20250217		
+BQ	Banque	45	20250217	411000	Clients	C001	Client Durand	BQ00037	20250217	Règlement Client Durand	0,00	4694,57			20250217		
+VT	Ventes	49	20250218	411000	Clients	C001	Client Durand	VT00038	20250218	Facture Client Durand	2831,59	0,00			20250218		
+VT	Ventes	49	20250218	706000	Prestations de services			VT00038	20250218	Facture Client Durand	0,00	2359,66			20250218		
+VT	Ventes	49	20250218	445710	TVA collectée			VT00038	20250218	Facture Client Durand	0,00	471,93			20250218		
+BQ	Banque	50	20250219	512000	Banque Crédit Agricole			BQ00039	20250219	Règlement Client Durand	2831,59	0,00			20250219		
+BQ	Banque	50	20250219	411000	Clients	C001	Client Durand	BQ00039	20250219	Règlement Client Durand	0,00	2831,59			20250219		
+VT	Ventes	54	20250224	411000	Clients	C003	Client Bernard	VT00040	20250224	Facture Client Bernard	1645,86	0,00			20250224		
+VT	Ventes	54	20250224	706000	Prestations de services			VT00040	20250224	Facture Client Bernard	0,00	1371,55			20250224		
+VT	Ventes	54	20250224	445710	TVA collectée			VT00040	20250224	Facture Client Bernard	0,00	274,31			20250224		
+BQ	Banque	55	20250224	512000	Banque Crédit Agricole			BQ00041	20250224	Règlement Client Bernard	1645,86	0,00			20250224		
+BQ	Banque	55	20250224	411000	Clients	C003	Client Bernard	BQ00041	20250224	Règlement Client Bernard	0,00	1645,86			20250224		
+AC	Achats	34	20250205	607000	Achats de marchandises			AC00042	20250205	Achat Fournisseur Métro	1065,10	0,00			20250205		
+AC	Achats	34	20250205	445660	TVA déductible sur ABS			AC00042	20250205	Achat Fournisseur Métro	213,02	0,00			20250205		
+AC	Achats	34	20250205	401000	Fournisseurs	F001	Fournisseur Métro	AC00042	20250205	Achat Fournisseur Métro	0,00	1278,12			20250205		
+BQ	Banque	36	20250206	401000	Fournisseurs	F001	Fournisseur Métro	BQ00043	20250206	Paiement Fournisseur Métro	1278,12	0,00			20250206		
+BQ	Banque	36	20250206	512000	Banque Crédit Agricole			BQ00043	20250206	Paiement Fournisseur Métro	0,00	1278,12			20250206		
+AC	Achats	39	20250210	607000	Achats de marchandises			AC00044	20250210	Achat Fournisseur Bureau Vallée	693,57	0,00			20250210		
+AC	Achats	39	20250210	445660	TVA déductible sur ABS			AC00044	20250210	Achat Fournisseur Bureau Vallée	138,71	0,00			20250210		
+AC	Achats	39	20250210	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00044	20250210	Achat Fournisseur Bureau Vallée	0,00	832,28			20250210		
+BQ	Banque	42	20250211	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00045	20250211	Paiement Fournisseur Bureau Vallée	832,28	0,00			20250211		
+BQ	Banque	42	20250211	512000	Banque Crédit Agricole			BQ00045	20250211	Paiement Fournisseur Bureau Vallée	0,00	832,28			20250211		
+AC	Achats	46	20250217	607000	Achats de marchandises			AC00046	20250217	Achat Fournisseur Bureau Vallée	489,16	0,00			20250217		
+AC	Achats	46	20250217	445660	TVA déductible sur ABS			AC00046	20250217	Achat Fournisseur Bureau Vallée	97,83	0,00			20250217		
+AC	Achats	46	20250217	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00046	20250217	Achat Fournisseur Bureau Vallée	0,00	586,99			20250217		
+BQ	Banque	47	20250217	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00047	20250217	Paiement Fournisseur Bureau Vallée	586,99	0,00			20250217		
+BQ	Banque	47	20250217	512000	Banque Crédit Agricole			BQ00047	20250217	Paiement Fournisseur Bureau Vallée	0,00	586,99			20250217		
+AC	Achats	51	20250220	607000	Achats de marchandises			AC00048	20250220	Achat Fournisseur Bureau Vallée	1113,93	0,00			20250220		
+AC	Achats	51	20250220	445660	TVA déductible sur ABS			AC00048	20250220	Achat Fournisseur Bureau Vallée	222,79	0,00			20250220		
+AC	Achats	51	20250220	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00048	20250220	Achat Fournisseur Bureau Vallée	0,00	1336,72			20250220		
+BQ	Banque	53	20250221	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00049	20250221	Paiement Fournisseur Bureau Vallée	1336,72	0,00			20250221		
+BQ	Banque	53	20250221	512000	Banque Crédit Agricole			BQ00049	20250221	Paiement Fournisseur Bureau Vallée	0,00	1336,72			20250221		
+AC	Achats	32	20250203	613200	Locations immobilières			AC00050	20250203	Loyer	1000,00	0,00			20250203		
+AC	Achats	32	20250203	445660	TVA déductible sur ABS			AC00050	20250203	Loyer	200,00	0,00			20250203		
+AC	Achats	32	20250203	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00050	20250203	Loyer	0,00	1200,00			20250203		
+BQ	Banque	33	20250203	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00051	20250203	Loyer	1200,00	0,00			20250203		
+BQ	Banque	33	20250203	512000	Banque Crédit Agricole			BQ00051	20250203	Loyer	0,00	1200,00			20250203		
+OD	Opérations diverses	56	20250228	641000	Rémunérations du personnel			OD00052	20250228	Salaires	2500,00	0,00			20250228		
+OD	Opérations diverses	56	20250228	645000	Charges sociales			OD00052	20250228	Charges sociales	1050,00	0,00			20250228		
+OD	Opérations diverses	56	20250228	421000	Personnel - rémunérations dues			OD00052	20250228	Salaires	0,00	1950,00			20250228		
+OD	Opérations diverses	56	20250228	431000	Urssaf			OD00052	20250228	Urssaf	0,00	1600,00			20250228		
+BQ	Banque	57	20250228	421000	Personnel - rémunérations dues			BQ00053	20250228	Virement salaires	1950,00	0,00			20250228		
+BQ	Banque	57	20250228	512000	Banque Crédit Agricole			BQ00053	20250228	Virement salaires	0,00	1950,00			20250228		
+BQ	Banque	48	20250217	431000	Urssaf			BQ00054	20250217	Urssaf	1600,00	0,00			20250217		
+BQ	Banque	48	20250217	512000	Banque Crédit Agricole			BQ00054	20250217	Urssaf	0,00	1600,00			20250217		
+BQ	Banque	52	20250220	661100	Intérêts des emprunts			BQ00055	20250220	Intérêts	25,00	0,00			20250220		
+BQ	Banque	52	20250220	164000	Emprunts			BQ00055	20250220	Echéance emprunt	230,00	0,00			20250220		
+BQ	Banque	52	20250220	627000	Frais bancaires			BQ00055	20250220	Frais	12,50	0,00			20250220		
+BQ	Banque	52	20250220	512000	Banque Crédit Agricole			BQ00055	20250220	Echéance	0,00	267,50			20250220		
+CA	Caisse	40	20250210	530000	Caisse			CA00056	20250210	Ventes comptoir	360,00	0,00			20250210		
+CA	Caisse	40	20250210	707000	Ventes de marchandises			CA00056	20250210	Ventes comptoir	0,00	300,00			20250210		
+CA	Caisse	40	20250210	445710	TVA collectée			CA00056	20250210	Ventes comptoir	0,00	60,00			20250210		
+CA	Caisse	43	20250212	606100	Fournitures non stockables			CA00057	20250212	Petites fournitures	45,00	0,00			20250212		
+CA	Caisse	43	20250212	530000	Caisse			CA00057	20250212	Petites fournitures	0,00	45,00			20250212		
+VT	Ventes	59	20250303	411000	Clients	C004	Client Petit	VT00058	20250303	Facture Client Petit	2013,44	0,00			20250303		
+VT	Ventes	59	20250303	706000	Prestations de services			VT00058	20250303	Facture Client Petit	0,00	1677,87			20250303		
+VT	Ventes	59	20250303	445710	TVA collectée			VT00058	20250303	Facture Client Petit	0,00	335,57			20250303		
+BQ	Banque	60	20250303	512000	Banque Crédit Agricole			BQ00059	20250303	Règlement Client Petit	2013,44	0,00			20250303		
+BQ	Banque	60	20250303	411000	Clients	C004	Client Petit	BQ00059	20250303	Règlement Client Petit	0,00	2013,44			20250303		
+VT	Ventes	64	20250306	411000	Clients	C009	Client Laurent	VT00060	20250306	Facture Client Laurent	3521,77	0,00			20250306		
+VT	Ventes	64	20250306	706000	Prestations de services			VT00060	20250306	Facture Client Laurent	0,00	2934,81			20250306		
+VT	Ventes	64	20250306	445710	TVA collectée			VT00060	20250306	Facture Client Laurent	0,00	586,96			20250306		
+BQ	Banque	66	20250307	512000	Banque Crédit Agricole			BQ00061	20250307	Règlement Client Laurent	3521,77	0,00			20250307		
+BQ	Banque	66	20250307	411000	Clients	C009	Client Laurent	BQ00061	20250307	Règlement Client Laurent	0,00	3521,77			20250307		
+VT	Ventes	68	20250310	411000	Clients	C010	Client Simon	VT00062	20250310	Facture Client Simon	624,62	0,00			20250310		
+VT	Ventes	68	20250310	706000	Prestations de services			VT00062	20250310	Facture Client Simon	0,00	520,52			20250310		
+VT	Ventes	68	20250310	445710	TVA collectée			VT00062	20250310	Facture Client Simon	0,00	104,10			20250310		
+BQ	Banque	71	20250311	512000	Banque Crédit Agricole			BQ00063	20250311	Règlement Client Simon	624,62	0,00			20250311		
+BQ	Banque	71	20250311	411000	Clients	C010	Client Simon	BQ00063	20250311	Règlement Client Simon	0,00	624,62			20250311		
+VT	Ventes	74	20250314	411000	Clients	C004	Client Petit	VT00064	20250314	Facture Client Petit	2564,08	0,00			20250314		
+VT	Ventes	74	20250314	706000	Prestations de services			VT00064	20250314	Facture Client Petit	0,00	2136,73			20250314		
+VT	Ventes	74	20250314	445710	TVA collectée			VT00064	20250314	Facture Client Petit	0,00	427,35			20250314		
+BQ	Banque	75	20250317	512000	Banque Crédit Agricole			BQ00065	20250317	Règlement Client Petit	2564,08	0,00			20250317		
+BQ	Banque	75	20250317	411000	Clients	C004	Client Petit	BQ00065	20250317	Règlement Client Petit	0,00	2564,08			20250317		
+VT	Ventes	79	20250318	411000	Clients	C009	Client Laurent	VT00066	20250318	Facture Client Laurent	2258,51	0,00			20250318		
+VT	Ventes	79	20250318	706000	Prestations de services			VT00066	20250318	Facture Client Laurent	0,00	1882,09			20250318		
+VT	Ventes	79	20250318	445710	TVA collectée			VT00066	20250318	Facture Client Laurent	0,00	376,42			20250318		
+BQ	Banque	80	20250319	512000	Banque Crédit Agricole			BQ00067	20250319	Règlement Client Laurent	2258,51	0,00			20250319		
+BQ	Banque	80	20250319	411000	Clients	C009	Client Laurent	BQ00067	20250319	Règlement Client Laurent	0,00	2258,51			20250319		
+VT	Ventes	84	20250324	411000	Clients	C006	Client Richard	VT00068	20250324	Facture Client Richard	2427,28	0,00			20250324		
+VT	Ventes	84	20250324	706000	Prestations de services			VT00068	20250324	Facture Client Richard	0,00	2022,73			20250324		
+VT	Ventes	84	20250324	445710	TVA collectée			VT00068	20250324	Facture Client Richard	0,00	404,55			20250324		
+BQ	Banque	85	20250324	512000	Banque Crédit Agricole			BQ00069	20250324	Règlement Client Richard	2427,28	0,00			20250324		
+BQ	Banque	85	20250324	411000	Clients	C006	Client Richard	BQ00069	20250324	Règlement Client Richard	0,00	2427,28			20250324		
+AC	Achats	63	20250305	607000	Achats de marchandises			AC00070	20250305	Achat Fournisseur Leclerc	778,53	0,00			20250305		
+AC	Achats	63	20250305	445660	TVA déductible sur ABS			AC00070	20250305	Achat Fournisseur Leclerc	155,71	0,00			20250305		
+AC	Achats	63	20250305	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00070	20250305	Achat Fournisseur Leclerc	0,00	934,24			20250305		
+BQ	Banque	65	20250306	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00071	20250306	Paiement Fournisseur Leclerc	934,24	0,00			20250306		
+BQ	Banque	65	20250306	512000	Banque Crédit Agricole			BQ00071	20250306	Paiement Fournisseur Leclerc	0,00	934,24			20250306		
+AC	Achats	69	20250310	607000	Achats de marchandises			AC00072	20250310	Achat Fournisseur Métro	1471,01	0,00			20250310		
+AC	Achats	69	20250310	445660	TVA déductible sur ABS			AC00072	20250310	Achat Fournisseur Métro	294,20	0,00			20250310		
+AC	Achats	69	20250310	401000	Fournisseurs	F001	Fournisseur Métro	AC00072	20250310	Achat Fournisseur Métro	0,00	1765,21			20250310		
+BQ	Banque	72	20250311	401000	Fournisseurs	F001	Fournisseur Métro	BQ00073	20250311	Paiement Fournisseur Métro	1765,21	0,00			20250311		
+BQ	Banque	72	20250311	512000	Banque Crédit Agricole			BQ00073	20250311	Paiement Fournisseur Métro	0,00	1765,21			20250311		
+AC	Achats	76	20250317	607000	Achats de marchandises			AC00074	20250317	Achat Fournisseur Bureau Vallée	1447,73	0,00			20250317		
+AC	Achats	76	20250317	445660	TVA déductible sur ABS			AC00074	20250317	Achat Fournisseur Bureau Vallée	289,55	0,00			20250317		
+AC	Achats	76	20250317	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00074	20250317	Achat Fournisseur Bureau Vallée	0,00	1737,28			20250317		
+BQ	Banque	77	20250317	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00075	20250317	Paiement Fournisseur Bureau Vallée	1737,28	0,00			20250317		
+BQ	Banque	77	20250317	512000	Banque Crédit Agricole			BQ00075	20250317	Paiement Fournisseur Bureau Vallée	0,00	1737,28			20250317		
+AC	Achats	81	20250320	607000	Achats de marchandises			AC00076	20250320	Achat Fournisseur Métro	1119,08	0,00			20250320		
+AC	Achats	81	20250320	445660	TVA déductible sur ABS			AC00076	20250320	Achat Fournisseur Métro	223,82	0,00			20250320		
+AC	Achats	81	20250320	401000	Fournisseurs	F001	Fournisseur Métro	AC00076	20250320	Achat Fournisseur Métro	0,00	1342,90			20250320		
+BQ	Banque	83	20250321	401000	Fournisseurs	F001	Fournisseur Métro	BQ00077	20250321	Paiement Fournisseur Métro	1342,90	0,00			20250321		
+BQ	Banque	83	20250321	512000	Banque Crédit Agricole			BQ00077	20250321	Paiement Fournisseur Métro	0,00	1342,90			20250321		
+AC	Achats	61	20250303	613200	Locations immobilières			AC00078	20250303	Loyer	1000,00	0,00			20250303		
+AC	Achats	61	20250303	445660	TVA déductible sur ABS			AC00078	20250303	Loyer	200,00	0,00			20250303		
+AC	Achats	61	20250303	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00078	20250303	Loyer	0,00	1200,00			20250303		
+BQ	Banque	62	20250303	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00079	20250303	Loyer	1200,00	0,00			20250303		
+BQ	Banque	62	20250303	512000	Banque Crédit Agricole			BQ00079	20250303	Loyer	0,00	1200,00			20250303		
+OD	Opérations diverses	86	20250328	641000	Rémunérations du personnel			OD00080	20250328	Salaires	2500,00	0,00			20250328		
+OD	Opérations diverses	86	20250328	645000	Charges sociales			OD00080	20250328	Charges sociales	1050,00	0,00			20250328		
+OD	Opérations diverses	86	20250328	421000	Personnel - rémunérations dues			OD00080	20250328	Salaires	0,00	1950,00			20250328		
+OD	Opérations diverses	86	20250328	431000	Urssaf			OD00080	20250328	Urssaf	0,00	1600,00			20250328		
+BQ	Banque	87	20250328	421000	Personnel - rémunérations dues			BQ00081	20250328	Virement salaires	1950,00	0,00			20250328		
+BQ	Banque	87	20250328	512000	Banque Crédit Agricole			BQ00081	20250328	Virement salaires	0,00	1950,00			20250328		
+BQ	Banque	78	20250317	431000	Urssaf			BQ00082	20250317	Urssaf	1600,00	0,00			20250317		
+BQ	Banque	78	20250317	512000	Banque Crédit Agricole			BQ00082	20250317	Urssaf	0,00	1600,00			20250317		
+BQ	Banque	82	20250320	661100	Intérêts des emprunts			BQ00083	20250320	Intérêts	25,00	0,00			20250320		
+BQ	Banque	82	20250320	164000	Emprunts			BQ00083	20250320	Echéance emprunt	230,00	0,00			20250320		
+BQ	Banque	82	20250320	627000	Frais bancaires			BQ00083	20250320	Frais	12,50	0,00			20250320		
+BQ	Banque	82	20250320	512000	Banque Crédit Agricole			BQ00083	20250320	Echéance	0,00	267,50			20250320		
+CA	Caisse	70	20250310	530000	Caisse			CA00084	20250310	Ventes comptoir	360,00	0,00			20250310		
+CA	Caisse	70	20250310	707000	Ventes de marchandises			CA00084	20250310	Ventes comptoir	0,00	300,00			20250310		
+CA	Caisse	70	20250310	445710	TVA collectée			CA00084	20250310	Ventes comptoir	0,00	60,00			20250310		
+CA	Caisse	73	20250312	606100	Fournitures non stockables			CA00085	20250312	Petites fournitures	45,00	0,00			20250312		
+CA	Caisse	73	20250312	530000	Caisse			CA00085	20250312	Petites fournitures	0,00	45,00			20250312		
+VT	Ventes	89	20250402	411000	Clients	C009	Client Laurent	VT00086	20250402	Facture Client Laurent	2558,32	0,00			20250402		
+VT	Ventes	89	20250402	706000	Prestations de services			VT00086	20250402	Facture Client Laurent	0,00	2131,93			20250402		
+VT	Ventes	89	20250402	445710	TVA collectée			VT00086	20250402	Facture Client Laurent	0,00	426,39			20250402		
+BQ	Banque	91	20250403	512000	Banque Crédit Agricole			BQ00087	20250403	Règlement Client Laurent	2558,32	0,00			20250403		
+BQ	Banque	91	20250403	411000	Clients	C009	Client Laurent	BQ00087	20250403	Règlement Client Laurent	0,00	2558,32			20250403		
+VT	Ventes	92	20250407	411000	Clients	C006	Client Richard	VT00088	20250407	Facture Client Richard	3598,74	0,00			20250407		
+VT	Ventes	92	20250407	706000	Prestations de services			VT00088	20250407	Facture Client Richard	0,00	2998,95			20250407		
+VT	Ventes	92	20250407	445710	TVA collectée			VT00088	20250407	Facture Client Richard	0,00	599,79			20250407		
+BQ	Banque	93	20250407	512000	Banque Crédit Agricole			BQ00089	20250407	Règlement Client Richard	3598,74	0,00			20250407		
+BQ	Banque	93	20250407	411000	Clients	C006	Client Richard	BQ00089	20250407	Règlement Client Richard	0,00	3598,74			20250407		
+VT	Ventes	96	20250410	411000	Clients	C005	Client Robert	VT00090	20250410	Facture Client Robert	3063,78	0,00			20250410		
+VT	Ventes	96	20250410	706000	Prestations de services			VT00090	20250410	Facture Client Robert	0,00	2553,15			20250410		
+VT	Ventes	96	20250410	445710	TVA collectée			VT00090	20250410	Facture Client Robert	0,00	510,63			20250410		
+BQ	Banque	99	20250411	512000	Banque Crédit Agricole			BQ00091	20250411	Règlement Client Robert	3063,78	0,00			20250411		
+BQ	Banque	99	20250411	411000	Clients	C005	Client Robert	BQ00091	20250411	Règlement Client Robert	0,00	3063,78			20250411		
+VT	Ventes	101	20250414	411000	Clients	C002	Client Martin	VT00092	20250414	Facture Client Martin	884,21	0,00			20250414		
+VT	Ventes	101	20250414	706000	Prestations de services			VT00092	20250414	Facture Client Martin	0,00	736,84			20250414		
+VT	Ventes	101	20250414	445710	TVA collectée			VT00092	20250414	Facture Client Martin	0,00	147,37			20250414		
+BQ	Banque	103	20250415	512000	Banque Crédit Agricole			BQ00093	20250415	Règlement Client Martin	884,21	0,00			20250415		
+BQ	Banque	103	20250415	411000	Clients	C002	Client Martin	BQ00093	20250415	Règlement Client Martin	0,00	884,21			20250415		
+VT	Ventes	107	20250418	411000	Clients	C007	Client Dubois	VT00094	20250418	Facture Client Dubois	1092,43	0,00			20250418		
+VT	Ventes	107	20250418	706000	Prestations de services			VT00094	20250418	Facture Client Dubois	0,00	910,36			20250418		
+VT	Ventes	107	20250418	445710	TVA collectée			VT00094	20250418	Facture Client Dubois	0,00	182,07			20250418		
+BQ	Banque	108	20250422	512000	Banque Crédit Agricole			BQ00095	20250422	Règlement Client Dubois	1092,43	0,00			20250422		
+BQ	Banque	108	20250422	411000	Clients	C007	Client Dubois	BQ00095	20250422	Règlement Client Dubois	0,00	1092,43			20250422		
+VT	Ventes	109	20250422	411000	Clients	C006	Client Richard	VT00096	20250422	Facture Client Richard	1034,81	0,00			20250422		
+VT	Ventes	109	20250422	706000	Prestations de services			VT00096	20250422	Facture Client Richard	0,00	862,34			20250422		
+VT	Ventes	109	20250422	445710	TVA collectée			VT00096	20250422	Facture Client Richard	0,00	172,47			20250422		
+BQ	Banque	113	20250423	512000	Banque Crédit Agricole			BQ00097	20250423	Règlement Client Richard	1034,81	0,00			20250423		
+BQ	Banque	113	20250423	411000	Clients	C006	Client Richard	BQ00097	20250423	Règlement Client Richard	0,00	1034,81			20250423		
+AC	Achats	94	20250407	607000	Achats de marchandises			AC00098	20250407	Achat Fournisseur Leclerc	874,72	0,00			20250407		
+AC	Achats	94	20250407	445660	TVA déductible sur ABS			AC00098	20250407	Achat Fournisseur Leclerc	174,94	0,00			20250407		
+AC	Achats	94	20250407	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00098	20250407	Achat Fournisseur Leclerc	0,00	1049,66			20250407		
+BQ	Banque	95	20250407	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00099	20250407	Paiement Fournisseur Leclerc	1049,66	0,00			20250407		
+BQ	Banque	95	20250407	512000	Banque Crédit Agricole			BQ00099	20250407	Paiement Fournisseur Leclerc	0,00	1049,66			20250407		
+AC	Achats	97	20250410	607000	Achats de marchandises			AC00100	20250410	Achat Fournisseur Bureau Vallée	324,19	0,00			20250410		
+AC	Achats	97	20250410	445660	TVA déductible sur ABS			AC00100	20250410	Achat Fournisseur Bureau Vallée	64,84	0,00			20250410		
+AC	Achats	97	20250410	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00100	20250410	Achat Fournisseur Bureau Vallée	0,00	389,03			20250410		
+BQ	Banque	100	20250411	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00101	20250411	Paiement Fournisseur Bureau Vallée	389,03	0,00			20250411		
+BQ	Banque	100	20250411	512000	Banque Crédit Agricole			BQ00101	20250411	Paiement Fournisseur Bureau Vallée	0,00	389,03			20250411		
+AC	Achats	104	20250415	607000	Achats de marchandises			AC00102	20250415	Achat Fournisseur Bureau Vallée	1116,84	0,00			20250415		
+AC	Achats	104	20250415	445660	TVA déductible sur ABS			AC00102	20250415	Achat Fournisseur Bureau Vallée	223,37	0,00			20250415		
+AC	Achats	104	20250415	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00102	20250415	Achat Fournisseur Bureau Vallée	0,00	1340,21			20250415		
+BQ	Banque	106	20250416	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00103	20250416	Paiement Fournisseur Bureau Vallée	1340,21	0,00			20250416		
+BQ	Banque	106	20250416	512000	Banque Crédit Agricole			BQ00103	20250416	Paiement Fournisseur Bureau Vallée	0,00	1340,21			20250416		
+AC	Achats	110	20250422	607000	Achats de marchandises			AC00104	20250422	Achat Fournisseur Leclerc	744,20	0,00			20250422		
+AC	Achats	110	20250422	445660	TVA déductible sur ABS			AC00104	20250422	Achat Fournisseur Leclerc	148,84	0,00			20250422		
+AC	Achats	110	20250422	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00104	20250422	Achat Fournisseur Leclerc	0,00	893,04			20250422		
+BQ	Banque	111	20250422	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00105	20250422	Paiement Fournisseur Leclerc	893,04	0,00			20250422		
+BQ	Banque	111	20250422	512000	Banque Crédit Agricole			BQ00105	20250422	Paiement Fournisseur Leclerc	0,00	893,04			20250422		
+AC	Achats	88	20250401	613200	Locations immobilières			AC00106	20250401	Loyer	1000,00	0,00			20250401		
+AC	Achats	88	20250401	445660	TVA déductible sur ABS			AC00106	20250401	Loyer	200,00	0,00			20250401		
+AC	Achats	88	20250401	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00106	20250401	Loyer	0,00	1200,00			20250401		
+BQ	Banque	90	20250402	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00107	20250402	Loyer	1200,00	0,00			20250402		
+BQ	Banque	90	20250402	512000	Banque Crédit Agricole			BQ00107	20250402	Loyer	0,00	1200,00			20250402		
+OD	Opérations diverses	114	20250428	641000	Rémunérations du personnel			OD00108	20250428	Salaires	2500,00	0,00			20250428		
+OD	Opérations diverses	114	20250428	645000	Charges sociales			OD00108	20250428	Charges sociales	1050,00	0,00			20250428		
+OD	Opérations diverses	114	20250428	421000	Personnel - rémunérations dues			OD00108	20250428	Salaires	0,00	1950,00			20250428		
+OD	Opérations diverses	114	20250428	431000	Urssaf			OD00108	20250428	Urssaf	0,00	1600,00			20250428		
+BQ	Banque	115	20250428	421000	Personnel - rémunérations dues			BQ00109	20250428	Virement salaires	1950,00	0,00			20250428		
+BQ	Banque	115	20250428	512000	Banque Crédit Agricole			BQ00109	20250428	Virement salaires	0,00	1950,00			20250428		
+BQ	Banque	105	20250415	431000	Urssaf			BQ00110	20250415	Urssaf	1600,00	0,00			20250415		
+BQ	Banque	105	20250415	512000	Banque Crédit Agricole			BQ00110	20250415	Urssaf	0,00	1600,00			20250415		
+BQ	Banque	112	20250422	661100	Intérêts des emprunts			BQ00111	20250422	Intérêts	25,00	0,00			20250422		
+BQ	Banque	112	20250422	164000	Emprunts			BQ00111	20250422	Echéance emprunt	230,00	0,00			20250422		
+BQ	Banque	112	20250422	627000	Frais bancaires			BQ00111	20250422	Frais	12,50	0,00			20250422		
+BQ	Banque	112	20250422	512000	Banque Crédit Agricole			BQ00111	20250422	Echéance	0,00	267,50			20250422		
+CA	Caisse	98	20250410	530000	Caisse			CA00112	20250410	Ventes comptoir	360,00	0,00			20250410		
+CA	Caisse	98	20250410	707000	Ventes de marchandises			CA00112	20250410	Ventes comptoir	0,00	300,00			20250410		
+CA	Caisse	98	20250410	445710	TVA collectée			CA00112	20250410	Ventes comptoir	0,00	60,00			20250410		
+CA	Caisse	102	20250414	606100	Fournitures non stockables			CA00113	20250414	Petites fournitures	45,00	0,00			20250414		
+CA	Caisse	102	20250414	530000	Caisse			CA00113	20250414	Petites fournitures	0,00	45,00			20250414		
+VT	Ventes	117	20250502	411000	Clients	C006	Client Richard	VT00114	20250502	Facture Client Richard	2999,00	0,00			20250502		
+VT	Ventes	117	20250502	706000	Prestations de services			VT00114	20250502	Facture Client Richard	0,00	2499,17			20250502		
+VT	Ventes	117	20250502	445710	TVA collectée			VT00114	20250502	Facture Client Richard	0,00	499,83			20250502		
+BQ	Banque	120	20250505	512000	Banque Crédit Agricole			BQ00115	20250505	Règlement Client Richard	2999,00	0,00			20250505		
+BQ	Banque	120	20250505	411000	Clients	C006	Client Richard	BQ00115	20250505	Règlement Client Richard	0,00	2999,00			20250505		
+VT	Ventes	122	20250506	411000	Clients	C010	Client Simon	VT00116	20250506	Facture Client Simon	3898,20	0,00			20250506		
+VT	Ventes	122	20250506	706000	Prestations de services			VT00116	20250506	Facture Client Simon	0,00	3248,50			20250506		
+VT	Ventes	122	20250506	445710	TVA collectée			VT00116	20250506	Facture Client Simon	0,00	649,70			20250506		
+BQ	Banque	124	20250507	512000	Banque Crédit Agricole			BQ00117	20250507	Règlement Client Simon	3898,20	0,00			20250507		
+BQ	Banque	124	20250507	411000	Clients	C010	Client Simon	BQ00117	20250507	Règlement Client Simon	0,00	3898,20			20250507		
+VT	Ventes	125	20250512	411000	Clients	C002	Client Martin	VT00118	20250512	Facture Client Martin	4089,46	0,00			20250512		
+VT	Ventes	125	20250512	706000	Prestations de services			VT00118	20250512	Facture Client Martin	0,00	3407,88			20250512		
+VT	Ventes	125	20250512	445710	TVA collectée			VT00118	20250512	Facture Client Martin	0,00	681,58			20250512		
+BQ	Banque	126	20250512	512000	Banque Crédit Agricole			BQ00119	20250512	Règlement Client Martin	4089,46	0,00			20250512		
+BQ	Banque	126	20250512	411000	Clients	C002	Client Martin	BQ00119	20250512	Règlement Client Martin	0,00	4089,46			20250512		
+VT	Ventes	131	20250514	411000	Clients	C005	Client Robert	VT00120	20250514	Facture Client Robert	2464,99	0,00			20250514		
+VT	Ventes	131	20250514	706000	Prestations de services			VT00120	20250514	Facture Client Robert	0,00	2054,16			20250514		
+VT	Ventes	131	20250514	445710	TVA collectée			VT00120	20250514	Facture Client Robert	0,00	410,83			20250514		
+BQ	Banque	132	20250515	512000	Banque Crédit Agricole			BQ00121	20250515	Règlement Client Robert	2464,99	0,00			20250515		
+BQ	Banque	132	20250515	411000	Clients	C005	Client Robert	BQ00121	20250515	Règlement Client Robert	0,00	2464,99			20250515		
+VT	Ventes	136	20250519	411000	Clients	C002	Client Martin	VT00122	20250519	Facture Client Martin	629,38	0,00			20250519		
+VT	Ventes	136	20250519	706000	Prestations de services			VT00122	20250519	Facture Client Martin	0,00	524,48			20250519		
+VT	Ventes	136	20250519	445710	TVA collectée			VT00122	20250519	Facture Client Martin	0,00	104,90			20250519		
+BQ	Banque	137	20250519	512000	Banque Crédit Agricole			BQ00123	20250519	Règlement Client Martin	629,38	0,00			20250519		
+BQ	Banque	137	20250519	411000	Clients	C002	Client Martin	BQ00123	20250519	Règlement Client Martin	0,00	629,38			20250519		
+VT	Ventes	141	20250522	411000	Clients	C005	Client Robert	VT00124	20250522	Facture Client Robert	3233,26	0,00			20250522		
+VT	Ventes	141	20250522	706000	Prestations de services			VT00124	20250522	Facture Client Robert	0,00	2694,38			20250522		
+VT	Ventes	141	20250522	445710	TVA collectée			VT00124	20250522	Facture Client Robert	0,00	538,88			20250522		
+BQ	Banque	142	20250523	512000	Banque Crédit Agricole			BQ00125	20250523	Règlement Client Robert	3233,26	0,00			20250523		
+BQ	Banque	142	20250523	411000	Clients	C005	Client Robert	BQ00125	20250523	Règlement Client Robert	0,00	3233,26			20250523		
+AC	Achats	121	20250505	607000	Achats de marchandises			AC00126	20250505	Achat Fournisseur Bureau Vallée	1515,08	0,00			20250505		
+AC	Achats	121	20250505	445660	TVA déductible sur ABS			AC00126	20250505	Achat Fournisseur Bureau Vallée	303,02	0,00			20250505		
+AC	Achats	121	20250505	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00126	20250505	Achat Fournisseur Bureau Vallée	0,00	1818,10			20250505		
+BQ	Banque	123	20250506	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00127	20250506	Paiement Fournisseur Bureau Vallée	1818,10	0,00			20250506		
+BQ	Banque	123	20250506	512000	Banque Crédit Agricole			BQ00127	20250506	Paiement Fournisseur Bureau Vallée	0,00	1818,10			20250506		
+AC	Achats	127	20250512	607000	Achats de marchandises			AC00128	20250512	Achat Fournisseur Leclerc	1346,60	0,00			20250512		
+AC	Achats	127	20250512	445660	TVA déductible sur ABS			AC00128	20250512	Achat Fournisseur Leclerc	269,32	0,00			20250512		
+AC	Achats	127	20250512	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00128	20250512	Achat Fournisseur Leclerc	0,00	1615,92			20250512		
+BQ	Banque	128	20250512	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00129	20250512	Paiement Fournisseur Leclerc	1615,92	0,00			20250512		
+BQ	Banque	128	20250512	512000	Banque Crédit Agricole			BQ00129	20250512	Paiement Fournisseur Leclerc	0,00	1615,92			20250512		
+AC	Achats	133	20250515	607000	Achats de marchandises			AC00130	20250515	Achat Fournisseur Bureau Vallée	755,21	0,00			20250515		
+AC	Achats	133	20250515	445660	TVA déductible sur ABS			AC00130	20250515	Achat Fournisseur Bureau Vallée	151,04	0,00			20250515		
+AC	Achats	133	20250515	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00130	20250515	Achat Fournisseur Bureau Vallée	0,00	906,25			20250515		
+BQ	Banque	135	20250516	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00131	20250516	Paiement Fournisseur Bureau Vallée	906,25	0,00			20250516		
+BQ	Banque	135	20250516	512000	Banque Crédit Agricole			BQ00131	20250516	Paiement Fournisseur Bureau Vallée	0,00	906,25			20250516		
+AC	Achats	138	20250520	607000	Achats de marchandises			AC00132	20250520	Achat Fournisseur Leclerc	768,74	0,00			20250520		
+AC	Achats	138	20250520	445660	TVA déductible sur ABS			AC00132	20250520	Achat Fournisseur Leclerc	153,75	0,00			20250520		
+AC	Achats	138	20250520	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00132	20250520	Achat Fournisseur Leclerc	0,00	922,49			20250520		
+BQ	Banque	140	20250521	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00133	20250521	Paiement Fournisseur Leclerc	922,49	0,00			20250521		
+BQ	Banque	140	20250521	512000	Banque Crédit Agricole			BQ00133	20250521	Paiement Fournisseur Leclerc	0,00	922,49			20250521		
+AC	Achats	118	20250502	613200	Locations immobilières			AC00134	20250502	Loyer	1000,00	0,00			20250502		
+AC	Achats	118	20250502	445660	TVA déductible sur ABS			AC00134	20250502	Loyer	200,00	0,00			20250502		
+AC	Achats	118	20250502	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00134	20250502	Loyer	0,00	1200,00			20250502		
+BQ	Banque	119	20250502	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00135	20250502	Loyer	1200,00	0,00			20250502		
+BQ	Banque	119	20250502	512000	Banque Crédit Agricole			BQ00135	20250502	Loyer	0,00	1200,00			20250502		
+OD	Opérations diverses	143	20250528	641000	Rémunérations du personnel			OD00136	20250528	Salaires	2500,00	0,00			20250528		
+OD	Opérations diverses	143	20250528	645000	Charges sociales			OD00136	20250528	Charges sociales	1050,00	0,00			20250528		
+OD	Opérations diverses	143	20250528	421000	Personnel - rémunérations dues			OD00136	20250528	Salaires	0,00	1950,00			20250528		
+OD	Opérations diverses	143	20250528	431000	Urssaf			OD00136	20250528	Urssaf	0,00	1600,00			20250528		
+BQ	Banque	144	20250528	421000	Personnel - rémunérations dues			BQ00137	20250528	Virement salaires	1950,00	0,00			20250528		
+BQ	Banque	144	20250528	512000	Banque Crédit Agricole			BQ00137	20250528	Virement salaires	0,00	1950,00			20250528		
+BQ	Banque	134	20250515	431000	Urssaf			BQ00138	20250515	Urssaf	1600,00	0,00			20250515		
+BQ	Banque	134	20250515	512000	Banque Crédit Agricole			BQ00138	20250515	Urssaf	0,00	1600,00			20250515		
+BQ	Banque	139	20250520	661100	Intérêts des emprunts			BQ00139	20250520	Intérêts	25,00	0,00			20250520		
+BQ	Banque	139	20250520	164000	Emprunts			BQ00139	20250520	Echéance emprunt	230,00	0,00			20250520		
+BQ	Banque	139	20250520	627000	Frais bancaires			BQ00139	20250520	Frais	12,50	0,00			20250520		
+BQ	Banque	139	20250520	512000	Banque Crédit Agricole			BQ00139	20250520	Echéance	0,00	267,50			20250520		
+CA	Caisse	129	20250512	530000	Caisse			CA00140	20250512	Ventes comptoir	360,00	0,00			20250512		
+CA	Caisse	129	20250512	707000	Ventes de marchandises			CA00140	20250512	Ventes comptoir	0,00	300,00			20250512		
+CA	Caisse	129	20250512	445710	TVA collectée			CA00140	20250512	Ventes comptoir	0,00	60,00			20250512		
+CA	Caisse	130	20250512	606100	Fournitures non stockables			CA00141	20250512	Petites fournitures	45,00	0,00			20250512		
+CA	Caisse	130	20250512	530000	Caisse			CA00141	20250512	Petites fournitures	0,00	45,00			20250512		
+VT	Ventes	145	20250602	411000	Clients	C010	Client Simon	VT00142	20250602	Facture Client Simon	879,90	0,00			20250602		
+VT	Ventes	145	20250602	706000	Prestations de services			VT00142	20250602	Facture Client Simon	0,00	733,25			20250602		
+VT	Ventes	145	20250602	445710	TVA collectée			VT00142	20250602	Facture Client Simon	0,00	146,65			20250602		
+BQ	Banque	148	20250603	512000	Banque Crédit Agricole			BQ00143	20250603	Règlement Client Simon	879,90	0,00			20250603		
+BQ	Banque	148	20250603	411000	Clients	C010	Client Simon	BQ00143	20250603	Règlement Client Simon	0,00	879,90			20250603		
+VT	Ventes	150	20250606	411000	Clients	C001	Client Durand	VT00144	20250606	Facture Client Durand	1328,84	0,00			20250606		
+VT	Ventes	150	20250606	706000	Prestations de services			VT00144	20250606	Facture Client Durand	0,00	1107,37			20250606		
+VT	Ventes	150	20250606	445710	TVA collectée			VT00144	20250606	Facture Client Durand	0,00	221,47			20250606		
+BQ	Banque	152	20250610	512000	Banque Crédit Agricole			BQ00145	20250610	Règlement Client Durand	1328,84	0,00			20250610		
+BQ	Banque	152	20250610	411000	Clients	C001	Client Durand	BQ00145	20250610	Règlement Client Durand	0,00	1328,84			20250610		
+VT	Ventes	153	20250610	411000	Clients	C005	Client Robert	VT00146	20250610	Facture Client Robert	934,27	0,00			20250610		
+VT	Ventes	153	20250610	706000	Prestations de services			VT00146	20250610	Facture Client Robert	0,00	778,56			20250610		
+VT	Ventes	153	20250610	445710	TVA collectée			VT00146	20250610	Facture Client Robert	0,00	155,71			20250610		
+BQ	Banque	156	20250611	512000	Banque Crédit Agricole			BQ00147	20250611	Règlement Client Robert	934,27	0,00			20250611		
+BQ	Banque	156	20250611	411000	Clients	C005	Client Robert	BQ00147	20250611	Règlement Client Robert	0,00	934,27			20250611		
+VT	Ventes	159	20250616	411000	Clients	C004	Client Petit	VT00148	20250616	Facture Client Petit	2126,66	0,00			20250616		
+VT	Ventes	159	20250616	706000	Prestations de services			VT00148	20250616	Facture Client Petit	0,00	1772,22			20250616		
+VT	Ventes	159	20250616	445710	TVA collectée			VT00148	20250616	Facture Client Petit	0,00	354,44			20250616		
+BQ	Banque	160	20250616	512000	Banque Crédit Agricole			BQ00149	20250616	Règlement Client Petit	2126,66	0,00			20250616		
+BQ	Banque	160	20250616	411000	Clients	C004	Client Petit	BQ00149	20250616	Règlement Client Petit	0,00	2126,66			20250616		
+VT	Ventes	165	20250618	411000	Clients	C008	Client Moreau	VT00150	20250618	Facture Client Moreau	717,78	0,00			20250618		
+VT	Ventes	165	20250618	706000	Prestations de services			VT00150	20250618	Facture Client Moreau	0,00	598,15			20250618		
+VT	Ventes	165	20250618	445710	TVA collectée			VT00150	20250618	Facture Client Moreau	0,00	119,63			20250618		
+BQ	Banque	166	20250619	512000	Banque Crédit Agricole			BQ00151	20250619	Règlement Client Moreau	717,78	0,00			20250619		
+BQ	Banque	166	20250619	411000	Clients	C008	Client Moreau	BQ00151	20250619	Règlement Client Moreau	0,00	717,78			20250619		
+VT	Ventes	169	20250623	411000	Clients	C008	Client Moreau	VT00152	20250623	Facture Client Moreau	2143,30	0,00			20250623		
+VT	Ventes	169	20250623	706000	Prestations de services			VT00152	20250623	Facture Client Moreau	0,00	1786,08			20250623		
+VT	Ventes	169	20250623	445710	TVA collectée			VT00152	20250623	Facture Client Moreau	0,00	357,22			20250623		
+BQ	Banque	170	20250623	512000	Banque Crédit Agricole			BQ00153	20250623	Règlement Client Moreau	2143,30	0,00			20250623		
+BQ	Banque	170	20250623	411000	Clients	C008	Client Moreau	BQ00153	20250623	Règlement Client Moreau	0,00	2143,30			20250623		
+AC	Achats	149	20250605	607000	Achats de marchandises			AC00154	20250605	Achat Fournisseur Leclerc	1613,41	0,00			20250605		
+AC	Achats	149	20250605	445660	TVA déductible sur ABS			AC00154	20250605	Achat Fournisseur Leclerc	322,68	0,00			20250605		
+AC	Achats	149	20250605	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00154	20250605	Achat Fournisseur Leclerc	0,00	1936,09			20250605		
+BQ	Banque	151	20250606	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00155	20250606	Paiement Fournisseur Leclerc	1936,09	0,00			20250606		
+BQ	Banque	151	20250606	512000	Banque Crédit Agricole			BQ00155	20250606	Paiement Fournisseur Leclerc	0,00	1936,09			20250606		
+AC	Achats	154	20250610	607000	Achats de marchandises			AC00156	20250610	Achat Fournisseur Leclerc	1582,38	0,00			20250610		
+AC	Achats	154	20250610	445660	TVA déductible sur ABS			AC00156	20250610	Achat Fournisseur Leclerc	316,48	0,00			20250610		
+AC	Achats	154	20250610	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00156	20250610	Achat Fournisseur Leclerc	0,00	1898,86			20250610		
+BQ	Banque	157	20250611	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00157	20250611	Paiement Fournisseur Leclerc	1898,86	0,00			20250611		
+BQ	Banque	157	20250611	512000	Banque Crédit Agricole			BQ00157	20250611	Paiement Fournisseur Leclerc	0,00	1898,86			20250611		
+AC	Achats	161	20250616	607000	Achats de marchandises			AC00158	20250616	Achat Fournisseur Leclerc	1330,23	0,00			20250616		
+AC	Achats	161	20250616	445660	TVA déductible sur ABS			AC00158	20250616	Achat Fournisseur Leclerc	266,05	0,00			20250616		
+AC	Achats	161	20250616	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00158	20250616	Achat Fournisseur Leclerc	0,00	1596,28			20250616		
+BQ	Banque	162	20250616	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00159	20250616	Paiement Fournisseur Leclerc	1596,28	0,00			20250616		
+BQ	Banque	162	20250616	512000	Banque Crédit Agricole			BQ00159	20250616	Paiement Fournisseur Leclerc	0,00	1596,28			20250616		
+AC	Achats	167	20250620	607000	Achats de marchandises			AC00160	20250620	Achat Fournisseur Leclerc	1292,36	0,00			20250620		
+AC	Achats	167	20250620	445660	TVA déductible sur ABS			AC00160	20250620	Achat Fournisseur Leclerc	258,47	0,00			20250620		
+AC	Achats	167	20250620	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00160	20250620	Achat Fournisseur Leclerc	0,00	1550,83			20250620		
+BQ	Banque	171	20250623	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00161	20250623	Paiement Fournisseur Leclerc	1550,83	0,00			20250623		
+BQ	Banque	171	20250623	512000	Banque Crédit Agricole			BQ00161	20250623	Paiement Fournisseur Leclerc	0,00	1550,83			20250623		
+AC	Achats	146	20250602	613200	Locations immobilières			AC00162	20250602	Loyer	1000,00	0,00			20250602		
+AC	Achats	146	20250602	445660	TVA déductible sur ABS			AC00162	20250602	Loyer	200,00	0,00			20250602		
+AC	Achats	146	20250602	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00162	20250602	Loyer	0,00	1200,00			20250602		
+BQ	Banque	147	20250602	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00163	20250602	Loyer	1200,00	0,00			20250602		
+BQ	Banque	147	20250602	512000	Banque Crédit Agricole			BQ00163	20250602	Loyer	0,00	1200,00			20250602		
+OD	Opérations diverses	172	20250630	641000	Rémunérations du personnel			OD00164	20250630	Salaires	2500,00	0,00			20250630		
+OD	Opérations diverses	172	20250630	645000	Charges sociales			OD00164	20250630	Charges sociales	1050,00	0,00			20250630		
+OD	Opérations diverses	172	20250630	421000	Personnel - rémunérations dues			OD00164	20250630	Salaires	0,00	1950,00			20250630		
+OD	Opérations diverses	172	20250630	431000	Urssaf			OD00164	20250630	Urssaf	0,00	1600,00			20250630		
+BQ	Banque	173	20250630	421000	Personnel - rémunérations dues			BQ00165	20250630	Virement salaires	1950,00	0,00			20250630		
+BQ	Banque	173	20250630	512000	Banque Crédit Agricole			BQ00165	20250630	Virement salaires	0,00	1950,00			20250630		
+BQ	Banque	163	20250616	431000	Urssaf			BQ00166	20250616	Urssaf	1600,00	0,00			20250616		
+BQ	Banque	163	20250616	512000	Banque Crédit Agricole			BQ00166	20250616	Urssaf	0,00	1600,00			20250616		
+BQ	Banque	168	20250620	661100	Intérêts des emprunts			BQ00167	20250620	Intérêts	25,00	0,00			20250620		
+BQ	Banque	168	20250620	164000	Emprunts			BQ00167	20250620	Echéance emprunt	230,00	0,00			20250620		
+BQ	Banque	168	20250620	627000	Frais bancaires			BQ00167	20250620	Frais	12,50	0,00			20250620		
+BQ	Banque	168	20250620	512000	Banque Crédit Agricole			BQ00167	20250620	Echéance	0,00	267,50			20250620		
+CA	Caisse	155	20250610	530000	Caisse			CA00168	20250610	Ventes comptoir	360,00	0,00			20250610		
+CA	Caisse	155	20250610	707000	Ventes de marchandises			CA00168	20250610	Ventes comptoir	0,00	300,00			20250610		
+CA	Caisse	155	20250610	445710	TVA collectée			CA00168	20250610	Ventes comptoir	0,00	60,00			20250610		
+CA	Caisse	158	20250612	606100	Fournitures non stockables			CA00169	20250612	Petites fournitures	45,00	0,00			20250612		
+CA	Caisse	158	20250612	530000	Caisse			CA00169	20250612	Petites fournitures	0,00	45,00			20250612		
+VT	Ventes	175	20250702	411000	Clients	C007	Client Dubois	VT00170	20250702	Facture Client Dubois	4612,33	0,00			20250702		
+VT	Ventes	175	20250702	706000	Prestations de services			VT00170	20250702	Facture Client Dubois	0,00	3843,61			20250702		
+VT	Ventes	175	20250702	445710	TVA collectée			VT00170	20250702	Facture Client Dubois	0,00	768,72			20250702		
+BQ	Banque	177	20250703	512000	Banque Crédit Agricole			BQ00171	20250703	Règlement Client Dubois	4612,33	0,00			20250703		
+BQ	Banque	177	20250703	411000	Clients	C007	Client Dubois	BQ00171	20250703	Règlement Client Dubois	0,00	4612,33			20250703		
+VT	Ventes	178	20250707	411000	Clients	C003	Client Bernard	VT00172	20250707	Facture Client Bernard	728,45	0,00			20250707		
+VT	Ventes	178	20250707	706000	Prestations de services			VT00172	20250707	Facture Client Bernard	0,00	607,04			20250707		
+VT	Ventes	178	20250707	445710	TVA collectée			VT00172	20250707	Facture Client Bernard	0,00	121,41			20250707		
+BQ	Banque	179	20250707	512000	Banque Crédit Agricole			BQ00173	20250707	Règlement Client Bernard	728,45	0,00			20250707		
+BQ	Banque	179	20250707	411000	Clients	C003	Client Bernard	BQ00173	20250707	Règlement Client Bernard	0,00	728,45			20250707		
+VT	Ventes	182	20250710	411000	Clients	C003	Client Bernard	VT00174	20250710	Facture Client Bernard	1389,89	0,00			20250710		
+VT	Ventes	182	20250710	706000	Prestations de services			VT00174	20250710	Facture Client Bernard	0,00	1158,24			20250710		
+VT	Ventes	182	20250710	445710	TVA collectée			VT00174	20250710	Facture Client Bernard	0,00	231,65			20250710		
+BQ	Banque	185	20250711	512000	Banque Crédit Agricole			BQ00175	20250711	Règlement Client Bernard	1389,89	0,00			20250711		
+BQ	Banque	185	20250711	411000	Clients	C003	Client Bernard	BQ00175	20250711	Règlement Client Bernard	0,00	1389,89			20250711		
+VT	Ventes	188	20250715	411000	Clients	C004	Client Petit	VT00176	20250715	Facture Client Petit	413,56	0,00			20250715		
+VT	Ventes	188	20250715	706000	Prestations de services			VT00176	20250715	Facture Client Petit	0,00	344,63			20250715		
+VT	Ventes	188	20250715	445710	TVA collectée			VT00176	20250715	Facture Client Petit	0,00	68,93			20250715		
+BQ	Banque	189	20250715	512000	Banque Crédit Agricole			BQ00177	20250715	Règlement Client Petit	413,56	0,00			20250715		
+BQ	Banque	189	20250715	411000	Clients	C004	Client Petit	BQ00177	20250715	Règlement Client Petit	0,00	413,56			20250715		
+VT	Ventes	194	20250718	411000	Clients	C010	Client Simon	VT00178	20250718	Facture Client Simon	1169,60	0,00			20250718		
+VT	Ventes	194	20250718	706000	Prestations de services			VT00178	20250718	Facture Client Simon	0,00	974,67			20250718		
+VT	Ventes	194	20250718	445710	TVA collectée			VT00178	20250718	Facture Client Simon	0,00	194,93			20250718		
+BQ	Banque	195	20250721	512000	Banque Crédit Agricole			BQ00179	20250721	Règlement Client Simon	1169,60	0,00			20250721		
+BQ	Banque	195	20250721	411000	Clients	C010	Client Simon	BQ00179	20250721	Règlement Client Simon	0,00	1169,60			20250721		
+VT	Ventes	199	20250722	411000	Clients	C005	Client Robert	VT00180	20250722	Facture Client Robert	378,18	0,00			20250722		
+VT	Ventes	199	20250722	706000	Prestations de services			VT00180	20250722	Facture Client Robert	0,00	315,15			20250722		
+VT	Ventes	199	20250722	445710	TVA collectée			VT00180	20250722	Facture Client Robert	0,00	63,03			20250722		
+BQ	Banque	200	20250723	512000	Banque Crédit Agricole			BQ00181	20250723	Règlement Client Robert	378,18	0,00			20250723		
+BQ	Banque	200	20250723	411000	Clients	C005	Client Robert	BQ00181	20250723	Règlement Client Robert	0,00	378,18			20250723		
+AC	Achats	180	20250707	607000	Achats de marchandises			AC00182	20250707	Achat Fournisseur Leclerc	1055,35	0,00			20250707		
+AC	Achats	180	20250707	445660	TVA déductible sur ABS			AC00182	20250707	Achat Fournisseur Leclerc	211,07	0,00			20250707		
+AC	Achats	180	20250707	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00182	20250707	Achat Fournisseur Leclerc	0,00	1266,42			20250707		
+BQ	Banque	181	20250707	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00183	20250707	Paiement Fournisseur Leclerc	1266,42	0,00			20250707		
+BQ	Banque	181	20250707	512000	Banque Crédit Agricole			BQ00183	20250707	Paiement Fournisseur Leclerc	0,00	1266,42			20250707		
+AC	Achats	183	20250710	607000	Achats de marchandises			AC00184	20250710	Achat Fournisseur Bureau Vallée	1106,15	0,00			20250710		
+AC	Achats	183	20250710	445660	TVA déductible sur ABS			AC00184	20250710	Achat Fournisseur Bureau Vallée	221,23	0,00			20250710		
+AC	Achats	183	20250710	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00184	20250710	Achat Fournisseur Bureau Vallée	0,00	1327,38			20250710		
+BQ	Banque	186	20250711	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00185	20250711	Paiement Fournisseur Bureau Vallée	1327,38	0,00			20250711		
+BQ	Banque	186	20250711	512000	Banque Crédit Agricole			BQ00185	20250711	Paiement Fournisseur Bureau Vallée	0,00	1327,38			20250711		
+AC	Achats	190	20250715	607000	Achats de marchandises			AC00186	20250715	Achat Fournisseur Métro	1304,79	0,00			20250715		
+AC	Achats	190	20250715	445660	TVA déductible sur ABS			AC00186	20250715	Achat Fournisseur Métro	260,96	0,00			20250715		
+AC	Achats	190	20250715	401000	Fournisseurs	F001	Fournisseur Métro	AC00186	20250715	Achat Fournisseur Métro	0,00	1565,75			20250715		
+BQ	Banque	193	20250716	401000	Fournisseurs	F001	Fournisseur Métro	BQ00187	20250716	Paiement Fournisseur Métro	1565,75	0,00			20250716		
+BQ	Banque	193	20250716	512000	Banque Crédit Agricole			BQ00187	20250716	Paiement Fournisseur Métro	0,00	1565,75			20250716		
+AC	Achats	196	20250721	607000	Achats de marchandises			AC00188	20250721	Achat Fournisseur Bureau Vallée	1720,36	0,00			20250721		
+AC	Achats	196	20250721	445660	TVA déductible sur ABS			AC00188	20250721	Achat Fournisseur Bureau Vallée	344,07	0,00			20250721		
+AC	Achats	196	20250721	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00188	20250721	Achat Fournisseur Bureau Vallée	0,00	2064,43			20250721		
+BQ	Banque	197	20250721	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00189	20250721	Paiement Fournisseur Bureau Vallée	2064,43	0,00			20250721		
+BQ	Banque	197	20250721	512000	Banque Crédit Agricole			BQ00189	20250721	Paiement Fournisseur Bureau Vallée	0,00	2064,43			20250721		
+AC	Achats	174	20250701	613200	Locations immobilières			AC00190	20250701	Loyer	1000,00	0,00			20250701		
+AC	Achats	174	20250701	445660	TVA déductible sur ABS			AC00190	20250701	Loyer	200,00	0,00			20250701		
+AC	Achats	174	20250701	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00190	20250701	Loyer	0,00	1200,00			20250701		
+BQ	Banque	176	20250702	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00191	20250702	Loyer	1200,00	0,00			20250702		
+BQ	Banque	176	20250702	512000	Banque Crédit Agricole			BQ00191	20250702	Loyer	0,00	1200,00			20250702		
+OD	Opérations diverses	201	20250728	641000	Rémunérations du personnel			OD00192	20250728	Salaires	2500,00	0,00			20250728		
+OD	Opérations diverses	201	20250728	645000	Charges sociales			OD00192	20250728	Charges sociales	1050,00	0,00			20250728		
+OD	Opérations diverses	201	20250728	421000	Personnel - rémunérations dues			OD00192	20250728	Salaires	0,00	1950,00			20250728		
+OD	Opérations diverses	201	20250728	431000	Urssaf			OD00192	20250728	Urssaf	0,00	1600,00			20250728		
+BQ	Banque	202	20250728	421000	Personnel - rémunérations dues			BQ00193	20250728	Virement salaires	1950,00	0,00			20250728		
+BQ	Banque	202	20250728	512000	Banque Crédit Agricole			BQ00193	20250728	Virement salaires	0,00	1950,00			20250728		
+BQ	Banque	191	20250715	431000	Urssaf			BQ00194	20250715	Urssaf	1600,00	0,00			20250715		
+BQ	Banque	191	20250715	512000	Banque Crédit Agricole			BQ00194	20250715	Urssaf	0,00	1600,00			20250715		
+BQ	Banque	198	20250721	661100	Intérêts des emprunts			BQ00195	20250721	Intérêts	25,00	0,00			20250721		
+BQ	Banque	198	20250721	164000	Emprunts			BQ00195	20250721	Echéance emprunt	230,00	0,00			20250721		
+BQ	Banque	198	20250721	627000	Frais bancaires			BQ00195	20250721	Frais	12,50	0,00			20250721		
+BQ	Banque	198	20250721	512000	Banque Crédit Agricole			BQ00195	20250721	Echéance	0,00	267,50			20250721		
+CA	Caisse	184	20250710	530000	Caisse			CA00196	20250710	Ventes comptoir	360,00	0,00			20250710		
+CA	Caisse	184	20250710	707000	Ventes de marchandises			CA00196	20250710	Ventes comptoir	0,00	300,00			20250710		
+CA	Caisse	184	20250710	445710	TVA collectée			CA00196	20250710	Ventes comptoir	0,00	60,00			20250710		
+CA	Caisse	192	20250715	606100	Fournitures non stockables			CA00197	20250715	Petites fournitures	45,00	0,00			20250715		
+CA	Caisse	192	20250715	530000	Caisse			CA00197	20250715	Petites fournitures	0,00	45,00			20250715		
+VT	Ventes	204	20250804	411000	Clients	C001	Client Durand	VT00198	20250804	Facture Client Durand	2387,50	0,00			20250804		
+VT	Ventes	204	20250804	706000	Prestations de services			VT00198	20250804	Facture Client Durand	0,00	1989,58			20250804		
+VT	Ventes	204	20250804	445710	TVA collectée			VT00198	20250804	Facture Client Durand	0,00	397,92			20250804		
+BQ	Banque	205	20250804	512000	Banque Crédit Agricole			BQ00199	20250804	Règlement Client Durand	2387,50	0,00			20250804		
+BQ	Banque	205	20250804	411000	Clients	C001	Client Durand	BQ00199	20250804	Règlement Client Durand	0,00	2387,50			20250804		
+VT	Ventes	208	20250806	411000	Clients	C009	Client Laurent	VT00200	20250806	Facture Client Laurent	2102,16	0,00			20250806		
+VT	Ventes	208	20250806	706000	Prestations de services			VT00200	20250806	Facture Client Laurent	0,00	1751,80			20250806		
+VT	Ventes	208	20250806	445710	TVA collectée			VT00200	20250806	Facture Client Laurent	0,00	350,36			20250806		
+BQ	Banque	210	20250807	512000	Banque Crédit Agricole			BQ00201	20250807	Règlement Client Laurent	2102,16	0,00			20250807		
+BQ	Banque	210	20250807	411000	Clients	C009	Client Laurent	BQ00201	20250807	Règlement Client Laurent	0,00	2102,16			20250807		
+VT	Ventes	211	20250811	411000	Clients	C007	Client Dubois	VT00202	20250811	Facture Client Dubois	2109,89	0,00			20250811		
+VT	Ventes	211	20250811	706000	Prestations de services			VT00202	20250811	Facture Client Dubois	0,00	1758,24			20250811		
+VT	Ventes	211	20250811	445710	TVA collectée			VT00202	20250811	Facture Client Dubois	0,00	351,65			20250811		
+BQ	Banque	212	20250811	512000	Banque Crédit Agricole			BQ00203	20250811	Règlement Client Dubois	2109,89	0,00			20250811		
+BQ	Banque	212	20250811	411000	Clients	C007	Client Dubois	BQ00203	20250811	Règlement Client Dubois	0,00	2109,89			20250811		
+VT	Ventes	217	20250814	411000	Clients	C008	Client Moreau	VT00204	20250814	Facture Client Moreau	3176,24	0,00			20250814		
+VT	Ventes	217	20250814	706000	Prestations de services			VT00204	20250814	Facture Client Moreau	0,00	2646,87			20250814		
+VT	Ventes	217	20250814	445710	TVA collectée			VT00204	20250814	Facture Client Moreau	0,00	529,37			20250814		
+BQ	Banque	218	20250818	512000	Banque Crédit Agricole			BQ00205	20250818	Règlement Client Moreau	3176,24	0,00			20250818		
+BQ	Banque	218	20250818	411000	Clients	C008	Client Moreau	BQ00205	20250818	Règlement Client Moreau	0,00	3176,24			20250818		
+VT	Ventes	219	20250818	411000	Clients	C001	Client Durand	VT00206	20250818	Facture Client Durand	1206,31	0,00			20250818		
+VT	Ventes	219	20250818	706000	Prestations de services			VT00206	20250818	Facture Client Durand	0,00	1005,26			20250818		
+VT	Ventes	219	20250818	445710	TVA collectée			VT00206	20250818	Facture Client Durand	0,00	201,05			20250818		
+BQ	Banque	223	20250819	512000	Banque Crédit Agricole			BQ00207	20250819	Règlement Client Durand	1206,31	0,00			20250819		
+BQ	Banque	223	20250819	411000	Clients	C001	Client Durand	BQ00207	20250819	Règlement Client Durand	0,00	1206,31			20250819		
+VT	Ventes	227	20250822	411000	Clients	C004	Client Petit	VT00208	20250822	Facture Client Petit	2316,38	0,00			20250822		
+VT	Ventes	227	20250822	706000	Prestations de services			VT00208	20250822	Facture Client Petit	0,00	1930,32			20250822		
+VT	Ventes	227	20250822	445710	TVA collectée			VT00208	20250822	Facture Client Petit	0,00	386,06			20250822		
+BQ	Banque	228	20250825	512000	Banque Crédit Agricole			BQ00209	20250825	Règlement Client Petit	2316,38	0,00			20250825		
+BQ	Banque	228	20250825	411000	Clients	C004	Client Petit	BQ00209	20250825	Règlement Client Petit	0,00	2316,38			20250825		
+AC	Achats	207	20250805	607000	Achats de marchandises			AC00210	20250805	Achat Fournisseur Métro	744,09	0,00			20250805		
+AC	Achats	207	20250805	445660	TVA déductible sur ABS			AC00210	20250805	Achat Fournisseur Métro	148,82	0,00			20250805		
+AC	Achats	207	20250805	401000	Fournisseurs	F001	Fournisseur Métro	AC00210	20250805	Achat Fournisseur Métro	0,00	892,91			20250805		
+BQ	Banque	209	20250806	401000	Fournisseurs	F001	Fournisseur Métro	BQ00211	20250806	Paiement Fournisseur Métro	892,91	0,00			20250806		
+BQ	Banque	209	20250806	512000	Banque Crédit Agricole			BQ00211	20250806	Paiement Fournisseur Métro	0,00	892,91			20250806		
+AC	Achats	213	20250811	607000	Achats de marchandises			AC00212	20250811	Achat Fournisseur Métro	363,81	0,00			20250811		
+AC	Achats	213	20250811	445660	TVA déductible sur ABS			AC00212	20250811	Achat Fournisseur Métro	72,76	0,00			20250811		
+AC	Achats	213	20250811	401000	Fournisseurs	F001	Fournisseur Métro	AC00212	20250811	Achat Fournisseur Métro	0,00	436,57			20250811		
+BQ	Banque	214	20250811	401000	Fournisseurs	F001	Fournisseur Métro	BQ00213	20250811	Paiement Fournisseur Métro	436,57	0,00			20250811		
+BQ	Banque	214	20250811	512000	Banque Crédit Agricole			BQ00213	20250811	Paiement Fournisseur Métro	0,00	436,57			20250811		
+AC	Achats	220	20250818	607000	Achats de marchandises			AC00214	20250818	Achat Fournisseur Bureau Vallée	442,02	0,00			20250818		
+AC	Achats	220	20250818	445660	TVA déductible sur ABS			AC00214	20250818	Achat Fournisseur Bureau Vallée	88,40	0,00			20250818		
+AC	Achats	220	20250818	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00214	20250818	Achat Fournisseur Bureau Vallée	0,00	530,42			20250818		
+BQ	Banque	221	20250818	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00215	20250818	Paiement Fournisseur Bureau Vallée	530,42	0,00			20250818		
+BQ	Banque	221	20250818	512000	Banque Crédit Agricole			BQ00215	20250818	Paiement Fournisseur Bureau Vallée	0,00	530,42			20250818		
+AC	Achats	224	20250820	607000	Achats de marchandises			AC00216	20250820	Achat Fournisseur Métro	1718,32	0,00			20250820		
+AC	Achats	224	20250820	445660	TVA déductible sur ABS			AC00216	20250820	Achat Fournisseur Métro	343,66	0,00			20250820		
+AC	Achats	224	20250820	401000	Fournisseurs	F001	Fournisseur Métro	AC00216	20250820	Achat Fournisseur Métro	0,00	2061,98			20250820		
+BQ	Banque	226	20250821	401000	Fournisseurs	F001	Fournisseur Métro	BQ00217	20250821	Paiement Fournisseur Métro	2061,98	0,00			20250821		
+BQ	Banque	226	20250821	512000	Banque Crédit Agricole			BQ00217	20250821	Paiement Fournisseur Métro	0,00	2061,98			20250821		
+AC	Achats	203	20250801	613200	Locations immobilières			AC00218	20250801	Loyer	1000,00	0,00			20250801		
+AC	Achats	203	20250801	445660	TVA déductible sur ABS			AC00218	20250801	Loyer	200,00	0,00			20250801		
+AC	Achats	203	20250801	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00218	20250801	Loyer	0,00	1200,00			20250801		
+BQ	Banque	206	20250804	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00219	20250804	Loyer	1200,00	0,00			20250804		
+BQ	Banque	206	20250804	512000	Banque Crédit Agricole			BQ00219	20250804	Loyer	0,00	1200,00			20250804		
+OD	Opérations diverses	229	20250828	641000	Rémunérations du personnel			OD00220	20250828	Salaires	2500,00	0,00			20250828		
+OD	Opérations diverses	229	20250828	645000	Charges sociales			OD00220	20250828	Charges sociales	1050,00	0,00			20250828		
+OD	Opérations diverses	229	20250828	421000	Personnel - rémunérations dues			OD00220	20250828	Salaires	0,00	1950,00			20250828		
+OD	Opérations diverses	229	20250828	431000	Urssaf			OD00220	20250828	Urssaf	0,00	1600,00			20250828		
+BQ	Banque	230	20250828	421000	Personnel - rémunérations dues			BQ00221	20250828	Virement salaires	1950,00	0,00			20250828		
+BQ	Banque	230	20250828	512000	Banque Crédit Agricole			BQ00221	20250828	Virement salaires	0,00	1950,00			20250828		
+BQ	Banque	222	20250818	431000	Urssaf			BQ00222	20250818	Urssaf	1600,00	0,00			20250818		
+BQ	Banque	222	20250818	512000	Banque Crédit Agricole			BQ00222	20250818	Urssaf	0,00	1600,00			20250818		
+BQ	Banque	225	20250820	661100	Intérêts des emprunts			BQ00223	20250820	Intérêts	25,00	0,00			20250820		
+BQ	Banque	225	20250820	164000	Emprunts			BQ00223	20250820	Echéance emprunt	230,00	0,00			20250820		
+BQ	Banque	225	20250820	627000	Frais bancaires			BQ00223	20250820	Frais	12,50	0,00			20250820		
+BQ	Banque	225	20250820	512000	Banque Crédit Agricole			BQ00223	20250820	Echéance	0,00	267,50			20250820		
+CA	Caisse	215	20250811	530000	Caisse			CA00224	20250811	Ventes comptoir	360,00	0,00			20250811		
+CA	Caisse	215	20250811	707000	Ventes de marchandises			CA00224	20250811	Ventes comptoir	0,00	300,00			20250811		
+CA	Caisse	215	20250811	445710	TVA collectée			CA00224	20250811	Ventes comptoir	0,00	60,00			20250811		
+CA	Caisse	216	20250812	606100	Fournitures non stockables			CA00225	20250812	Petites fournitures	45,00	0,00			20250812		
+CA	Caisse	216	20250812	530000	Caisse			CA00225	20250812	Petites fournitures	0,00	45,00			20250812		
+VT	Ventes	232	20250902	411000	Clients	C010	Client Simon	VT00226	20250902	Facture Client Simon	473,22	0,00			20250902		
+VT	Ventes	232	20250902	706000	Prestations de services			VT00226	20250902	Facture Client Simon	0,00	394,35			20250902		
+VT	Ventes	232	20250902	445710	TVA collectée			VT00226	20250902	Facture Client Simon	0,00	78,87			20250902		
+BQ	Banque	234	20250903	512000	Banque Crédit Agricole			BQ00227	20250903	Règlement Client Simon	473,22	0,00			20250903		
+BQ	Banque	234	20250903	411000	Clients	C010	Client Simon	BQ00227	20250903	Règlement Client Simon	0,00	473,22			20250903		
+VT	Ventes	236	20250908	411000	Clients	C004	Client Petit	VT00228	20250908	Facture Client Petit	3086,47	0,00			20250908		
+VT	Ventes	236	20250908	706000	Prestations de services			VT00228	20250908	Facture Client Petit	0,00	2572,06			20250908		
+VT	Ventes	236	20250908	445710	TVA collectée			VT00228	20250908	Facture Client Petit	0,00	514,41			20250908		
+BQ	Banque	237	20250908	512000	Banque Crédit Agricole			BQ00229	20250908	Règlement Client Petit	3086,47	0,00			20250908		
+BQ	Banque	237	20250908	411000	Clients	C004	Client Petit	BQ00229	20250908	Règlement Client Petit	0,00	3086,47			20250908		
+VT	Ventes	239	20250910	411000	Clients	C003	Client Bernard	VT00230	20250910	Facture Client Bernard	3176,78	0,00			20250910		
+VT	Ventes	239	20250910	706000	Prestations de services			VT00230	20250910	Facture Client Bernard	0,00	2647,32			20250910		
+VT	Ventes	239	20250910	445710	TVA collectée			VT00230	20250910	Facture Client Bernard	0,00	529,46			20250910		
+BQ	Banque	244	20250911	512000	Banque Crédit Agricole			BQ00231	20250911	Règlement Client Bernard	3176,78	0,00			20250911		
+BQ	Banque	244	20250911	411000	Clients	C003	Client Bernard	BQ00231	20250911	Règlement Client Bernard	0,00	3176,78			20250911		
+VT	Ventes	247	20250915	411000	Clients	C006	Client Richard	VT00232	20250915	Facture Client Richard	3034,12	0,00			20250915		
+VT	Ventes	247	20250915	706000	Prestations de services			VT00232	20250915	Facture Client Richard	0,00	2528,43			20250915		
+VT	Ventes	247	20250915	445710	TVA collectée			VT00232	20250915	Facture Client Richard	0,00	505,69			20250915		
+BQ	Banque	248	20250915	512000	Banque Crédit Agricole			BQ00233	20250915	Règlement Client Richard	3034,12	0,00			20250915		
+BQ	Banque	248	20250915	411000	Clients	C006	Client Richard	BQ00233	20250915	Règlement Client Richard	0,00	3034,12			20250915		
+VT	Ventes	252	20250918	411000	Clients	C008	Client Moreau	VT00234	20250918	Facture Client Moreau	905,42	0,00			20250918		
+VT	Ventes	252	20250918	706000	Prestations de services			VT00234	20250918	Facture Client Moreau	0,00	754,52			20250918		
+VT	Ventes	252	20250918	445710	TVA collectée			VT00234	20250918	Facture Client Moreau	0,00	150,90			20250918		
+BQ	Banque	253	20250919	512000	Banque Crédit Agricole			BQ00235	20250919	Règlement Client Moreau	905,42	0,00			20250919		
+BQ	Banque	253	20250919	411000	Clients	C008	Client Moreau	BQ00235	20250919	Règlement Client Moreau	0,00	905,42			20250919		
+VT	Ventes	254	20250922	411000	Clients	C008	Client Moreau	VT00236	20250922	Facture Client Moreau	4769,38	0,00			20250922		
+VT	Ventes	254	20250922	706000	Prestations de services			VT00236	20250922	Facture Client Moreau	0,00	3974,48			20250922		
+VT	Ventes	254	20250922	445710	TVA collectée			VT00236	20250922	Facture Client Moreau	0,00	794,90			20250922		
+BQ	Banque	258	20250923	512000	Banque Crédit Agricole			BQ00237	20250923	Règlement Client Moreau	4769,38	0,00			20250923		
+BQ	Banque	258	20250923	411000	Clients	C008	Client Moreau	BQ00237	20250923	Règlement Client Moreau	0,00	4769,38			20250923		
+AC	Achats	235	20250905	607000	Achats de marchandises			AC00238	20250905	Achat Fournisseur Leclerc	968,63	0,00			20250905		
+AC	Achats	235	20250905	445660	TVA déductible sur ABS			AC00238	20250905	Achat Fournisseur Leclerc	193,73	0,00			20250905		
+AC	Achats	235	20250905	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00238	20250905	Achat Fournisseur Leclerc	0,00	1162,36			20250905		
+BQ	Banque	238	20250908	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00239	20250908	Paiement Fournisseur Leclerc	1162,36	0,00			20250908		
+BQ	Banque	238	20250908	512000	Banque Crédit Agricole			BQ00239	20250908	Paiement Fournisseur Leclerc	0,00	1162,36			20250908		
+AC	Achats	240	20250910	607000	Achats de marchandises			AC00240	20250910	Achat Fournisseur Leclerc	337,42	0,00			20250910		
+AC	Achats	240	20250910	445660	TVA déductible sur ABS			AC00240	20250910	Achat Fournisseur Leclerc	67,48	0,00			20250910		
+AC	Achats	240	20250910	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00240	20250910	Achat Fournisseur Leclerc	0,00	404,90			20250910		
+BQ	Banque	245	20250911	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00241	20250911	Paiement Fournisseur Leclerc	404,90	0,00			20250911		
+BQ	Banque	245	20250911	512000	Banque Crédit Agricole			BQ00241	20250911	Paiement Fournisseur Leclerc	0,00	404,90			20250911		
+AC	Achats	249	20250915	607000	Achats de marchandises			AC00242	20250915	Achat Fournisseur Métro	1399,48	0,00			20250915		
+AC	Achats	249	20250915	445660	TVA déductible sur ABS			AC00242	20250915	Achat Fournisseur Métro	279,90	0,00			20250915		
+AC	Achats	249	20250915	401000	Fournisseurs	F001	Fournisseur Métro	AC00242	20250915	Achat Fournisseur Métro	0,00	1679,38			20250915		
+BQ	Banque	251	20250916	401000	Fournisseurs	F001	Fournisseur Métro	BQ00243	20250916	Paiement Fournisseur Métro	1679,38	0,00			20250916		
+BQ	Banque	251	20250916	512000	Banque Crédit Agricole			BQ00243	20250916	Paiement Fournisseur Métro	0,00	1679,38			20250916		
+AC	Achats	255	20250922	607000	Achats de marchandises			AC00244	20250922	Achat Fournisseur Bureau Vallée	623,61	0,00			20250922		
+AC	Achats	255	20250922	445660	TVA déductible sur ABS			AC00244	20250922	Achat Fournisseur Bureau Vallée	124,72	0,00			20250922		
+AC	Achats	255	20250922	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00244	20250922	Achat Fournisseur Bureau Vallée	0,00	748,33			20250922		
+BQ	Banque	256	20250922	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00245	20250922	Paiement Fournisseur Bureau Vallée	748,33	0,00			20250922		
+BQ	Banque	256	20250922	512000	Banque Crédit Agricole			BQ00245	20250922	Paiement Fournisseur Bureau Vallée	0,00	748,33			20250922		
+AC	Achats	231	20250901	613200	Locations immobilières			AC00246	20250901	Loyer	1000,00	0,00			20250901		
+AC	Achats	231	20250901	445660	TVA déductible sur ABS			AC00246	20250901	Loyer	200,00	0,00			20250901		
+AC	Achats	231	20250901	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00246	20250901	Loyer	0,00	1200,00			20250901		
+BQ	Banque	233	20250902	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00247	20250902	Loyer	1200,00	0,00			20250902		
+BQ	Banque	233	20250902	512000	Banque Crédit Agricole			BQ00247	20250902	Loyer	0,00	1200,00			20250902		
+OD	Opérations diverses	259	20250929	641000	Rémunérations du personnel			OD00248	20250929	Salaires	2500,00	0,00			20250929		
+OD	Opérations diverses	259	20250929	645000	Charges sociales			OD00248	20250929	Charges sociales	1050,00	0,00			20250929		
+OD	Opérations diverses	259	20250929	421000	Personnel - rémunérations dues			OD00248	20250929	Salaires	0,00	1950,00			20250929		
+OD	Opérations diverses	259	20250929	431000	Urssaf			OD00248	20250929	Urssaf	0,00	1600,00			20250929		
+BQ	Banque	260	20250929	421000	Personnel - rémunérations dues			BQ00249	20250929	Virement salaires	1950,00	0,00			20250929		
+BQ	Banque	260	20250929	512000	Banque Crédit Agricole			BQ00249	20250929	Virement salaires	0,00	1950,00			20250929		
+BQ	Banque	250	20250915	431000	Urssaf			BQ00250	20250915	Urssaf	1600,00	0,00			20250915		
+BQ	Banque	250	20250915	512000	Banque Crédit Agricole			BQ00250	20250915	Urssaf	0,00	1600,00			20250915		
+BQ	Banque	257	20250922	661100	Intérêts des emprunts			BQ00251	20250922	Intérêts	25,00	0,00			20250922		
+BQ	Banque	257	20250922	164000	Emprunts			BQ00251	20250922	Echéance emprunt	230,00	0,00			20250922		
+BQ	Banque	257	20250922	627000	Frais bancaires			BQ00251	20250922	Frais	12,50	0,00			20250922		
+BQ	Banque	257	20250922	512000	Banque Crédit Agricole			BQ00251	20250922	Echéance	0,00	267,50			20250922		
+CA	Caisse	241	20250910	530000	Caisse			CA00252	20250910	Ventes comptoir	360,00	0,00			20250910		
+CA	Caisse	241	20250910	707000	Ventes de marchandises			CA00252	20250910	Ventes comptoir	0,00	300,00			20250910		
+CA	Caisse	241	20250910	445710	TVA collectée			CA00252	20250910	Ventes comptoir	0,00	60,00			20250910		
+CA	Caisse	246	20250912	606100	Fournitures non stockables			CA00253	20250912	Petites fournitures	45,00	0,00			20250912		
+CA	Caisse	246	20250912	530000	Caisse			CA00253	20250912	Petites fournitures	0,00	45,00			20250912		
+VT	Ventes	262	20251002	411000	Clients	C003	Client Bernard	VT00254	20251002	Facture Client Bernard	2652,53	0,00			20251002		
+VT	Ventes	262	20251002	706000	Prestations de services			VT00254	20251002	Facture Client Bernard	0,00	2210,44			20251002		
+VT	Ventes	262	20251002	445710	TVA collectée			VT00254	20251002	Facture Client Bernard	0,00	442,09			20251002		
+BQ	Banque	264	20251003	512000	Banque Crédit Agricole			BQ00255	20251003	Règlement Client Bernard	2652,53	0,00			20251003		
+BQ	Banque	264	20251003	411000	Clients	C003	Client Bernard	BQ00255	20251003	Règlement Client Bernard	0,00	2652,53			20251003		
+VT	Ventes	265	20251006	411000	Clients	C004	Client Petit	VT00256	20251006	Facture Client Petit	4582,38	0,00			20251006		
+VT	Ventes	265	20251006	706000	Prestations de services			VT00256	20251006	Facture Client Petit	0,00	3818,65			20251006		
+VT	Ventes	265	20251006	445710	TVA collectée			VT00256	20251006	Facture Client Petit	0,00	763,73			20251006		
+BQ	Banque	268	20251007	512000	Banque Crédit Agricole			BQ00257	20251007	Règlement Client Petit	4582,38	0,00			20251007		
+BQ	Banque	268	20251007	411000	Clients	C004	Client Petit	BQ00257	20251007	Règlement Client Petit	0,00	4582,38			20251007		
+VT	Ventes	269	20251010	411000	Clients	C009	Client Laurent	VT00258	20251010	Facture Client Laurent	1966,18	0,00			20251010		
+VT	Ventes	269	20251010	706000	Prestations de services			VT00258	20251010	Facture Client Laurent	0,00	1638,48			20251010		
+VT	Ventes	269	20251010	445710	TVA collectée			VT00258	20251010	Facture Client Laurent	0,00	327,70			20251010		
+BQ	Banque	272	20251013	512000	Banque Crédit Agricole			BQ00259	20251013	Règlement Client Laurent	1966,18	0,00			20251013		
+BQ	Banque	272	20251013	411000	Clients	C009	Client Laurent	BQ00259	20251013	Règlement Client Laurent	0,00	1966,18			20251013		
+VT	Ventes	275	20251014	411000	Clients	C009	Client Laurent	VT00260	20251014	Facture Client Laurent	4418,81	0,00			20251014		
+VT	Ventes	275	20251014	706000	Prestations de services			VT00260	20251014	Facture Client Laurent	0,00	3682,34			20251014		
+VT	Ventes	275	20251014	445710	TVA collectée			VT00260	20251014	Facture Client Laurent	0,00	736,47			20251014		
+BQ	Banque	276	20251015	512000	Banque Crédit Agricole			BQ00261	20251015	Règlement Client Laurent	4418,81	0,00			20251015		
+BQ	Banque	276	20251015	411000	Clients	C009	Client Laurent	BQ00261	20251015	Règlement Client Laurent	0,00	4418,81			20251015		
+VT	Ventes	280	20251020	411000	Clients	C009	Client Laurent	VT00262	20251020	Facture Client Laurent	1683,52	0,00			20251020		
+VT	Ventes	280	20251020	706000	Prestations de services			VT00262	20251020	Facture Client Laurent	0,00	1402,93			20251020		
+VT	Ventes	280	20251020	445710	TVA collectée			VT00262	20251020	Facture Client Laurent	0,00	280,59			20251020		
+BQ	Banque	281	20251020	512000	Banque Crédit Agricole			BQ00263	20251020	Règlement Client Laurent	1683,52	0,00			20251020		
+BQ	Banque	281	20251020	411000	Clients	C009	Client Laurent	BQ00263	20251020	Règlement Client Laurent	0,00	1683,52			20251020		
+VT	Ventes	285	20251022	411000	Clients	C002	Client Martin	VT00264	20251022	Facture Client Martin	3451,12	0,00			20251022		
+VT	Ventes	285	20251022	706000	Prestations de services			VT00264	20251022	Facture Client Martin	0,00	2875,93			20251022		
+VT	Ventes	285	20251022	445710	TVA collectée			VT00264	20251022	Facture Client Martin	0,00	575,19			20251022		
+BQ	Banque	286	20251023	512000	Banque Crédit Agricole			BQ00265	20251023	Règlement Client Martin	3451,12	0,00			20251023		
+BQ	Banque	286	20251023	411000	Clients	C002	Client Martin	BQ00265	20251023	Règlement Client Martin	0,00	3451,12			20251023		
+AC	Achats	266	20251006	607000	Achats de marchandises			AC00266	20251006	Achat Fournisseur Leclerc	1029,43	0,00			20251006		
+AC	Achats	266	20251006	445660	TVA déductible sur ABS			AC00266	20251006	Achat Fournisseur Leclerc	205,89	0,00			20251006		
+AC	Achats	266	20251006	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00266	20251006	Achat Fournisseur Leclerc	0,00	1235,32			20251006		
+BQ	Banque	267	20251006	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00267	20251006	Paiement Fournisseur Leclerc	1235,32	0,00			20251006		
+BQ	Banque	267	20251006	512000	Banque Crédit Agricole			BQ00267	20251006	Paiement Fournisseur Leclerc	0,00	1235,32			20251006		
+AC	Achats	270	20251010	607000	Achats de marchandises			AC00268	20251010	Achat Fournisseur Métro	769,11	0,00			20251010		
+AC	Achats	270	20251010	445660	TVA déductible sur ABS			AC00268	20251010	Achat Fournisseur Métro	153,82	0,00			20251010		
+AC	Achats	270	20251010	401000	Fournisseurs	F001	Fournisseur Métro	AC00268	20251010	Achat Fournisseur Métro	0,00	922,93			20251010		
+BQ	Banque	273	20251013	401000	Fournisseurs	F001	Fournisseur Métro	BQ00269	20251013	Paiement Fournisseur Métro	922,93	0,00			20251013		
+BQ	Banque	273	20251013	512000	Banque Crédit Agricole			BQ00269	20251013	Paiement Fournisseur Métro	0,00	922,93			20251013		
+AC	Achats	277	20251015	607000	Achats de marchandises			AC00270	20251015	Achat Fournisseur Métro	1052,15	0,00			20251015		
+AC	Achats	277	20251015	445660	TVA déductible sur ABS			AC00270	20251015	Achat Fournisseur Métro	210,43	0,00			20251015		
+AC	Achats	277	20251015	401000	Fournisseurs	F001	Fournisseur Métro	AC00270	20251015	Achat Fournisseur Métro	0,00	1262,58			20251015		
+BQ	Banque	279	20251016	401000	Fournisseurs	F001	Fournisseur Métro	BQ00271	20251016	Paiement Fournisseur Métro	1262,58	0,00			20251016		
+BQ	Banque	279	20251016	512000	Banque Crédit Agricole			BQ00271	20251016	Paiement Fournisseur Métro	0,00	1262,58			20251016		
+AC	Achats	282	20251020	607000	Achats de marchandises			AC00272	20251020	Achat Fournisseur Bureau Vallée	727,46	0,00			20251020		
+AC	Achats	282	20251020	445660	TVA déductible sur ABS			AC00272	20251020	Achat Fournisseur Bureau Vallée	145,49	0,00			20251020		
+AC	Achats	282	20251020	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00272	20251020	Achat Fournisseur Bureau Vallée	0,00	872,95			20251020		
+BQ	Banque	284	20251021	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00273	20251021	Paiement Fournisseur Bureau Vallée	872,95	0,00			20251021		
+BQ	Banque	284	20251021	512000	Banque Crédit Agricole			BQ00273	20251021	Paiement Fournisseur Bureau Vallée	0,00	872,95			20251021		
+AC	Achats	261	20251001	613200	Locations immobilières			AC00274	20251001	Loyer	1000,00	0,00			20251001		
+AC	Achats	261	20251001	445660	TVA déductible sur ABS			AC00274	20251001	Loyer	200,00	0,00			20251001		
+AC	Achats	261	20251001	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00274	20251001	Loyer	0,00	1200,00			20251001		
+BQ	Banque	263	20251002	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00275	20251002	Loyer	1200,00	0,00			20251002		
+BQ	Banque	263	20251002	512000	Banque Crédit Agricole			BQ00275	20251002	Loyer	0,00	1200,00			20251002		
+OD	Opérations diverses	287	20251028	641000	Rémunérations du personnel			OD00276	20251028	Salaires	2500,00	0,00			20251028		
+OD	Opérations diverses	287	20251028	645000	Charges sociales			OD00276	20251028	Charges sociales	1050,00	0,00			20251028		
+OD	Opérations diverses	287	20251028	421000	Personnel - rémunérations dues			OD00276	20251028	Salaires	0,00	1950,00			20251028		
+OD	Opérations diverses	287	20251028	431000	Urssaf			OD00276	20251028	Urssaf	0,00	1600,00			20251028		
+BQ	Banque	288	20251028	421000	Personnel - rémunérations dues			BQ00277	20251028	Virement salaires	1950,00	0,00			20251028		
+BQ	Banque	288	20251028	512000	Banque Crédit Agricole			BQ00277	20251028	Virement salaires	0,00	1950,00			20251028		
+BQ	Banque	278	20251015	431000	Urssaf			BQ00278	20251015	Urssaf	1600,00	0,00			20251015		
+BQ	Banque	278	20251015	512000	Banque Crédit Agricole			BQ00278	20251015	Urssaf	0,00	1600,00			20251015		
+BQ	Banque	283	20251020	661100	Intérêts des emprunts			BQ00279	20251020	Intérêts	25,00	0,00			20251020		
+BQ	Banque	283	20251020	164000	Emprunts			BQ00279	20251020	Echéance emprunt	230,00	0,00			20251020		
+BQ	Banque	283	20251020	627000	Frais bancaires			BQ00279	20251020	Frais	12,50	0,00			20251020		
+BQ	Banque	283	20251020	512000	Banque Crédit Agricole			BQ00279	20251020	Echéance	0,00	267,50			20251020		
+CA	Caisse	271	20251010	530000	Caisse			CA00280	20251010	Ventes comptoir	360,00	0,00			20251010		
+CA	Caisse	271	20251010	707000	Ventes de marchandises			CA00280	20251010	Ventes comptoir	0,00	300,00			20251010		
+CA	Caisse	271	20251010	445710	TVA collectée			CA00280	20251010	Ventes comptoir	0,00	60,00			20251010		
+CA	Caisse	274	20251013	606100	Fournitures non stockables			CA00281	20251013	Petites fournitures	45,00	0,00			20251013		
+CA	Caisse	274	20251013	530000	Caisse			CA00281	20251013	Petites fournitures	0,00	45,00			20251013		
+VT	Ventes	289	20251103	411000	Clients	C004	Client Petit	VT00282	20251103	Facture Client Petit	3082,73	0,00			20251103		
+VT	Ventes	289	20251103	706000	Prestations de services			VT00282	20251103	Facture Client Petit	0,00	2568,94			20251103		
+VT	Ventes	289	20251103	445710	TVA collectée			VT00282	20251103	Facture Client Petit	0,00	513,79			20251103		
+BQ	Banque	290	20251103	512000	Banque Crédit Agricole			BQ00283	20251103	Règlement Client Petit	3082,73	0,00			20251103		
+BQ	Banque	290	20251103	411000	Clients	C004	Client Petit	BQ00283	20251103	Règlement Client Petit	0,00	3082,73			20251103		
+VT	Ventes	295	20251106	411000	Clients	C004	Client Petit	VT00284	20251106	Facture Client Petit	3938,99	0,00			20251106		
+VT	Ventes	295	20251106	706000	Prestations de services			VT00284	20251106	Facture Client Petit	0,00	3282,49			20251106		
+VT	Ventes	295	20251106	445710	TVA collectée			VT00284	20251106	Facture Client Petit	0,00	656,50			20251106		
+BQ	Banque	298	20251107	512000	Banque Crédit Agricole			BQ00285	20251107	Règlement Client Petit	3938,99	0,00			20251107		
+BQ	Banque	298	20251107	411000	Clients	C004	Client Petit	BQ00285	20251107	Règlement Client Petit	0,00	3938,99			20251107		
+VT	Ventes	299	20251110	411000	Clients	C007	Client Dubois	VT00286	20251110	Facture Client Dubois	3645,04	0,00			20251110		
+VT	Ventes	299	20251110	706000	Prestations de services			VT00286	20251110	Facture Client Dubois	0,00	3037,53			20251110		
+VT	Ventes	299	20251110	445710	TVA collectée			VT00286	20251110	Facture Client Dubois	0,00	607,51			20251110		
+BQ	Banque	302	20251112	512000	Banque Crédit Agricole			BQ00287	20251112	Règlement Client Dubois	3645,04	0,00			20251112		
+BQ	Banque	302	20251112	411000	Clients	C007	Client Dubois	BQ00287	20251112	Règlement Client Dubois	0,00	3645,04			20251112		
+VT	Ventes	305	20251114	411000	Clients	C004	Client Petit	VT00288	20251114	Facture Client Petit	1247,64	0,00			20251114		
+VT	Ventes	305	20251114	706000	Prestations de services			VT00288	20251114	Facture Client Petit	0,00	1039,70			20251114		
+VT	Ventes	305	20251114	445710	TVA collectée			VT00288	20251114	Facture Client Petit	0,00	207,94			20251114		
+BQ	Banque	306	20251117	512000	Banque Crédit Agricole			BQ00289	20251117	Règlement Client Petit	1247,64	0,00			20251117		
+BQ	Banque	306	20251117	411000	Clients	C004	Client Petit	BQ00289	20251117	Règlement Client Petit	0,00	1247,64			20251117		
+VT	Ventes	310	20251118	411000	Clients	C008	Client Moreau	VT00290	20251118	Facture Client Moreau	1938,70	0,00			20251118		
+VT	Ventes	310	20251118	706000	Prestations de services			VT00290	20251118	Facture Client Moreau	0,00	1615,58			20251118		
+VT	Ventes	310	20251118	445710	TVA collectée			VT00290	20251118	Facture Client Moreau	0,00	323,12			20251118		
+BQ	Banque	311	20251119	512000	Banque Crédit Agricole			BQ00291	20251119	Règlement Client Moreau	1938,70	0,00			20251119		
+BQ	Banque	311	20251119	411000	Clients	C008	Client Moreau	BQ00291	20251119	Règlement Client Moreau	0,00	1938,70			20251119		
+VT	Ventes	315	20251124	411000	Clients	C001	Client Durand	VT00292	20251124	Facture Client Durand	4753,84	0,00			20251124		
+VT	Ventes	315	20251124	706000	Prestations de services			VT00292	20251124	Facture Client Durand	0,00	3961,53			20251124		
+VT	Ventes	315	20251124	445710	TVA collectée			VT00292	20251124	Facture Client Durand	0,00	792,31			20251124		
+BQ	Banque	316	20251124	512000	Banque Crédit Agricole			BQ00293	20251124	Règlement Client Durand	4753,84	0,00			20251124		
+BQ	Banque	316	20251124	411000	Clients	C001	Client Durand	BQ00293	20251124	Règlement Client Durand	0,00	4753,84			20251124		
+AC	Achats	293	20251105	607000	Achats de marchandises			AC00294	20251105	Achat Fournisseur Leclerc	955,58	0,00			20251105		
+AC	Achats	293	20251105	445660	TVA déductible sur ABS			AC00294	20251105	Achat Fournisseur Leclerc	191,12	0,00			20251105		
+AC	Achats	293	20251105	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00294	20251105	Achat Fournisseur Leclerc	0,00	1146,70			20251105		
+BQ	Banque	296	20251106	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00295	20251106	Paiement Fournisseur Leclerc	1146,70	0,00			20251106		
+BQ	Banque	296	20251106	512000	Banque Crédit Agricole			BQ00295	20251106	Paiement Fournisseur Leclerc	0,00	1146,70			20251106		
+AC	Achats	300	20251110	607000	Achats de marchandises			AC00296	20251110	Achat Fournisseur Métro	1308,04	0,00			20251110		
+AC	Achats	300	20251110	445660	TVA déductible sur ABS			AC00296	20251110	Achat Fournisseur Métro	261,61	0,00			20251110		
+AC	Achats	300	20251110	401000	Fournisseurs	F001	Fournisseur Métro	AC00296	20251110	Achat Fournisseur Métro	0,00	1569,65			20251110		
+BQ	Banque	303	20251112	401000	Fournisseurs	F001	Fournisseur Métro	BQ00297	20251112	Paiement Fournisseur Métro	1569,65	0,00			20251112		
+BQ	Banque	303	20251112	512000	Banque Crédit Agricole			BQ00297	20251112	Paiement Fournisseur Métro	0,00	1569,65			20251112		
+AC	Achats	307	20251117	607000	Achats de marchandises			AC00298	20251117	Achat Fournisseur Leclerc	915,56	0,00			20251117		
+AC	Achats	307	20251117	445660	TVA déductible sur ABS			AC00298	20251117	Achat Fournisseur Leclerc	183,11	0,00			20251117		
+AC	Achats	307	20251117	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00298	20251117	Achat Fournisseur Leclerc	0,00	1098,67			20251117		
+BQ	Banque	308	20251117	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00299	20251117	Paiement Fournisseur Leclerc	1098,67	0,00			20251117		
+BQ	Banque	308	20251117	512000	Banque Crédit Agricole			BQ00299	20251117	Paiement Fournisseur Leclerc	0,00	1098,67			20251117		
+AC	Achats	312	20251120	607000	Achats de marchandises			AC00300	20251120	Achat Fournisseur Bureau Vallée	1780,86	0,00			20251120		
+AC	Achats	312	20251120	445660	TVA déductible sur ABS			AC00300	20251120	Achat Fournisseur Bureau Vallée	356,17	0,00			20251120		
+AC	Achats	312	20251120	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00300	20251120	Achat Fournisseur Bureau Vallée	0,00	2137,03			20251120		
+BQ	Banque	314	20251121	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00301	20251121	Paiement Fournisseur Bureau Vallée	2137,03	0,00			20251121		
+BQ	Banque	314	20251121	512000	Banque Crédit Agricole			BQ00301	20251121	Paiement Fournisseur Bureau Vallée	0,00	2137,03			20251121		
+AC	Achats	291	20251103	613200	Locations immobilières			AC00302	20251103	Loyer	1000,00	0,00			20251103		
+AC	Achats	291	20251103	445660	TVA déductible sur ABS			AC00302	20251103	Loyer	200,00	0,00			20251103		
+AC	Achats	291	20251103	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00302	20251103	Loyer	0,00	1200,00			20251103		
+BQ	Banque	292	20251103	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00303	20251103	Loyer	1200,00	0,00			20251103		
+BQ	Banque	292	20251103	512000	Banque Crédit Agricole			BQ00303	20251103	Loyer	0,00	1200,00			20251103		
+OD	Opérations diverses	317	20251128	641000	Rémunérations du personnel			OD00304	20251128	Salaires	2500,00	0,00			20251128		
+OD	Opérations diverses	317	20251128	645000	Charges sociales			OD00304	20251128	Charges sociales	1050,00	0,00			20251128		
+OD	Opérations diverses	317	20251128	421000	Personnel - rémunérations dues			OD00304	20251128	Salaires	0,00	1950,00			20251128		
+OD	Opérations diverses	317	20251128	431000	Urssaf			OD00304	20251128	Urssaf	0,00	1600,00			20251128		
+BQ	Banque	318	20251128	421000	Personnel - rémunérations dues			BQ00305	20251128	Virement salaires	1950,00	0,00			20251128		
+BQ	Banque	318	20251128	512000	Banque Crédit Agricole			BQ00305	20251128	Virement salaires	0,00	1950,00			20251128		
+BQ	Banque	309	20251117	431000	Urssaf			BQ00306	20251117	Urssaf	1600,00	0,00			20251117		
+BQ	Banque	309	20251117	512000	Banque Crédit Agricole			BQ00306	20251117	Urssaf	0,00	1600,00			20251117		
+BQ	Banque	313	20251120	661100	Intérêts des emprunts			BQ00307	20251120	Intérêts	25,00	0,00			20251120		
+BQ	Banque	313	20251120	164000	Emprunts			BQ00307	20251120	Echéance emprunt	230,00	0,00			20251120		
+BQ	Banque	313	20251120	627000	Frais bancaires			BQ00307	20251120	Frais	12,50	0,00			20251120		
+BQ	Banque	313	20251120	512000	Banque Crédit Agricole			BQ00307	20251120	Echéance	0,00	267,50			20251120		
+CA	Caisse	301	20251110	530000	Caisse			CA00308	20251110	Ventes comptoir	360,00	0,00			20251110		
+CA	Caisse	301	20251110	707000	Ventes de marchandises			CA00308	20251110	Ventes comptoir	0,00	300,00			20251110		
+CA	Caisse	301	20251110	445710	TVA collectée			CA00308	20251110	Ventes comptoir	0,00	60,00			20251110		
+CA	Caisse	304	20251112	606100	Fournitures non stockables			CA00309	20251112	Petites fournitures	45,00	0,00			20251112		
+CA	Caisse	304	20251112	530000	Caisse			CA00309	20251112	Petites fournitures	0,00	45,00			20251112		
+VT	Ventes	320	20251202	411000	Clients	C006	Client Richard	VT00310	20251202	Facture Client Richard	717,59	0,00			20251202		
+VT	Ventes	320	20251202	706000	Prestations de services			VT00310	20251202	Facture Client Richard	0,00	597,99			20251202		
+VT	Ventes	320	20251202	445710	TVA collectée			VT00310	20251202	Facture Client Richard	0,00	119,60			20251202		
+BQ	Banque	323	20251203	512000	Banque Crédit Agricole			BQ00311	20251203	Règlement Client Richard	717,59	0,00			20251203		
+BQ	Banque	323	20251203	411000	Clients	C006	Client Richard	BQ00311	20251203	Règlement Client Richard	0,00	717,59			20251203		
+VT	Ventes	325	20251208	411000	Clients	C002	Client Martin	VT00312	20251208	Facture Client Martin	1367,20	0,00			20251208		
+VT	Ventes	325	20251208	706000	Prestations de services			VT00312	20251208	Facture Client Martin	0,00	1139,33			20251208		
+VT	Ventes	325	20251208	445710	TVA collectée			VT00312	20251208	Facture Client Martin	0,00	227,87			20251208		
+BQ	Banque	326	20251208	512000	Banque Crédit Agricole			BQ00313	20251208	Règlement Client Martin	1367,20	0,00			20251208		
+BQ	Banque	326	20251208	411000	Clients	C002	Client Martin	BQ00313	20251208	Règlement Client Martin	0,00	1367,20			20251208		
+VT	Ventes	328	20251210	411000	Clients	C004	Client Petit	VT00314	20251210	Facture Client Petit	1859,56	0,00			20251210		
+VT	Ventes	328	20251210	706000	Prestations de services			VT00314	20251210	Facture Client Petit	0,00	1549,63			20251210		
+VT	Ventes	328	20251210	445710	TVA collectée			VT00314	20251210	Facture Client Petit	0,00	309,93			20251210		
+BQ	Banque	331	20251211	512000	Banque Crédit Agricole			BQ00315	20251211	Règlement Client Petit	1859,56	0,00			20251211		
+BQ	Banque	331	20251211	411000	Clients	C004	Client Petit	BQ00315	20251211	Règlement Client Petit	0,00	1859,56			20251211		
+VT	Ventes	334	20251215	411000	Clients	C008	Client Moreau	VT00316	20251215	Facture Client Moreau	3130,86	0,00			20251215		
+VT	Ventes	334	20251215	706000	Prestations de services			VT00316	20251215	Facture Client Moreau	0,00	2609,05			20251215		
+VT	Ventes	334	20251215	445710	TVA collectée			VT00316	20251215	Facture Client Moreau	0,00	521,81			20251215		
+BQ	Banque	335	20251215	512000	Banque Crédit Agricole			BQ00317	20251215	Règlement Client Moreau	3130,86	0,00			20251215		
+BQ	Banque	335	20251215	411000	Clients	C008	Client Moreau	BQ00317	20251215	Règlement Client Moreau	0,00	3130,86			20251215		
+VT	Ventes	339	20251218	411000	Clients	C010	Client Simon	VT00318	20251218	Facture Client Simon	4091,53	0,00			20251218		
+VT	Ventes	339	20251218	706000	Prestations de services			VT00318	20251218	Facture Client Simon	0,00	3409,61			20251218		
+VT	Ventes	339	20251218	445710	TVA collectée			VT00318	20251218	Facture Client Simon	0,00	681,92			20251218		
+BQ	Banque	340	20251219	512000	Banque Crédit Agricole			BQ00319	20251219	Règlement Client Simon	4091,53	0,00			20251219		
+BQ	Banque	340	20251219	411000	Clients	C010	Client Simon	BQ00319	20251219	Règlement Client Simon	0,00	4091,53			20251219		
+VT	Ventes	341	20251222	411000	Clients	C008	Client Moreau	VT00320	20251222	Facture Client Moreau	4396,85	0,00			20251222		
+VT	Ventes	341	20251222	706000	Prestations de services			VT00320	20251222	Facture Client Moreau	0,00	3664,04			20251222		
+VT	Ventes	341	20251222	445710	TVA collectée			VT00320	20251222	Facture Client Moreau	0,00	732,81			20251222		
+BQ	Banque	345	20251223	512000	Banque Crédit Agricole			BQ00321	20251223	Règlement Client Moreau	4396,85	0,00			20251223		
+BQ	Banque	345	20251223	411000	Clients	C008	Client Moreau	BQ00321	20251223	Règlement Client Moreau	0,00	4396,85			20251223		
+AC	Achats	324	20251205	607000	Achats de marchandises			AC00322	20251205	Achat Fournisseur Leclerc	1479,43	0,00			20251205		
+AC	Achats	324	20251205	445660	TVA déductible sur ABS			AC00322	20251205	Achat Fournisseur Leclerc	295,89	0,00			20251205		
+AC	Achats	324	20251205	401000	Fournisseurs	F002	Fournisseur Leclerc	AC00322	20251205	Achat Fournisseur Leclerc	0,00	1775,32			20251205		
+BQ	Banque	327	20251208	401000	Fournisseurs	F002	Fournisseur Leclerc	BQ00323	20251208	Paiement Fournisseur Leclerc	1775,32	0,00			20251208		
+BQ	Banque	327	20251208	512000	Banque Crédit Agricole			BQ00323	20251208	Paiement Fournisseur Leclerc	0,00	1775,32			20251208		
+AC	Achats	329	20251210	607000	Achats de marchandises			AC00324	20251210	Achat Fournisseur Métro	1535,44	0,00			20251210		
+AC	Achats	329	20251210	445660	TVA déductible sur ABS			AC00324	20251210	Achat Fournisseur Métro	307,09	0,00			20251210		
+AC	Achats	329	20251210	401000	Fournisseurs	F001	Fournisseur Métro	AC00324	20251210	Achat Fournisseur Métro	0,00	1842,53			20251210		
+BQ	Banque	332	20251211	401000	Fournisseurs	F001	Fournisseur Métro	BQ00325	20251211	Paiement Fournisseur Métro	1842,53	0,00			20251211		
+BQ	Banque	332	20251211	512000	Banque Crédit Agricole			BQ00325	20251211	Paiement Fournisseur Métro	0,00	1842,53			20251211		
+AC	Achats	336	20251215	607000	Achats de marchandises			AC00326	20251215	Achat Fournisseur Métro	1655,64	0,00			20251215		
+AC	Achats	336	20251215	445660	TVA déductible sur ABS			AC00326	20251215	Achat Fournisseur Métro	331,13	0,00			20251215		
+AC	Achats	336	20251215	401000	Fournisseurs	F001	Fournisseur Métro	AC00326	20251215	Achat Fournisseur Métro	0,00	1986,77			20251215		
+BQ	Banque	338	20251216	401000	Fournisseurs	F001	Fournisseur Métro	BQ00327	20251216	Paiement Fournisseur Métro	1986,77	0,00			20251216		
+BQ	Banque	338	20251216	512000	Banque Crédit Agricole			BQ00327	20251216	Paiement Fournisseur Métro	0,00	1986,77			20251216		
+AC	Achats	342	20251222	607000	Achats de marchandises			AC00328	20251222	Achat Fournisseur Bureau Vallée	1400,22	0,00			20251222		
+AC	Achats	342	20251222	445660	TVA déductible sur ABS			AC00328	20251222	Achat Fournisseur Bureau Vallée	280,04	0,00			20251222		
+AC	Achats	342	20251222	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	AC00328	20251222	Achat Fournisseur Bureau Vallée	0,00	1680,26			20251222		
+BQ	Banque	343	20251222	401000	Fournisseurs	F003	Fournisseur Bureau Vallée	BQ00329	20251222	Paiement Fournisseur Bureau Vallée	1680,26	0,00			20251222		
+BQ	Banque	343	20251222	512000	Banque Crédit Agricole			BQ00329	20251222	Paiement Fournisseur Bureau Vallée	0,00	1680,26			20251222		
+AC	Achats	319	20251201	613200	Locations immobilières			AC00330	20251201	Loyer	1000,00	0,00			20251201		
+AC	Achats	319	20251201	445660	TVA déductible sur ABS			AC00330	20251201	Loyer	200,00	0,00			20251201		
+AC	Achats	319	20251201	401000	Fournisseurs	F006	Fournisseur Loueur Immo	AC00330	20251201	Loyer	0,00	1200,00			20251201		
+BQ	Banque	321	20251202	401000	Fournisseurs	F006	Fournisseur Loueur Immo	BQ00331	20251202	Loyer	1200,00	0,00			20251202		
+BQ	Banque	321	20251202	512000	Banque Crédit Agricole			BQ00331	20251202	Loyer	0,00	1200,00			20251202		
+OD	Opérations diverses	346	20251229	641000	Rémunérations du personnel			OD00332	20251229	Salaires	2500,00	0,00			20251229		
+OD	Opérations diverses	346	20251229	645000	Charges sociales			OD00332	20251229	Charges sociales	1050,00	0,00			20251229		
+OD	Opérations diverses	346	20251229	421000	Personnel - rémunérations dues			OD00332	20251229	Salaires	0,00	1950,00			20251229		
+OD	Opérations diverses	346	20251229	431000	Urssaf			OD00332	20251229	Urssaf	0,00	1600,00			20251229		
+BQ	Banque	347	20251229	421000	Personnel - rémunérations dues			BQ00333	20251229	Virement salaires	1950,00	0,00			20251229		
+BQ	Banque	347	20251229	512000	Banque Crédit Agricole			BQ00333	20251229	Virement salaires	0,00	1950,00			20251229		
+BQ	Banque	337	20251215	431000	Urssaf			BQ00334	20251215	Urssaf	1600,00	0,00			20251215		
+BQ	Banque	337	20251215	512000	Banque Crédit Agricole			BQ00334	20251215	Urssaf	0,00	1600,00			20251215		
+BQ	Banque	344	20251222	661100	Intérêts des emprunts			BQ00335	20251222	Intérêts	25,00	0,00			20251222		
+BQ	Banque	344	20251222	164000	Emprunts			BQ00335	20251222	Echéance emprunt	230,00	0,00			20251222		
+BQ	Banque	344	20251222	627000	Frais bancaires			BQ00335	20251222	Frais	12,50	0,00			20251222		
+BQ	Banque	344	20251222	512000	Banque Crédit Agricole			BQ00335	20251222	Echéance	0,00	267,50			20251222		
+CA	Caisse	330	20251210	530000	Caisse			CA00336	20251210	Ventes comptoir	360,00	0,00			20251210		
+CA	Caisse	330	20251210	707000	Ventes de marchandises			CA00336	20251210	Ventes comptoir	0,00	300,00			20251210		
+CA	Caisse	330	20251210	445710	TVA collectée			CA00336	20251210	Ventes comptoir	0,00	60,00			20251210		
+CA	Caisse	333	20251212	606100	Fournitures non stockables			CA00337	20251212	Petites fournitures	45,00	0,00			20251212		
+CA	Caisse	333	20251212	530000	Caisse			CA00337	20251212	Petites fournitures	0,00	45,00			20251212		
+CA	Caisse	164	20250617	606100	Fournitures non stockables			CA00338	20250617	Achat espèces important	2900,00	0,00			20250617		
+CA	Caisse	164	20250617	530000	Caisse			CA00338	20250617	Achat espèces important	0,00	2900,00			20250617		
+OD	Opérations diverses	116	20250430	641000	Rémunérations du personnel			OD00339	20250430	Prime oubliée	500,00	0,00			20250430		
+OD	Opérations diverses	116	20250430	421000	Personnel - rémunérations dues			OD00339	20250430	Prime oubliée	0,00	450,00			20250430		
+OD	Opérations diverses	67	20250309	606100	Fournitures non stockables			OD00340	20250309	Achat du dimanche	80,00	0,00			20250309		
+OD	Opérations diverses	67	20250309	512000	Banque Crédit Agricole			OD00340	20250309	Achat du dimanche	0,00	80,00			20250309		
+OD	Opérations diverses	187	20250714	606100	Fournitures non stockables			OD00341	20250714	Achat du 14 juillet	60,00	0,00			20250714		
+OD	Opérations diverses	187	20250714	512000	Banque Crédit Agricole			OD00341	20250714	Achat du 14 juillet	0,00	60,00			20250714		
+AC	Achats	242	20250910	607000	Achats de marchandises			FA-2025-0917	20250910	Achat Métro	1000,00	0,00			20250910		
+AC	Achats	242	20250910	445660	TVA déductible sur ABS			FA-2025-0917	20250910	Achat Métro	200,00	0,00			20250910		
+AC	Achats	242	20250910	401000	Fournisseurs	F001	Fournisseur Métro	FA-2025-0917	20250910	Achat Métro	0,00	1200,00			20250910		
+AC	Achats	243	20250910	607000	Achats de marchandises			FA-2025-0917	20250910	Achat Métro	1000,00	0,00			20250910		
+AC	Achats	243	20250910	445660	TVA déductible sur ABS			FA-2025-0917	20250910	Achat Métro	200,00	0,00			20250910		
+AC	Achats	243	20250910	401000	Fournisseurs	F001	Fournisseur Métro	FA-2025-0917	20250910	Achat Métro	0,00	1200,00			20250910		
+BQ	Banque	294	20251105	512000	Banque Crédit Agricole			BQ00344	20251105	Virement inconnu	750,00	0,00			20251105		
+BQ	Banque	294	20251105	471000	Compte d'attente			BQ00344	20251105	Virement inconnu	0,00	750,00			20251105		
+BQ	Banque	297	20251106	512000	Banque Crédit Agricole			BQ00345	20251106	Règlement Durand (en double)	9000,00	0,00			20251106		
+BQ	Banque	297	20251106	411000	Clients	C001	Client Durand	BQ00345	20251106	Règlement Durand	0,00	9000,00			20251106		
+BQ	Banque	322	20251202	455000	Associés - comptes courants			BQ00346	20251202	Retrait associé	3000,00	0,00			20251202		
+BQ	Banque	322	20251202	512000	Banque Crédit Agricole			BQ00346	20251202	Retrait associé	0,00	3000,00			20251202		
+OD	Opérations diverses	348	20251231	681120	Dotations amort. immo corp.			OD00347	20251231	Dotation amortissements	1600,00	0,00			20251231		
+OD	Opérations diverses	348	20251231	281540	Amort. matériel			OD00347	20251231	Dotation amortissements	0,00	1600,00			20251231		
+OD	Opérations diverses	58	20250230	606100	Fournitures non stockables			OD00348	20251231	Date invalide	10,00	0,00			20251231		
+OD	Opérations diverses	58	20250230	512000	Banque Crédit Agricole			OD00348	20251231	Date invalide	0,00	10,00			20251231		
+OD	Opérations diverses	349	20260105	627000	Frais bancaires			OD00349	20260105	Frais janvier 2026	8,00	0,00			20260105		
+OD	Opérations diverses	349	20260105	512000				OD00349	20260105	Frais janvier 2026	0,00	8,00			20260105		
+OD	Opérations diverses	350	20250201	627000	Frais bancaires			OD00350	20250201	Saisie tardive	5,00	0,00			20250201		
+OD	Opérations diverses	350	20250201	512000	Banque Crédit Agricole			OD00350	20250201	Saisie tardive	0,00	5,00			20250201		

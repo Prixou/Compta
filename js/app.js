@@ -269,7 +269,7 @@
         dashResp: '',
         dossierView: 'cartes',
         pointage: false,
-        piecesIgnore: ['RSM'], // fournisseurs dont on ne demande jamais les pièces (ex. le cabinet lui-même)
+        piecesIgnore: [], // fournisseurs dont on ne demande jamais les pièces (ex. le cabinet lui-même)
       },
       templates: clone(DEFAULT_TEMPLATES),
       clients: [],
@@ -6367,7 +6367,7 @@
       </ul>`)}
       ${item('Importer le classeur du cabinet', `<p>Dossiers → <strong>Importer</strong>, puis choisissez votre classeur de suivi. S'il contient les onglets INFO DOSSIER, SUIVI TVA, SUIVI RÉVISION, SUIVI SITUATION, SUIVI DÉCLARATION ou SUIVI SAISIE, ils sont tous repris en une fois :</p>
         <ul>
-          <li>filtre sur une colonne (ex. <strong>CJ = QUME</strong>), proposé automatiquement si votre prénom ou trigramme figure dans le fichier ;</li>
+          <li>filtre sur une colonne (ex. <strong>CJ = ABC</strong>), proposé automatiquement si votre prénom ou trigramme figure dans le fichier ;</li>
           <li>les bilans reprennent vos propres étapes de révision (saisie, pointages… envoi EDI, BAT, FN), et une étape cochée coche les précédentes ;</li>
           <li>OK ou montant = fait ; case hachurée, N/A, DISP ou EUX = non applicable ;</li>
           <li>les onglets contenant des identifiants et mots de passe (DGFIP, URSSAF, EBICS) ne sont jamais lus ;</li>
@@ -6516,7 +6516,7 @@
     const today = todayStr();
     const plan = { clients: [], missions: [], counts: {}, unknown: 0 };
     const info = cabTable(cabFindTab(book, CAB_TABS[0].re));
-    // Filtre sur une colonne de INFO DOSSIER (ex. CJ = QUME).
+    // Filtre sur une colonne de INFO DOSSIER (ex. CJ = ABC).
     let keep = null;
     if (info && cab.filterCol >= 0 && cab.filterVal !== '') {
       keep = new Set(info.rows.filter((r) => cellText(r, cab.filterCol) === cab.filterVal).map((r) => r.key));
@@ -6861,7 +6861,7 @@
             <label>Revue LCB-FT tous les (mois)<input type="number" name="kycMois" min="1" max="60" value="${esc(s.kycMois)}"></label>
             <label>Relancer un client sans réponse après (jours)<input type="number" name="relanceJours" min="1" max="60" value="${esc(s.relanceJours)}"></label>
             <label>Signature des messages<textarea name="signature" rows="3" placeholder="${esc([s.utilisateur, s.cabinet].filter(Boolean).join('\n') || 'Prénom Nom\nCabinet')}">${esc(s.signature)}</textarea></label>
-            <label>Ne jamais demander de pièces pour ces fournisseurs<textarea name="piecesIgnore" rows="3" placeholder="RSM">${esc((s.piecesIgnore || []).join('\n'))}</textarea></label>
+            <label>Ne jamais demander de pièces pour ces fournisseurs<textarea name="piecesIgnore" rows="3" placeholder="Nom de votre cabinet">${esc((s.piecesIgnore || []).join('\n'))}</textarea></label>
             <p class="muted small">Un nom par ligne (par exemple votre propre cabinet, dont vous récupérez les factures vous-même). Toute demande qui mentionne ce nom est retirée des pièces à demander.</p>
             <button class="btn primary" type="submit">Enregistrer</button>
           </form>

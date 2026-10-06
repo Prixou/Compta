@@ -1,0 +1,2 @@
+Bonjour, ceci est un texte quelconque.
+Sans séparateur.

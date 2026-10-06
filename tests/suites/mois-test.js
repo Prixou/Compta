@@ -1,0 +1,30 @@
+const { chromium } = require('playwright');
+const path = require('path');
+const D = path.join(__dirname, '../fixtures/');
+const O = path.join(__dirname, '../out/');
+(async () => {
+  const b = await chromium.launch();
+  const p = await (await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' })).newPage();
+  const errors = [];
+  p.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message)); p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await p.goto('http://localhost:8765/');
+  await p.fill('input[name=p1]', 'Cabinet-Test-2026!'); await p.fill('input[name=p2]', 'Cabinet-Test-2026!');
+  await p.check('input[name=ack]'); await p.click('button[type=submit]'); await p.waitForSelector('.layout');
+  await p.click('main [data-action=new-client]'); await p.fill('#modal input[name=nom]', 'SARL CYCLES'); await p.fill('#modal input[name=contact]', 'Madame Durand').catch(() => {});
+  await p.fill('#modal input[name=siren]', '444444444'); await p.click('#modal button[type=submit]'); await p.waitForSelector('.grid-detail');
+  await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-drop');
+  const [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
+  await ch.setFiles(D + '444444444FEC20251231.txt'); await p.waitForSelector('.fec-meta');
+  await p.click('button[data-tab=pieces]'); await p.click('button[data-action=pieces-mode][data-mode=mois]'); await p.waitForTimeout(200);
+  const dump = async (ym) => {
+    await p.fill('input[data-pieces=mois]', ym); await p.dispatchEvent('input[data-pieces=mois]', 'change'); await p.waitForTimeout(200);
+    console.log(`\n=== ${ym}`, await p.$eval('.pieces-opts .muted', (x) => x.textContent));
+    console.log(await p.$$eval('.pieces-group', (g) => g.map((x) => x.querySelector('h3').textContent.replace(/\s+/g, ' ').trim() + '\n   - ' + Array.from(x.querySelectorAll('.piece span')).map((s) => s.textContent).join('\n   - ')).join('\n')));
+  };
+  await dump('2025-08'); await dump('2025-09'); await dump('2025-06');
+  await p.screenshot({ path: O + 'mois.png', fullPage: true });
+  await p.click('button[data-action=pieces-demande]'); await p.waitForSelector('#modal textarea, #modal .msg-body', { timeout: 5000 }).catch(() => {});
+  console.log('\nmail :', (await p.textContent('#modal')).replace(/\s+/g, ' ').slice(0, 400));
+  console.log('erreurs', errors);
+  await b.close();
+})();

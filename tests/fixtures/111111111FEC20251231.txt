@@ -1,0 +1,3 @@
+JournalCode|JournalLib|EcritureNum|EcritureDate|CompteNum|CompteLib|CompAuxNum|CompAuxLib|PieceRef|PieceDate|EcritureLib|Debit|Credit|EcritureLet|DateLet|ValidDate|Montantdevise|Idevise
+BQ|Banque <b>|1|20250105|512000|Banque <img src=x onerror="window.__xss=1">|||P1|20250105|Libellé <img src=x onerror="window.__xss=1">|100,00|0,00|||20250105||
+BQ|Banque <b>|1|20250105|471000|Attente <img src=x onerror="window.__xss=1">|||P1|20250105|Libellé <img src=x onerror="window.__xss=1">|0,00|100,00|||20250105||

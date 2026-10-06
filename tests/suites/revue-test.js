@@ -1,0 +1,57 @@
+const { chromium } = require('playwright');
+const path = require('path');
+const D = path.join(__dirname, '../fixtures/');
+const O = path.join(__dirname, '../out/');
+(async () => {
+  const b = await chromium.launch();
+  const p = await (await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' })).newPage();
+  const errors = []; p.on('pageerror', (e) => errors.push(e.message)); p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await p.goto('http://localhost:8765/');
+  await p.fill('input[name=p1]', 'Cabinet-Test-2026!'); await p.fill('input[name=p2]', 'Cabinet-Test-2026!');
+  await p.check('input[name=ack]'); await p.click('button[type=submit]'); await p.waitForSelector('.layout');
+  await p.goto('http://localhost:8765/#/dossiers'); await p.click('main [data-action=new-client]');
+  await p.fill('#modal input[name=nom]', 'SARL EXEMPLE'); await p.selectOption('#modal select[name=forme]', 'SARL');
+  await p.selectOption('#modal select[name=regimeFiscal]', 'IS'); await p.fill('#modal input[name=siren]', '123456789');
+  await p.click('#modal button[type=submit]'); await p.waitForSelector('.grid-detail');
+  await p.click('a[data-nav=fec]');
+  let [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
+  await ch.setFiles(D + '123456789FEC20251231.txt'); await p.waitForSelector('.fec-meta');
+  await p.click('button[data-action=fec-tab][data-tab=revue]');
+  console.log('sans N-1 — cohérence :', await p.$$eval('.fec-check', (l) => l.map((x) => x.querySelector('.lvl').textContent.trim() + ' ' + x.querySelector('strong').textContent).join(' | ')));
+  [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('button[data-action=fec-prev]')]);
+  await ch.setFiles(D + '123456789FEC20241231.txt');
+  await p.waitForSelector('table.revue', { timeout: 30000 });
+  console.log('chargé :', (await p.textContent('.revue-load')).replace(/\s+/g, ' ').trim());
+  console.log('variations à justifier :', await p.$$eval('table.revue >> nth=0 >> tbody tr', (t) => t.map((r) => Array.from(r.children).slice(0, 6).map((c) => c.textContent.trim()).join(' ')).join(' | ')));
+  await p.fill('td.comment input >> nth=0', 'Hausse du loyer suite au déménagement');
+  await p.press('td.comment input >> nth=0', 'Tab');
+  console.log('N-1 — cohérence :', await p.$$eval('section.card:has(h2:text("Contrôles de cohérence")) .fec-check', (l) => l.map((x) => x.querySelector('.lvl').textContent.trim() + ' ' + x.querySelector('strong').textContent).join(' | ')));
+  await p.screenshot({ path: O + 'r1-revue.png', fullPage: true });
+  // Seuil
+  await p.fill('input[data-revue=seuil]', '5000'); await p.press('input[data-revue=seuil]', 'Tab'); await p.waitForTimeout(150);
+  console.log('seuil 5 000 € :', await p.$eval('section.card:has(h2:text-matches("Variations")) .count', (x) => x.textContent), 'variation(s)');
+  // Note
+  await p.click('button[data-action=fec-note]');
+  await p.fill('#modal textarea[data-revue=note]', 'Exercice marqué par la croissance de l\'activité de prestations.');
+  await p.press('#modal textarea[data-revue=note]', 'Tab');
+  await p.waitForTimeout(150);
+  console.log('note — faits marquants :', await p.$$eval('#modal .note ul >> nth=0 >> li', (l) => l.map((x) => x.textContent).join(' | ')));
+  await p.screenshot({ path: O + 'r2-note.png' });
+  await p.evaluate(() => { window.print = () => { window.__printed = document.querySelector('#print-area').innerText.length; }; });
+  await p.click('#modal [data-action=note-print]');
+  console.log('impression : zone de', await p.evaluate(() => window.__printed), 'caractères');
+  await p.click('#modal [data-action=close-modal]');
+  // Commentaire conservé dans le dossier après verrouillage
+  await p.click('.sidebar button[data-action=lock]');
+  await p.fill('input[name=password]', 'Cabinet-Test-2026!'); await p.click('button[type=submit]'); await p.waitForSelector('.layout');
+  await p.goto('http://localhost:8765/#/fec');
+  [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
+  await ch.setFiles(D + '123456789FEC20251231.txt'); await p.waitForSelector('.fec-meta');
+  await p.click('button[data-action=fec-tab][data-tab=revue]');
+  [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('button[data-action=fec-prev]')]);
+  await ch.setFiles(D + '123456789FEC20241231.txt'); await p.waitForSelector('table.revue');
+  await p.fill('input[data-revue=seuil]', '1500'); await p.press('input[data-revue=seuil]', 'Tab'); await p.waitForTimeout(150);
+  console.log('commentaire retrouvé :', await p.$$eval('td.comment input', (i) => i.map((x) => x.value).filter(Boolean)));
+  console.log('erreurs', errors);
+  await b.close();
+})().catch((e) => { console.error(e); process.exit(1); });

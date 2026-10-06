@@ -1,0 +1,3 @@
+JournalCode;JournalLib;EcritureNum;EcritureDate;CompteNum;CompteLib;CompAuxNum;CompAuxLib;PieceRef;PieceDate;EcritureLib;Debit;Credit;EcritureLet;DateLet;ValidDate;Montantdevise;Idevise
+BQ;Banque <b>;1;20250105;512000;Banque x;;;P1;20250105;Libellé x;100,00;0,00;;;20250105;;
+BQ;Banque <b>;1;20250105;471000;Attente x;;;P1;20250105;Libellé x;0,00;100,00;;;20250105;;

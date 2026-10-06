@@ -1,0 +1,37 @@
+const { chromium } = require('playwright');
+const path = require('path');
+const D = path.join(__dirname, '../fixtures/');
+const O = path.join(__dirname, '../out/');
+(async () => {
+  const b = await chromium.launch();
+  const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', permissions: ['clipboard-read', 'clipboard-write'] });
+  const p = await ctx.newPage();
+  const errors = [];
+  p.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message)); p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await p.goto('http://localhost:8765/');
+  await p.fill('input[name=p1]', 'Cabinet-Test-2026!'); await p.fill('input[name=p2]', 'Cabinet-Test-2026!');
+  await p.check('input[name=ack]'); await p.click('button[type=submit]'); await p.waitForSelector('.layout');
+  await p.click('main [data-action=new-client]'); await p.fill('#modal input[name=nom]', 'SARL CYCLES'); await p.fill('#modal input[name=siren]', '444444444'); await p.click('#modal button[type=submit]'); await p.waitForSelector('.grid-detail');
+  const load = async (f) => {
+    await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-drop, .fec-meta');
+    const [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('[data-action=fec-pick]')]);
+    await ch.setFiles(D + f); await p.waitForSelector('.fec-meta, .banner.warn', { timeout: 30000 });
+  };
+  await load('export-pennylane.zip');
+  console.log('méta :', (await p.textContent('.fec-meta-grid')).replace(/\s+/g, ' ').trim());
+  console.log('carte :', (await p.textContent('section:has(h2:text("Justificatifs de l\'archive"))')).replace(/\s+/g, ' ').trim().slice(0, 600));
+  await p.click('button[data-tab=pieces]'); await p.waitForTimeout(200);
+  console.log('pièces (bilan) :', await p.$$eval('.piece span', (l) => l.map((x) => x.textContent).filter((t) => /n° |Justificatif « /.test(t))));
+  console.log('fournisseurs :', await p.$$eval('.supp-row .supp-name', (l) => l.map((x) => x.textContent.replace(/\s+/g, ' ').trim())));
+  await p.click('.supp-row:has-text("PAPETERIE") button[data-action=supp-copy]'); await p.waitForTimeout(300);
+  console.log('--- mail ---\n' + (await p.evaluate(() => navigator.clipboard.readText())).split('\n').slice(4, 12).join('\n'));
+  await p.click('button[data-action=pieces-mode][data-mode=mois]'); await p.fill('input[data-pieces=mois]', '2025-08'); await p.dispatchEvent('input[data-pieces=mois]', 'change'); await p.waitForTimeout(200);
+  console.log('mois d\'août :', await p.$$eval('.piece span', (l) => l.map((x) => x.textContent)));
+  await p.screenshot({ path: O + 'zip-pieces.png', fullPage: true });
+  await load('export-noms-opaques.zip');
+  console.log('\nnoms opaques :', (await p.textContent('section:has(h2:text("Justificatifs de l\'archive")) .banner')).replace(/\s+/g, ' ').trim().slice(0, 300));
+  await p.click('button[data-tab=pieces]'); await p.waitForTimeout(200);
+  console.log('pièces sans archive fiable (estimations conservées) :', (await p.$$('.piece')).length);
+  console.log('erreurs', errors);
+  await b.close();
+})();
