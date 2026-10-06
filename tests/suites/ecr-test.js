@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
+const { fecTab, fecMonth } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', acceptDownloads: true });
@@ -19,7 +20,7 @@ const O = path.join(__dirname, '../out/');
   await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-drop');
   const [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
   await ch.setFiles(D + '444444444FEC20251231.txt'); await p.waitForSelector('.fec-meta');
-  await p.click('button[data-action=fec-tab][data-tab=ecritures]'); await p.waitForTimeout(150);
+  await fecTab(p, 'ecritures', 0); await p.waitForTimeout(150);
   console.log('KPI :', await p.$$eval('.fec-kpis .kpi', (k) => k.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).join(' | ')));
   console.log(await p.$$eval('.ecr-prop', (l) => l.map((x) => '  - ' + x.querySelector('strong').textContent + ' :: ' + Array.from(x.querySelectorAll('.ecr-lines tbody tr')).map((r) => r.textContent.replace(/\s+/g, ' ').trim()).join(' / ')).join('\n')));
   await p.screenshot({ path: O + 'ecr-1.png', fullPage: true });

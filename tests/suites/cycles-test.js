@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
+const { fecTab, fecMonth } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', acceptDownloads: true });
@@ -23,18 +24,18 @@ const O = path.join(__dirname, '../out/');
   console.log('tuiles :', await p.$$eval('.cycle-tile', (k) => k.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).join(' | ')));
   await p.screenshot({ path: O + 'cy0-synthese.png', fullPage: true });
   for (const tab of ['achats', 'charges', 'clients', 'treso']) {
-    await p.click(`button[data-action=fec-tab][data-tab=${tab}]`); await p.waitForTimeout(150);
+    await fecTab(p, tab, 0); await p.waitForTimeout(150);
     console.log(`\n=== ${tab.toUpperCase()}`);
     console.log('KPI :', await p.$$eval('.fec-kpis .kpi', (k) => k.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).join(' | ')));
     console.log(await p.$$eval('.fec-checks .fec-check', (l) => l.map((x) => '  ' + x.querySelector('.lvl').textContent + ' ' + x.querySelector('strong').textContent + ' — ' + ((x.querySelector('.muted') || {}).textContent || '').slice(0, 150)).join('\n')));
     await p.screenshot({ path: O + `cy-${tab}.png`, fullPage: true });
   }
   // Échéance modifiée
-  await p.click('button[data-action=fec-tab][data-tab=clients]');
+  await fecTab(p, 'clients', 0);
   await p.fill('input[data-fec=terme]', '60'); await p.press('input[data-fec=terme]', 'Tab'); await p.waitForTimeout(200);
   console.log('\nD441-6 clients à 60 j :', await p.$$eval('.d441 tbody tr', (t) => t.map((r) => r.textContent.replace(/\s+/g, ' ').trim()).join(' / ')));
   // Pièces
-  await p.click('button[data-action=fec-tab][data-tab=pieces]'); await p.waitForTimeout(150);
+  await fecTab(p, 'pieces', 0); await p.waitForTimeout(150);
   console.log('\npièces :', await p.$$eval('.pieces-group', (g) => g.map((x) => x.querySelector('h3').textContent.replace(/\s+/g, ' ') + ' : ' + Array.from(x.querySelectorAll('.piece span')).map((s) => s.textContent).filter((t) => /espèces|professionnel|contravention|DAS2|charges constatées|Notes de frais|Factures de vente n°/.test(t)).join(' || ')).join('\n')));
   // Mission + export
   await p.click('button[data-action=fec-mission]');
@@ -53,17 +54,18 @@ const O = path.join(__dirname, '../out/');
   await ch3.setFiles(D + '444444444FEC20251231.txt'); await m.waitForSelector('.fec-meta');
   const over = [];
   for (const tab of ['synthese', 'achats', 'charges', 'clients', 'treso']) {
-    await m.click(`button[data-action=fec-tab][data-tab=${tab}]`); await m.waitForTimeout(150);
+    await fecTab(m, tab, 0); await m.waitForTimeout(150);
     if (await m.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) over.push(tab);
     await m.screenshot({ path: O + `cym-${tab}.png`, fullPage: true });
   }
   console.log('débordement mobile :', over);
   // Pharmacie : pas d'onglet Clients
-  await p.goto('http://localhost:8765/#/fec/pharma'); await p.waitForSelector('.fec-drop');
-  const [ch4] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
+  await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('[data-action=fec-pick]');
+  const [ch4] = await Promise.all([p.waitForEvent('filechooser'), p.click('button[data-action=fec-pick]')]);
   await ch4.setFiles(D + '333333333FEC20251231.txt'); await p.waitForSelector('.fec-meta');
+  await p.waitForFunction(() => (document.querySelector('.fec-file') || {}).textContent === '333333333FEC20251231.txt');
   console.log('\npharma onglets :', await p.$$eval('.fec-tabs button', (b) => b.map((x) => x.textContent).join(' · ')));
-  await p.click('button[data-action=fec-tab][data-tab=treso]'); await p.waitForTimeout(150);
+  await fecTab(p, 'treso', 0); await p.waitForTimeout(150);
   console.log('pharma tréso :', await p.$$eval('.fec-checks .fec-check strong', (l) => l.map((x) => x.textContent).join(' | ')));
   console.log('erreurs', errors);
   await b.close();

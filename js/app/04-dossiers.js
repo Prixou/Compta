@@ -8,12 +8,16 @@
 // Dossiers
 // ---------------------------------------------------------------------------
 
+// Activité du dossier : fixe le profil de l'analyse FEC (sinon déduit du contenu du fichier).
+const ACTIVITES = { classique: 'Structure classique', pharmacie: 'Officine (pharmacie)' };
+
 function viewDossiers() {
   const table = data.settings.dossierView === 'tableau';
   return `
     <div class="page-head"><h1>Dossiers</h1>
       <div class="head-actions">
         <button class="btn" data-action="import-sheet">Importer (Excel / CSV)</button>
+        <a class="btn" href="#/portefeuille" title="Analyser en une fois les FEC de plusieurs dossiers">${icon('chart')}Portefeuille FEC</a>
         <button class="btn primary" data-action="new-client">${icon('plus')}Nouveau dossier</button>
       </div>
     </div>
@@ -139,6 +143,7 @@ function viewDossier(id) {
             ${field('SIREN / SIRET', c.siren, true)}
             ${field('Régime fiscal', c.regimeFiscal)}
             ${field('Régime de TVA', c.regimeTva)}
+            ${field('Activité (analyse FEC)', c.activite ? ACTIVITES[c.activite] : 'Détectée sur le FEC')}
             ${field('Jour limite TVA', c.jourTva)}
             ${field('Clôture', c.cloture)}
             ${field('Responsable', c.responsable)}
@@ -163,7 +168,7 @@ function viewDossier(id) {
             <div class="small">${x.errors ? `<span class="lvl lvl-error"><b aria-hidden="true">✕</b>${x.errors} anomalie(s)</span>` : '<span class="lvl lvl-ok"><b aria-hidden="true">✓</b>Aucune anomalie</span>'} ${x.warnings ? `<span class="lvl lvl-warn"><b aria-hidden="true">!</b>${x.warnings} à vérifier</span>` : ''}</div>
             <div class="muted small">CA ${eur(x.kpi.ca, 0)} € · Résultat ${eur(x.kpi.resultat, 0)} € · EBE ${eur(x.kpi.ebe, 0)} € · Trésorerie ${eur(x.kpi.tresorerie, 0)} €</div>
           </li>`).join('')}</ul>
-          <a class="btn small" href="${c.fec[c.fec.length - 1].profil === 'pharmacie' ? '#/fec/pharma' : '#/fec'}">Nouvelle analyse</a></section>` : ''}
+          <a class="btn small" href="#/fec">Nouvelle analyse</a></section>` : ''}
         ${c.revisionMemo && Object.keys(c.revisionMemo).length ? `<section class="card"><h2>Mémoire de révision <span class="count">${Object.keys(c.revisionMemo).length}</span></h2>
           <p class="muted small">Éléments justifiés lors d'une revue, qui ne sont plus signalés par l'analyse FEC de ce dossier.</p>
           <ul class="memo-list">${Object.entries(c.revisionMemo).map(([k, m]) => `<li><div><strong>${discret ? hidden : esc(m.label)}</strong>${m.note ? `<div class="muted small">${discret ? '' : esc(m.note)}</div>` : ''}<div class="muted small">${esc(m.by || '')} ${m.at ? fmtDate(m.at.slice(0, 10)) : ''}</div></div>
@@ -195,6 +200,7 @@ function clientForm(c) {
           <label>Clôture (JJ/MM)<input name="cloture" value="${esc(c.cloture || (isNew ? '31/12' : ''))}" placeholder="31/12" pattern="\\d{2}/\\d{2}" maxlength="5"></label>
           <label>Régime fiscal<select name="regimeFiscal">${options(REGIMES_FISCAUX, c.regimeFiscal, true)}</select></label>
           <label>Régime de TVA<select name="regimeTva">${options(REGIMES_TVA, c.regimeTva, true)}</select></label>
+          <label>Activité (analyse FEC)<select name="activite">${options(ACTIVITES, c.activite, 'Détectée sur le FEC')}</select></label>
           <label>Jour limite de dépôt TVA<input type="number" name="jourTva" min="1" max="31" value="${esc(c.jourTva)}" placeholder="ex. 21"></label>
           <label>Responsable<input name="responsable" list="collabs" value="${esc(c.responsable || (isNew ? data.settings.utilisateur : ''))}"></label>
           <label>Collaborateur<input name="collaborateur" list="collabs" value="${esc(c.collaborateur)}"></label>

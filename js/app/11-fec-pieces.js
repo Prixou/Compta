@@ -336,9 +336,18 @@ function computePiecesRaw(r, mode, arrete) {
   return items;
 }
 
+// Demande en cours : celle du mois affiché dans l'espace « Mois », sinon celle de la situation ou du bilan (espace « Révision »).
 function piecesState() {
   const f = ui.fec;
-  if (!f.pieces) f.pieces = { mode: 'bilan', arrete: defaultArrete(f.result, 'bilan'), excluded: new Set() };
+  if (f.space === 'mois') {
+    const p = (f.piecesMois = f.piecesMois || { mode: 'mois', excluded: new Set() });
+    p.arrete = endOfMonth(`${fecMonth()}-01`);
+    return p;
+  }
+  if (!f.pieces) {
+    const mode = isSituation(f.result) ? 'situation' : 'bilan';
+    f.pieces = { mode, arrete: defaultArrete(f.result, mode), excluded: new Set() };
+  }
   return f.pieces;
 }
 
@@ -363,20 +372,16 @@ function viewPieces() {
   items.forEach((i) => (groups[i.cat] = groups[i.cat] || []).push(i));
   return `
     <section class="card">
-      <h2>Pièces à demander au client</h2>
+      <h2>${st.mode === 'mois' ? `Pièces du mois à demander au client — ${esc(moisNom(st.arrete))}` : 'Pièces à demander au client'}</h2>
       <p class="muted small">${st.mode === 'mois'
         ? 'Demande du mois, cycles achats et ventes : factures des fournisseurs et clients habituels absentes, règlements et encaissements sans facture, dépenses payées directement, numéros de facture manquants, opérations à identifier. À envoyer dès la saisie du mois pour anticiper la situation ou le bilan.'
         : "Liste établie à partir des écritures : relevés manquants, factures récurrentes absentes, paiements sans facture, opérations à identifier… Décochez ce qui ne s'applique pas, puis créez la demande."}</p>
-      ${st.mode === 'mois' && f.result.pieces.maxOp && f.result.pieces.maxOp < addDays(endOfMonth(`${ymOf(st.arrete)}-01`), -5) ? `<div class="banner warn"><span>Les écritures s'arrêtent au ${fmtDate(f.result.pieces.maxOp)} : seule la partie saisie du mois est analysée.</span></div>` : ''}
       <div class="filters pieces-opts">
-        <div class="seg" role="group" aria-label="Travail à préparer">
-          <button class="${st.mode === 'mois' ? 'on' : ''}" data-action="pieces-mode" data-mode="mois">Mois</button>
+        ${st.mode === 'mois' ? '' : `<div class="seg" role="group" aria-label="Travail à préparer">
           <button class="${st.mode === 'situation' ? 'on' : ''}" data-action="pieces-mode" data-mode="situation">Situation</button>
           <button class="${st.mode === 'bilan' ? 'on' : ''}" data-action="pieces-mode" data-mode="bilan">Bilan</button>
         </div>
-        ${st.mode === 'mois'
-          ? `<label class="inline-label">Mois <input type="month" data-pieces="mois" value="${esc(ymOf(st.arrete))}"></label>`
-          : `<label class="inline-label">Arrêté au <input type="date" data-pieces="arrete" value="${esc(st.arrete)}"></label>`}
+        <label class="inline-label">Arrêté au <input type="date" data-pieces="arrete" value="${esc(st.arrete)}"></label>`}
         <span class="muted small">${kept.length} élément(s) retenu(s) sur ${items.length}</span>
       </div>
       ${items.length ? Object.keys(PIECES_CATS).filter((k) => groups[k]).map((k) => `

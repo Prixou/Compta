@@ -9,8 +9,8 @@
 const WP_ST = { '': 'À traiter', justifie: 'Justifié', corrige: 'Corrigé', piece: 'Pièce demandée', na: 'Sans objet' };
 const WP_DONE = ['justifie', 'corrige', 'na'];
 const wpKey = (cycle, label) => `${cycle}:${norm(label).replace(/[\d\s.,€%:()'’-]+/g, ' ').trim()}`;
-// Mémoire du dossier commune à toutes les périodes d'un même contrôle (TVA de chaque mois → « tva »).
-const memoBase = (cycle) => (cycle.startsWith('tva-') ? 'tva' : cycle);
+// Mémoire du dossier commune à toutes les périodes d'un même contrôle (TVA de chaque mois → « tva », saisie de chaque mois → « saisie »).
+const memoBase = (cycle) => (cycle.startsWith('tva-') ? 'tva' : cycle.startsWith('saisie-') ? 'saisie' : cycle);
 // Signature d'un exemple, sans dates ni montants : « CB NETFLIX.COM » reste reconnu d'une année sur l'autre.
 const exSig = (s) => norm(s).replace(/\d+/g, ' ').replace(/[^a-z]+/g, ' ').trim().slice(0, 120);
 
@@ -136,7 +136,7 @@ function wpCheckList(list, cycle) {
     return `<li class="fec-check${WP_DONE.includes(state) ? ' wp-done' : ''}">
       ${ex ? `<details data-wpk="${esc(k)}"${f.wpOpen.has(k) ? ' open' : ''}><summary>` : '<div class="fec-check-row">'}
         ${levelBadge(c.level)}
-        <span class="fec-check-text"><span><strong>${esc(c.label)}</strong>${c.linked ? ' <span class="muted small">(point général)</span>' : ''}${ec ? ` <span class="wp-count${ec.done === ec.total ? ' ok' : ''}">${ec.done} / ${ec.total} élément(s) traité(s)${ec.wait ? ` · ${ec.wait} pièce(s) demandée(s)` : ''}</span>` : ''}</span>${c.detail ? `<span class="muted small">${esc(c.detail)}</span>` : ''}</span>
+        <span class="fec-check-text"><span><strong>${esc(c.label)}</strong>${c.beta ? ' <span class="badge beta" title="Contrôle récent, pas encore validé sur de vrais dossiers : vérifiez son résultat">bêta</span>' : ''}${c.linked ? ' <span class="muted small">(point général)</span>' : ''}${ec ? ` <span class="wp-count${ec.done === ec.total ? ' ok' : ''}">${ec.done} / ${ec.total} élément(s) traité(s)${ec.wait ? ` · ${ec.wait} pièce(s) demandée(s)` : ''}</span>` : ''}</span>${c.detail ? `<span class="muted small">${esc(c.detail)}</span>` : ''}</span>
       ${ex ? `</summary>
         ${actionable ? `<div class="wp-bulk">
           <label class="inline-label">Tous les éléments encore à traiter <select data-wp="bulk" data-k="${esc(k)}" data-check="${esc(c.label)}" aria-label="Statut de tous les éléments"><option value="-" selected>Choisir…</option>${opts('-', 'À traiter')}</select></label>
@@ -169,13 +169,13 @@ function wpSetEl(k, ek, patch, label, check) {
   wpSave();
 }
 
-function wpCycleBar(cycle, list) {
+function wpCycleBar(cycle, list, doneLabel) {
   const pg = wpProgress(cycle, list);
   const rev = wpStore().cycles[cycle];
   return `<div class="wp-bar">
     <span class="wp-progress"><span class="wp-track"><i data-w="${pg.total ? Math.round((pg.done / pg.total) * 100) : 100}"></i></span>${pg.done} / ${pg.total} point(s) traité(s)${pg.wait ? ` · ${pg.wait} en attente de pièce` : ''}</span>
     ${rev ? `<span class="lvl lvl-ok"><b aria-hidden="true">✓</b>Revu${rev.by ? ` par ${esc(rev.by)}` : ''} le ${fmtDate(rev.at.slice(0, 10))}</span><button class="link-btn" data-action="wp-review" data-cycle="${cycle}" data-undo="1">Annuler</button>`
-      : `<button class="btn small" data-action="wp-review" data-cycle="${cycle}">Marquer le cycle comme revu</button>`}
+      : `<button class="btn small" data-action="wp-review" data-cycle="${cycle}">${esc(doneLabel || 'Marquer le cycle comme revu')}</button>`}
   </div>`;
 }
 

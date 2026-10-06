@@ -8,14 +8,13 @@
 
 // Exécute `fn` comme si l'analyse `st` était ouverte dans l'analyseur `profile`.
 function withFec(st, profile, fn) {
-  const saveProfile = ui.fecProfile, saveState = ui.fecStates[profile];
-  ui.fecProfile = profile;
-  ui.fecStates[profile] = st;
+  const saveState = ui.fecState;
+  ui.fecState = st;
+  st.profile = profile;
   try {
     return fn();
   } finally {
-    ui.fecProfile = saveProfile;
-    ui.fecStates[profile] = saveState;
+    ui.fecState = saveState;
   }
 }
 
@@ -76,7 +75,7 @@ async function batchRun(files) {
       const siren = r.meta.siren;
       const c = clientBySiren(siren);
       it.st = { status: 'done', result: r, clientId: c ? c.id : '', section: 'synthese', q: '', classe: '', fileName: file.name, pct: 100 };
-      it.profile = withFec(it.st, 'classique', () => looksLikePharmacy(r)) ? 'pharmacie' : 'classique';
+      it.profile = applyProfile(it.st);
       it.sum = batchSummary(it);
     }
     b.items.push(it);
@@ -96,9 +95,10 @@ function batchItems() {
 
 function viewBatch() {
   const b = ui.batch;
-  const head = `<div class="page-head"><h1>Analyse FEC — Portefeuille</h1>
+  const head = `<div class="page-head"><h1>Portefeuille — FEC de plusieurs dossiers</h1>
     <div class="head-actions">${b && !b.running && b.items.length ? '<button class="btn" data-action="batch-xlsx">Exporter en Excel</button>' : ''}
-      <button class="btn primary" data-action="batch-pick"${b && b.running ? ' disabled' : ''}>${b ? 'Analyser d\'autres FEC' : 'Choisir les FEC'}</button></div></div>${fecProfilesNav('lot')}`;
+      <a class="btn" href="#/fec">${icon('chart')}Analyse d'un dossier</a>
+      <button class="btn primary" data-action="batch-pick"${b && b.running ? ' disabled' : ''}>${b ? 'Analyser d\'autres FEC' : 'Choisir les FEC'}</button></div></div>`;
   if (!b) {
     return `${head}
       <div class="fec-drop card" data-action="batch-pick" role="button" tabindex="0">
@@ -108,7 +108,7 @@ function viewBatch() {
       </div>
       <section class="card"><h2>À quoi ça sert</h2><ul class="bullets">
         <li>Voir d'un coup d'œil <strong>par quels dossiers commencer</strong> : anomalies, points à traiter par cycle, pièces à demander, écritures à passer.</li>
-        <li>Ouvrir chaque dossier dans le bon analyseur (classique ou pharmacie, détecté automatiquement) pour la révision détaillée.</li>
+        <li>Ouvrir chaque dossier pour la révision détaillée, ou directement sur sa demande de pièces du mois. Le profil (structure classique ou officine) vient de la fiche du dossier, sinon du contenu du FEC.</li>
         <li>Enregistrer en une fois la synthèse de chaque analyse dans son dossier.</li>
       </ul></section>`;
   }

@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
+const { fecTab, fecMonth } = require('./lib');
 const PW = 'Cabinet-Test-2026!';
 const R = [];
 const ok = (name, cond, info) => { R.push([cond ? 'OK ' : 'KO ', name, info || '']); };
@@ -36,9 +37,9 @@ const ok = (name, cond, info) => { R.push([cond ? 'OK ' : 'KO ', name, info || '
   await go('dossiers'); await pick('main [data-action=import-sheet]', 'piege.xlsx'); await p.waitForSelector('#modal .imp-cols'); await p.click('#modal [data-action=apply-import]');
   await p.waitForTimeout(300);
   await go('fec', '.fec-drop'); await p.screenshot({ path: O + 'dbg2.png' }); await pick('.fec-drop', '111111111FEC20251231.txt'); await p.waitForSelector('.fec-meta');
-  for (const tab of ['synthese', 'pieces', 'revue', 'rappro', 'conformite', 'sig', 'balance', 'details']) { await p.click(`button[data-action=fec-tab][data-tab=${tab}]`); await p.waitForTimeout(60); }
-  await p.click('button[data-action=fec-tab][data-tab=rappro]'); await pick('button[data-action=rappro-import]', 'releve-piege.csv'); await p.waitForTimeout(200);
-  await p.click('button[data-action=fec-tab][data-tab=pieces]');
+  for (const tab of ['synthese', 'pieces', 'revue', 'rappro', 'conformite', 'sig', 'balance', 'details']) { await fecTab(p, tab, 0); await p.waitForTimeout(60); }
+  await fecTab(p, 'rappro', 0); await pick('button[data-action=rappro-import]', 'releve-piege.csv'); await p.waitForTimeout(200);
+  await fecTab(p, 'pieces', 0);
   await p.click('button[data-action=pieces-demande]').catch(() => {}); await p.waitForTimeout(200);
   if (await p.$('#msg-body')) await p.click('#modal [data-action=close-modal]');
   for (const h of ['tableau', 'dossiers', 'missions', 'grille', 'parametres', 'aide']) await go(h);
@@ -114,7 +115,7 @@ const ok = (name, cond, info) => { R.push([cond ? 'OK ' : 'KO ', name, info || '
   const over = [];
   for (const h of ['tableau', 'dossiers', 'missions', 'grille', 'parametres', 'aide']) { await go(h); if (await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) over.push(h); }
   await go('fec', 'main h1'); await pick(await p.$('.fec-drop') ? '.fec-drop' : 'button[data-action=fec-pick]', '123456789FEC20251231.txt'); await p.waitForSelector('.fec-meta');
-  for (const tab of ['synthese', 'pieces', 'revue', 'rappro', 'conformite', 'sig', 'balance', 'details']) { await p.click(`button[data-action=fec-tab][data-tab=${tab}]`); await p.waitForTimeout(80); if (await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) over.push('fec-' + tab); }
+  for (const tab of ['synthese', 'pieces', 'revue', 'rappro', 'conformite', 'sig', 'balance', 'details']) { await fecTab(p, tab, 0); await p.waitForTimeout(80); if (await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) over.push('fec-' + tab); }
   await go('dossiers'); await p.fill('input[data-filter=qDossiers]', 'Test'); await p.click('#dossier-list a, #dossier-list tbody tr'); await p.waitForSelector('.grid-detail');
   if (await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) over.push('fiche dossier');
   ok('Mobile (375 px) : aucun écran ne déborde', !over.length, over.join(', '));

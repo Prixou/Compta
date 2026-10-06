@@ -4,7 +4,7 @@
  * et n'effectue aucune requête vers un autre domaine.
  */
 // À garder identique aux ?v= de index.html et à ASSET_VERSION dans js/app/10-fec.js.
-const VERSION = '25';
+const VERSION = '26';
 const CACHE = 'suivi-dossiers-v' + VERSION;
 const ASSETS = [
   './',
@@ -31,16 +31,17 @@ const ASSETS = [
   'js/app/13-fec-pharmacie.js?v=' + VERSION,
   'js/app/14-fec-cycles.js?v=' + VERSION,
   'js/app/15-fec-tva.js?v=' + VERSION,
-  'js/app/16-portefeuille.js?v=' + VERSION,
-  'js/app/17-revision.js?v=' + VERSION,
-  'js/app/18-fec-ecritures.js?v=' + VERSION,
-  'js/app/19-sauvegarde.js?v=' + VERSION,
-  'js/app/20-aide.js?v=' + VERSION,
-  'js/app/21-import-cabinet.js?v=' + VERSION,
-  'js/app/22-parametres.js?v=' + VERSION,
-  'js/app/23-modales.js?v=' + VERSION,
-  'js/app/24-actions.js?v=' + VERSION,
-  'js/app/25-formulaires.js?v=' + VERSION,
+  'js/app/16-fec-mois.js?v=' + VERSION,
+  'js/app/17-portefeuille.js?v=' + VERSION,
+  'js/app/18-revision.js?v=' + VERSION,
+  'js/app/19-fec-ecritures.js?v=' + VERSION,
+  'js/app/20-sauvegarde.js?v=' + VERSION,
+  'js/app/21-aide.js?v=' + VERSION,
+  'js/app/22-import-cabinet.js?v=' + VERSION,
+  'js/app/23-parametres.js?v=' + VERSION,
+  'js/app/24-modales.js?v=' + VERSION,
+  'js/app/25-actions.js?v=' + VERSION,
+  'js/app/26-formulaires.js?v=' + VERSION,
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',

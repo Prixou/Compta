@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
+const { fecTab, fecMonth } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', acceptDownloads: true });
@@ -34,11 +35,11 @@ const O = path.join(__dirname, '../out/');
   console.log('info-bulle :', (await p.textContent('#viz-tip')).replace(/\s+/g, ' '));
   await p.screenshot({ path: O + 'f1-synthese.png', fullPage: true });
   for (const tab of ['conformite', 'sig', 'balance', 'details']) {
-    await p.click(`button[data-action=fec-tab][data-tab=${tab}]`);
+    await fecTab(p, tab, 0);
     await p.waitForTimeout(150);
     await p.screenshot({ path: O + `f2-${tab}.png`, fullPage: true });
   }
-  await p.click('button[data-action=fec-tab][data-tab=balance]');
+  await fecTab(p, 'balance', 0);
   await p.fill('input[data-fec=q]', '512'); await p.waitForTimeout(150);
   console.log('balance filtrée 512 :', await p.$$eval('.balance tbody tr', (t) => t.map((r) => r.textContent.replace(/\s+/g, ' ').trim())));
   console.log('focus conservé dans la recherche :', await p.evaluate(() => document.activeElement && document.activeElement.dataset.fec));

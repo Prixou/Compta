@@ -127,7 +127,7 @@ function renderLock(message) {
 // Structure principale et navigation
 // ---------------------------------------------------------------------------
 
-const fecHref = () => (data && data.settings.fecProfile === 'pharmacie' ? '#/fec/pharma' : '#/fec');
+const fecHref = () => '#/fec';
 
 function renderShell() {
   const discret = data.settings.discret;
@@ -170,13 +170,15 @@ const ui = {
   mf: { q: '', statut: 'ouvertes', resp: '', periode: 'toutes', type: '' },
   grille: { annee: new Date().getFullYear(), type: 'tva', resp: '', regime: '' },
   imp: null,
-  fecProfile: 'classique',
-  fecStates: { classique: null, pharmacie: null },
+  fecState: null,
 };
-// ui.fec désigne l'analyse de l'analyseur affiché (classique ou pharmacie).
+// ui.fec : l'analyse FEC ouverte. Son profil (structure classique ou officine) vient du dossier, sinon du contenu du FEC.
 Object.defineProperty(ui, 'fec', {
-  get() { return this.fecStates[this.fecProfile]; },
-  set(v) { this.fecStates[this.fecProfile] = v; },
+  get() { return this.fecState; },
+  set(v) { this.fecState = v; },
+});
+Object.defineProperty(ui, 'fecProfile', {
+  get() { return (this.fecState && this.fecState.profile) || 'classique'; },
 });
 
 function route() {
@@ -185,26 +187,18 @@ function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/');
   const view = parts[0] || 'tableau';
   const main = $('#main');
-  $$('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === (view === 'dossier' ? 'dossiers' : view)));
+  // Anciennes adresses : analyseur pharmacie (le profil vient désormais du dossier) et portefeuille.
+  if (view === 'fec' && parts[1] === 'lot') { location.replace('#/portefeuille'); return; }
+  const navOf = { dossier: 'dossiers', portefeuille: 'dossiers' };
+  $$('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === (navOf[view] || view)));
   switch (view) {
     case 'dossiers': main.innerHTML = viewDossiers(); renderDossierList(); break;
     case 'dossier': main.innerHTML = viewDossier(parts[1]); break;
     case 'missions': main.innerHTML = viewMissions(); renderMissionList(); break;
     case 'grille': main.innerHTML = viewGrille(); scrollGrilleToMonth(); break;
     case 'aide': main.innerHTML = viewAide(); break;
-    case 'fec':
-      if (parts[1] === 'lot') {
-        main.innerHTML = viewBatch();
-        break;
-      }
-      ui.fecProfile = parts[1] === 'pharma' ? 'pharmacie' : 'classique';
-      if (data.settings.fecProfile !== ui.fecProfile) {
-        data.settings.fecProfile = ui.fecProfile;
-        const link = $('a[data-nav="fec"]');
-        if (link) link.setAttribute('href', fecHref());
-      }
-      main.innerHTML = viewFec();
-      break;
+    case 'fec': main.innerHTML = viewFec(); break;
+    case 'portefeuille': main.innerHTML = viewBatch(); break;
     case 'parametres': main.innerHTML = viewSettings(); break;
     default: main.innerHTML = viewDashboard();
   }

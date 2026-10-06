@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '25';
+const ASSET_VERSION = '26';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -50,7 +50,6 @@ function fecCounts(r) {
 }
 
 // Analyse d'un FEC : principal (target 'main') ou exercice précédent pour la revue analytique ('prev').
-// Chaque analyseur (classique, pharmacie) garde son propre état : le résultat revient toujours à l'analyseur qui l'a lancé.
 function startFec(file, target) {
   if (!file) return;
   if (fecWorker) fecWorker.terminate();
@@ -64,7 +63,7 @@ function startFec(file, target) {
       refresh();
     });
   }
-  ui.fec = { status: 'loading', pct: 0, fileName: file.name, section: 'synthese', q: '', classe: '' };
+  ui.fec = { status: 'loading', pct: 0, fileName: file.name, space: data.settings.fecSpace || 'revision', section: null, q: '', classe: '' };
   refresh();
   runFecWorker(file, ui.fec, null);
 }
@@ -93,7 +92,51 @@ function cmpPrev() {
   return f.prevMode !== 'full' && f.prevSame ? f.prevSame : f.prev;
 }
 
-const fecAlive = (st) => !!data && (ui.fecStates.classique === st || ui.fecStates.pharmacie === st);
+const fecAlive = (st) => !!data && ui.fecState === st;
+
+// Profil d'analyse : l'activité du dossier rattaché (structure classique ou officine), sinon déduit du contenu du FEC.
+function applyProfile(st) {
+  const c = clientById(st.clientId);
+  if (c && c.activite) Object.assign(st, { profile: c.activite, profileAuto: false });
+  else Object.assign(st, { profile: withFec(st, 'classique', () => looksLikePharmacy(st.result)) ? 'pharmacie' : 'classique', profileAuto: true });
+  return st.profile;
+}
+
+// Profil choisi à la main : il devient l'activité du dossier rattaché (ses prochains FEC seront analysés ainsi).
+function setFecProfile(p) {
+  const f = ui.fec;
+  if (!f || !['classique', 'pharmacie'].includes(p)) return;
+  Object.assign(f, { profile: p, profileAuto: false });
+  const c = clientById(f.clientId);
+  if (c && c.activite !== p) {
+    c.activite = p;
+    c.updatedAt = nowIso();
+    persist();
+    toast(`${clientLabel(c)} : ${p === 'pharmacie' ? 'officine' : 'structure classique'}, retenu pour les prochaines analyses (fiche du dossier).`);
+  }
+  refresh();
+}
+
+// Trois espaces de travail sur un même FEC, selon la question du moment.
+const FEC_SPACES = {
+  mois: { label: 'Mois', hint: 'Gestion courante : pièces du mois, contrôles de saisie, TVA' },
+  revision: { label: 'Révision', hint: 'Situation et bilan : cycles, écritures, pièces, revue N-1, rapprochement' },
+  consult: { label: 'Consultation', hint: 'Chiffres : SIG, bilan, balance, journaux et tiers, conformité du fichier' },
+};
+const SPACE_OF = { 'mois-pieces': 'mois', 'mois-saisie': 'mois', tva: 'mois', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
+const spaceOf = (tab) => SPACE_OF[tab] || 'revision';
+
+// Mois de l'espace « Mois » (AAAA-MM) : par défaut le dernier mois complet saisi.
+function fecMonth() {
+  const f = ui.fec;
+  const months = (f.result.monthly || []).map((x) => x.mois);
+  if (!f.month || !months.includes(f.month)) {
+    let ym = ymOf(defaultArrete(f.result, 'situation'));
+    if (!months.includes(ym)) ym = months[months.length - 1] || ymOf(todayStr());
+    f.month = ym;
+  }
+  return f.month;
+}
 
 // Contenu à analyser : le FEC lui-même, ou celui d'une archive .zip « FEC + justificatifs » (seuls les noms des justificatifs sont lus).
 const isZip = (file) => /\.zip$/i.test(file.name || '') || /zip/.test(file.type || '');
@@ -127,6 +170,7 @@ function runFecWorker(file, st, onDone, until) {
         const siren = m.result.meta.siren;
         const match = clientBySiren(siren);
         Object.assign(st, { status: 'done', result: m.result, clientId: match ? match.id : '' });
+        applyProfile(st);
       }
       if (location.hash.startsWith('#/fec') && ui.fec === st) refresh();
       else toast(m.type === 'error' ? 'Analyse du FEC impossible.' : 'Analyse du FEC terminée.');
@@ -253,41 +297,27 @@ function checkList(items, showOk) {
     </li>`).join('')}</ul>`;
 }
 
-function fecProfilesNav(active) {
-  const a = (key, href, ico, label) => `<a role="tab" aria-selected="${active === key}" class="${active === key ? 'on' : ''}" href="${href}">${icon(ico)}${label}</a>`;
-  return `<div class="seg fec-profiles" role="tablist" aria-label="Analyseur">
-      ${a('classique', '#/fec', 'chart', 'Structure classique')}${a('pharma', '#/fec/pharma', 'shield', 'Pharmacie (officine)')}${a('lot', '#/fec/lot', 'grid', 'Portefeuille')}
-    </div>`;
-}
-
 function viewFec() {
   const f = ui.fec;
   const pharma = ui.fecProfile === 'pharmacie';
-  const profiles = fecProfilesNav(pharma ? 'pharma' : 'classique');
-  const head = `<div class="page-head"><h1>Analyse FEC${pharma ? ' — Pharmacie' : ' — Structure classique'}</h1>
+  const head = `<div class="page-head"><h1>Analyse FEC</h1>
     <div class="head-actions">${f && f.status === 'done' ? `<button class="btn" data-action="fec-export">Exporter en Excel</button>` : ''}
-      <button class="btn primary" data-action="fec-pick">${f ? 'Analyser un autre FEC' : 'Choisir un FEC'}</button></div></div>${profiles}`;
+      <a class="btn" href="#/portefeuille">${icon('grid')}Plusieurs dossiers</a>
+      <button class="btn primary" data-action="fec-pick">${f ? 'Analyser un autre FEC' : 'Choisir un FEC'}</button></div></div>`;
   if (!f) {
     return `${head}
       <div class="fec-drop card" data-action="fec-pick" role="button" tabindex="0">
         ${icon('chart', 'fec-drop-ico')}
-        <p><strong>Déposez le FEC ${pharma ? 'd\'une pharmacie' : 'd\'une entreprise'} ici</strong> ou cliquez pour le choisir</p>
-        <p class="muted small">Fichier .txt ou .csv au format de l'article A47 A-1 du LPF (tabulation ou « | », UTF-8 ou ISO-8859-15)${pharma ? '' : ', y compris BNC / BA'}, ou archive <strong>.zip « FEC + justificatifs »</strong> (export Pennylane) pour repérer les écritures sans pièce.</p>
+        <p><strong>Déposez le FEC d'un dossier ici</strong> ou cliquez pour le choisir</p>
+        <p class="muted small">Fichier .txt ou .csv au format de l'article A47 A-1 du LPF (tabulation ou « | », UTF-8 ou ISO-8859-15), y compris BNC / BA, ou archive <strong>.zip « FEC + justificatifs »</strong> (export Pennylane). Le dossier est retrouvé par le SIREN ; une pharmacie est reconnue (ou indiquée dans la fiche du dossier) et analysée comme une officine.</p>
       </div>
-      <div class="grid2">
-        <section class="card"><h2>Ce que l'analyse vérifie</h2><ul class="bullets">
-          <li><strong>Conformité du fichier</strong> : nom, séparateur, 18 colonnes, zones obligatoires, dates, montants, équilibre de chaque écriture et de la balance, numérotation, dates hors exercice…</li>
-          ${pharma ? `<li><strong>Tiers payant</strong> : balance âgée par organisme (régime obligatoire, complémentaires), rejets et impayés probables, trop-perçus, créances patients.</li>
-          <li><strong>CA et TVA</strong> : contrôle de la TVA collectée taux par taux (2,1 %, 5,5 %, 10 %, 20 %), honoraires de dispensation, ROSP et rémunérations forfaitaires.</li>
-          <li><strong>Officine</strong> : taux de marque, remises grossistes et laboratoires, comptes de transit CB et chèques, écarts et solde de caisse, pièces à demander propres à la pharmacie.</li>`
-          : `<li><strong>Points de révision</strong> : caisse créditrice, comptes d'attente, clients créditeurs, fournisseurs débiteurs, compte courant d'associé débiteur, doublons, écritures du dimanche ou d'un jour férié, loi de Benford.</li>
-          <li><strong>Chiffres</strong> : soldes intermédiaires de gestion, bilan simplifié, balance générale, CA et charges par mois, trésorerie, journaux, principaux clients et fournisseurs.</li>`}
-        </ul></section>
-        <section class="card"><h2>${icon('shield')} Confidentialité</h2>
-          <p>Le FEC est analysé <strong>sur cet appareil uniquement</strong>, dans un processus isolé : il n'est ni envoyé, ni conservé. Seule la synthèse (chiffres clés et nombre d'anomalies) peut être enregistrée, chiffrée, dans le dossier si vous le demandez.</p>
-          <p class="muted small">Les analyses sont indicatives et ne remplacent pas le contrôle du fichier par l'outil officiel Test Compta Demat de la DGFiP.</p>
-        </section>
-      </div>`;
+      <div class="grid3 space-cards">
+        ${Object.entries(FEC_SPACES).map(([k, x]) => `<button class="card space-card${k === (data.settings.fecSpace || 'revision') ? ' on' : ''}" data-action="fec-pick" data-space="${k}" title="Choisir un FEC et l'ouvrir dans l'espace ${esc(x.label)}"><strong>${esc(x.label)}</strong><span class="muted small">${esc(x.hint)}.</span>${k === (data.settings.fecSpace || 'revision') ? '<em>Ouvert à l\'arrivée du FEC</em>' : ''}</button>`).join('')}
+      </div>
+      <section class="card"><h2>${icon('shield')} Confidentialité</h2>
+        <p>Le FEC est analysé <strong>sur cet appareil uniquement</strong>, dans un processus isolé : il n'est ni envoyé, ni conservé. Seule la synthèse (chiffres clés et nombre d'anomalies) peut être enregistrée, chiffrée, dans le dossier si vous le demandez.</p>
+        <p class="muted small">Les analyses sont indicatives et ne remplacent pas le contrôle du fichier par l'outil officiel Test Compta Demat de la DGFiP. Les fonctions marquées <span class="badge beta">bêta</span> n'ont pas encore été validées sur de vrais dossiers : contrôlez leurs résultats.</p>
+      </section>`;
   }
   if (f.status === 'loading') {
     return `${head}<section class="card fec-loading"><p><strong>${esc(f.fileName)}</strong></p>
@@ -302,30 +332,42 @@ function viewFec() {
   const { errors, warnings } = fecCounts(r);
   const dmy = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
   const clients = data.clients.filter((c) => !c.archive).sort((a, b) => clientLabel(a).localeCompare(clientLabel(b), 'fr'));
-  const nbPieces = r.pieces ? computePieces(r, piecesState().mode, piecesState().arrete).length : 0;
-  const cc = cycleChecks(r);
-  const cyc = (k, label) => {
-    const n = cc ? wpProgress(k, cc[k]).left : 0;
-    return { [k]: `${label}${n ? ` (${n})` : ''}` };
-  };
-  const tabs = Object.assign({ synthese: 'Synthèse' }, pharma ? { tp: 'Tiers payant', catva: 'CA & TVA' } : {},
-    cc ? Object.assign(cyc('achats', 'Achats'), cyc('charges', 'Charges externes'), pharma ? {} : cyc('clients', 'Clients'), cyc('treso', 'Trésorerie')) : {},
-    r.cycles && r.cycles.tva && Object.keys(r.cycles.tva.months).length ? (() => { const t = tvaData(r); const n = wpProgress(t.cycle, t.checks).left; return { tva: `TVA${n ? ` (${n})` : ''}` }; })() : {},
-    r.cycles ? (() => { const n = ecrProposals(r).filter((p) => p.on).length; return { ecritures: `Écritures${n ? ` (${n})` : ''}` }; })() : {},
-    { pieces: `Pièces à demander${nbPieces ? ` (${nbPieces})` : ''}`, revue: 'Revue N / N-1', rappro: 'Rapprochement', conformite: `Conformité${errors ? ` (${errors})` : ''}`, sig: 'SIG et bilan', balance: 'Balance', details: 'Détails' });
-  if (!tabs[f.section]) f.section = 'synthese';
-  // Suggestion de l'autre analyseur selon le contenu du FEC.
+  if (f.section && spaceOf(f.section) !== f.space) f.space = spaceOf(f.section);
+  const space = FEC_SPACES[f.space] ? f.space : (f.space = 'revision');
+  const cnt = (label, n) => `${label}${n ? ` (${n})` : ''}`;
+  // Onglets de l'espace affiché (les compteurs des autres espaces ne sont pas calculés)
+  let tabs, tva = null;
+  if (space === 'mois') {
+    const ym = fecMonth();
+    tva = r.cycles && r.cycles.tva && Object.keys(r.cycles.tva.months).length ? tvaData(r) : null;
+    tabs = { 'mois-pieces': cnt('Pièces du mois', computePieces(r, 'mois', endOfMonth(`${ym}-01`)).length), 'mois-saisie': cnt('Contrôles de saisie', saisieLeft(r, ym)) };
+    if (tva) tabs.tva = cnt('TVA · bêta', wpProgress(tva.cycle, tva.checks).left);
+  } else if (space === 'consult') {
+    tabs = { sig: 'SIG et bilan', balance: 'Balance', details: 'Journaux et tiers', conformite: cnt('Conformité du fichier', errors) };
+  } else {
+    const nbPieces = r.pieces ? computePieces(r, piecesState().mode, piecesState().arrete).length : 0;
+    const cc = cycleChecks(r);
+    const cyc = (k, label) => ({ [k]: cnt(label, cc ? wpProgress(k, cc[k]).left : 0) });
+    tabs = Object.assign({ synthese: 'Synthèse' }, pharma ? { tp: 'Tiers payant', catva: 'CA & TVA' } : {},
+      cc ? Object.assign(cyc('achats', 'Achats'), cyc('charges', 'Charges externes'), pharma ? {} : cyc('clients', 'Clients'), cyc('treso', 'Trésorerie')) : {},
+      r.cycles ? { ecritures: cnt('Écritures', ecrProposals(r).filter((p) => p.on).length) } : {},
+      { pieces: cnt('Pièces à demander', nbPieces), revue: 'Revue N / N-1', rappro: 'Rapprochement' });
+  }
+  f.lastTab = f.lastTab || {};
+  if (!tabs[f.section]) f.section = tabs[f.lastTab[space]] ? f.lastTab[space] : Object.keys(tabs)[0];
+  f.lastTab[space] = f.section;
+  // Profil fixé par le dossier mais contenu du FEC différent : on le signale.
   const isPh = looksLikePharmacy(r);
-  const suggest = isPh && !pharma
-    ? `<div class="banner info"><span>Ce FEC ressemble à celui d'une <strong>pharmacie</strong> (tiers payant, TVA à 2,1 %, honoraires) : l'analyseur Pharmacie est plus adapté.</span><button class="btn small" data-action="fec-switch" data-to="pharmacie">Analyser comme une pharmacie</button></div>`
-    : !isPh && pharma ? `<div class="banner info"><span>Ce FEC ne ressemble pas à celui d'une pharmacie.</span><button class="btn small" data-action="fec-switch" data-to="classique">Utiliser l'analyseur classique</button></div>` : '';
+  const suggest = !f.profileAuto && isPh !== pharma
+    ? `<div class="banner info"><span>${isPh ? 'Ce FEC ressemble à celui d\'une <strong>pharmacie</strong> (tiers payant, TVA à 2,1 %, honoraires), alors que le dossier est indiqué en structure classique.' : 'Ce FEC ne ressemble pas à celui d\'une pharmacie, alors que le dossier est indiqué comme officine.'}</span><button class="btn small" data-action="fec-profile" data-to="${isPh ? 'pharmacie' : 'classique'}">${isPh ? 'Analyser comme une officine' : 'Analyser en structure classique'}</button></div>` : '';
   let body = '';
 
   if (f.section === 'synthese') {
     const k = r.kpi;
     const tile = (label, value, cls) => `<div class="kpi ${cls || ''}"><strong>${value}</strong><span>${label}</span></div>`;
+    const nbPieces = r.pieces ? computePieces(r, piecesState().mode, piecesState().arrete).length : 0;
     body = `
-      ${nbPieces ? `<div class="banner info"><span><strong>${nbPieces} pièce(s) ou information(s)</strong> à demander au client pour ${piecesState().mode === 'mois' ? `le mois de ${moisNom(piecesState().arrete)}` : `${piecesState().mode === 'bilan' ? 'le bilan' : 'la situation'} au ${fmtDate(piecesState().arrete)}`}.</span><button class="btn small" data-action="fec-tab" data-tab="pieces">Voir la liste</button></div>` : ''}
+      ${nbPieces ? `<div class="banner info"><span><strong>${nbPieces} pièce(s) ou information(s)</strong> à demander au client pour ${piecesState().mode === 'bilan' ? 'le bilan' : 'la situation'} au ${fmtDate(piecesState().arrete)}.</span><button class="btn small" data-action="fec-tab" data-tab="pieces">Voir la liste</button></div>` : ''}
       <div class="kpis fec-kpis">
         ${tile('Anomalies', errors, errors ? 'kpi-late' : '')}
         ${tile('Points à vérifier', warnings, warnings ? 'kpi-wait' : '')}
@@ -355,6 +397,10 @@ function viewFec() {
       </section>` : ''}
       <section class="card"><h2>Points de révision <span class="count">${genPoints(r).filter((x) => x.level !== 'ok').length}</span></h2>${wpCycleBar('gen', genPoints(r))}${wpCheckList(genPoints(r), 'gen')}</section>
       ${errors ? `<section class="card"><h2>Anomalies de conformité du fichier</h2>${checkList(r.checks.filter((c) => c.level === 'error'))}<button class="btn small" data-action="fec-tab" data-tab="conformite">Voir tous les contrôles</button></section>` : ''}`;
+  } else if (f.section === 'mois-pieces') {
+    body = viewPieces();
+  } else if (f.section === 'mois-saisie') {
+    body = viewSaisie();
   } else if (f.section === 'ecritures') {
     body = viewEcritures();
   } else if (f.section === 'achats') {
@@ -434,11 +480,14 @@ function viewFec() {
       </div>
       <div class="fec-link">
         <label>Dossier<select data-fec="client">${options(Object.fromEntries(clients.map((c) => [c.id, `${c.code ? c.code + ' — ' : ''}${clientLabel(c)}`])), f.clientId, '— Rattacher à un dossier —')}</select></label>
+        <label>Profil<select data-fec="profile">${options({ classique: `Structure classique${f.profileAuto && !pharma ? ' (détecté)' : ''}`, pharmacie: `Officine (pharmacie)${f.profileAuto && pharma ? ' (détectée)' : ''}` }, ui.fecProfile)}</select></label>
         <button class="btn" data-action="fec-save"${f.clientId ? '' : ' disabled'}>Enregistrer la synthèse</button>
         <button class="btn" data-action="fec-mission"${f.clientId && (errors || warnings) ? '' : ' disabled'}>Créer une mission de revue</button>
       </div>
     </section>
     ${suggest}
-    <div class="seg fec-tabs" role="tablist">${Object.entries(tabs).map(([k, l]) => `<button role="tab" aria-selected="${k === f.section}" class="${k === f.section ? 'on' : ''}" data-action="fec-tab" data-tab="${k}">${esc(l)}</button>`).join('')}</div>
+    <div class="seg fec-spaces" role="tablist" aria-label="Espace de travail">${Object.entries(FEC_SPACES).map(([k, x]) => `<button role="tab" aria-selected="${k === space}" class="${k === space ? 'on' : ''}" data-action="fec-space" data-space="${k}" title="${esc(x.hint)}"><strong>${esc(x.label)}</strong><span>${esc(x.hint)}</span></button>`).join('')}</div>
+    ${space === 'mois' ? moisHeader(r, tva) : ''}
+    <div class="seg fec-tabs" role="tablist" aria-label="${esc(FEC_SPACES[space].label)}">${Object.entries(tabs).map(([k, l]) => `<button role="tab" aria-selected="${k === f.section}" class="${k === f.section ? 'on' : ''}" data-action="fec-tab" data-tab="${k}">${esc(l)}</button>`).join('')}</div>
     ${body}`;
 }

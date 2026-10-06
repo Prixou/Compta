@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
+const { fecTab, fecMonth } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const p = await (await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' })).newPage();
@@ -20,7 +21,7 @@ const O = path.join(__dirname, '../out/');
     await ch.setFiles(D + '444444444FEC20251231.txt'); await p.waitForSelector('.fec-meta'); await p.waitForTimeout(200);
   };
   await load();
-  const tab = async (t) => { await p.click(`button[data-action=fec-tab][data-tab=${t}]`); await p.waitForTimeout(150); };
+  const tab = async (t) => { await fecTab(p, t, 0); await p.waitForTimeout(150); };
   await tab('charges');
   console.log('avant :', await p.textContent('.wp-bar'), '| onglet', await p.textContent('button[data-tab=charges]'));
   const row = (label) => `.fec-check:has(strong:text("${label}"))`;

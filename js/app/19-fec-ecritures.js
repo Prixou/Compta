@@ -168,7 +168,7 @@ function ecrProposals(r) {
     const lab = MISPOST[racine].replace(/client$/, racine === '411' && ui.fecProfile === 'pharmacie' ? 'organisme ou patient' : 'client');
     add({
       src: { cycle, check: lab, ex: mispostEx(x) },
-      id: `mis:${racine}:${x.from.num}:${x.date}:${i}`, group: 'Reclassements entre comptes de tiers', extournable: false, editable: false, amount: x.amt,
+      id: `mis:${racine}:${x.from.num}:${x.date}:${i}`, group: 'Reclassements entre comptes de tiers', beta: true, extournable: false, editable: false, amount: x.amt,
       label: `Reclassement ${x.kind === 'facture' ? 'de la facture' : 'du règlement'} « ${x.lib} » de ${x.from.lib} vers ${x.to.lib}`,
       why: `${x.kind === 'facture' ? 'Facture' : 'Règlement'} du ${dt(x.date)} de ${eur(x.amt)} € : ${x.reason === 'libelle' ? `le libellé désigne ${x.to.lib}` : `montant identique à une facture de ${x.to.lib}`}. À confirmer sur la pièce avant import.`,
       // Compte auxiliaire seulement quand le FEC en utilise (sinon un compte 401 / 411 par tiers).
@@ -328,7 +328,7 @@ function viewEcritures() {
       </div>
       <p class="muted small">ACD : import d'écritures au format FEC, ou import paramétrable du CSV. Pennylane : import d'écritures (FEC ou tableur). Faites un premier essai sur un dossier test pour valider la correspondance des comptes et du journal.</p>
     </section>
-    ${props.length ? Object.keys(groups).map((g) => `<section class="card"><h2>${esc(g)} <span class="count">${groups[g].length}</span></h2>
+    ${props.length ? Object.keys(groups).map((g) => `<section class="card"><h2>${esc(g)} <span class="count">${groups[g].length}</span>${groups[g].some((p) => p.beta) ? ' <span class="badge beta">bêta</span>' : ''}</h2>
       ${groups[g].map((p) => `<div class="ecr-prop${p.on ? '' : ' off'}">
         <label class="check"><input type="checkbox" data-ecr-sel="${esc(p.id)}"${p.on ? ' checked' : ''}><span><strong>${esc(p.label)}</strong><span class="muted small">${esc(p.why)}</span>${p.dismissed && !p.on ? '<span class="muted small">Écartée : élément justifié ou sans objet dans la feuille de travail.</span>' : ''}</span></label>
         <div class="ecr-edit">
@@ -492,9 +492,10 @@ document.addEventListener('pointerout', (e) => { const el = e.target.closest && 
 document.addEventListener('focusin', (e) => { if (e.target.dataset && e.target.dataset.tip) showTip(e.target); });
 document.addEventListener('focusout', (e) => { if (e.target.dataset && e.target.dataset.tip) hideTip(e.target); });
 
-// Glisser-déposer d'un FEC sur la page d'analyse.
+// Glisser-déposer d'un FEC sur la page d'analyse (un FEC) ou du portefeuille (plusieurs).
+const dropPage = () => /^#\/(fec|portefeuille)\b/.test(location.hash);
 document.addEventListener('dragover', (e) => {
-  if (data && location.hash.startsWith('#/fec')) {
+  if (data && dropPage()) {
     e.preventDefault();
     const zone = $('.fec-drop');
     if (zone) zone.classList.add('over');
@@ -502,10 +503,10 @@ document.addEventListener('dragover', (e) => {
 });
 document.addEventListener('dragleave', () => { const zone = $('.fec-drop'); if (zone) zone.classList.remove('over'); });
 document.addEventListener('drop', (e) => {
-  if (data && location.hash.startsWith('#/fec')) {
+  if (data && dropPage()) {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files || []);
-    if (location.hash.startsWith('#/fec/lot')) { if (files.length && !(ui.batch && ui.batch.running)) batchRun(files); }
+    if (location.hash.startsWith('#/portefeuille')) { if (files.length && !(ui.batch && ui.batch.running)) batchRun(files); }
     else if (files[0]) startFec(files[0]);
   }
 });

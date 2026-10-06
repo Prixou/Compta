@@ -12,7 +12,7 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
 
 - `fixtures/` : fichiers d'entrée. Le gros FEC de 300 000 lignes (`FEC-gros-volume.txt`) est généré au premier lancement (Python 3).
 - `gen/` : générateurs des FEC et du tableau de suivi (`gen_suivi.py` demande `openpyxl`), pour les recréer ou en faire varier.
-- `suites/` : une suite par fonction (analyse FEC, cycles, TVA, pièces, portefeuille, suivi mensuel, sécurité…).
+- `suites/` : une suite par fonction (analyse FEC, cycles, TVA, pièces, portefeuille, suivi mensuel, sécurité…) ; `suites/lib.js` regroupe les aides de navigation (onglets et espaces Mois / Révision / Consultation de l'analyse FEC, choix du mois).
 - `out/` : captures d'écran, fichiers exportés et journal de chaque suite (non versionné).
 
 Une suite échoue si elle s'arrête sur une erreur, si la page lève une erreur JavaScript, si elle affiche une liste

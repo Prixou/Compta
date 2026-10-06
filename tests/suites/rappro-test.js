@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
+const { fecTab, fecMonth } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const p = await (await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' })).newPage();
@@ -12,7 +13,7 @@ const O = path.join(__dirname, '../out/');
   await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-drop');
   let [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
   await ch.setFiles(D + '123456789FEC20251231.txt'); await p.waitForSelector('.fec-meta');
-  await p.click('button[data-action=fec-tab][data-tab=rappro]');
+  await fecTab(p, 'rappro', 0);
   for (const f of ['releve-2025.cfonb', 'releve-2025.ofx', 'releve-2025-camt053.xml', 'releve-2025.csv']) {
     if (await p.$('button[data-action=rappro-reset]')) await p.click('button[data-action=rappro-reset]');
     [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('button[data-action=rappro-import]')]);
@@ -25,7 +26,7 @@ const O = path.join(__dirname, '../out/');
   console.log('non comptabilisées :', await p.$$eval('section.card:has(h2:text-matches("non comptabilisées")) tbody tr', (t) => t.map((r) => r.textContent.replace(/\s+/g, ' ').trim()).join(' | ')));
   console.log('absentes du relevé :', await p.$$eval('section.card:has(h2:text-matches("Écritures absentes")) tbody tr', (t) => t.map((r) => r.textContent.replace(/\s+/g, ' ').trim()).join(' | ')));
   await p.screenshot({ path: O + 'b1-rappro.png', fullPage: true });
-  await p.click('button[data-action=fec-tab][data-tab=pieces]');
+  await fecTab(p, 'pieces', 0);
   await p.click('button[data-action=pieces-mode][data-mode=situation]');
   console.log('pièces (catégorie relevé) :', await p.$$eval('.pieces-group:has(h3:text-matches("non comptabilisées")) .piece span', (s) => s.map((x) => x.textContent).join(' | ')));
   console.log('erreurs', errors);

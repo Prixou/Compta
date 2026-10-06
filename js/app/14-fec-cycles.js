@@ -112,8 +112,8 @@ const mispostEx = (x) => `${fmtDate(x.date)}${x.ref ? ` · ${x.ref}` : ''} · «
 function mispostCheck(r, out, racine) {
   const list = (r.misposted && r.misposted[racine]) || [];
   const who = racine === '401' ? 'fournisseur' : ui.fecProfile === 'pharmacie' ? 'organisme ou patient' : 'client';
-  if (list.length) out.add('warn', MISPOST[racine].replace(/client$/, who), `${list.length} écriture(s), ${eur(list.reduce((t, x) => t + x.amt, 0))} € : imputation à corriger (le solde des deux comptes est faux, et les relances, lettrages et demandes de pièces en dépendent). L'écriture de reclassement est proposée dans l'onglet Écritures.`, list.map(mispostEx), { full: true });
-  else if (r.misposted) out.add('ok', `Imputation des ${racine === '401' ? 'factures et règlements fournisseurs' : 'factures et encaissements clients'}`, `Aucune écriture dont le libellé ou le montant désigne un autre ${who}.`);
+  if (list.length) out.add('warn', MISPOST[racine].replace(/client$/, who), `${list.length} écriture(s), ${eur(list.reduce((t, x) => t + x.amt, 0))} € : imputation à corriger (le solde des deux comptes est faux, et les relances, lettrages et demandes de pièces en dépendent). L'écriture de reclassement est proposée dans l'onglet Écritures.`, list.map(mispostEx), { full: true, beta: true });
+  else if (r.misposted) out.add('ok', `Imputation des ${racine === '401' ? 'factures et règlements fournisseurs' : 'factures et encaissements clients'}`, `Aucune écriture dont le libellé ou le montant désigne un autre ${who}.`, [], { beta: true });
 }
 
 const ccaEx = (x) => `${fmtDate(x.date)} · ${x.compte} ${x.lib} · ${x.label} · ${eur(x.amt, 0)} € → ${eur(x.cca, 0)} € (période présumée de ${x.cover} mois)`;
@@ -475,7 +475,7 @@ function justifCard(r) {
   const j = r.cycles && r.cycles.justif;
   if (!j) return '';
   const pc = (a, b) => (b ? `${Math.round((a / b) * 100)} %` : '—');
-  return `<section class="card"><h2>Justificatifs de l'archive</h2>
+  return `<section class="card"><h2>Justificatifs de l'archive <span class="badge beta">bêta</span></h2>
     <p class="muted small">${j.docs.toLocaleString('fr-FR')} fichier(s) dans l'archive${j.attCol ? `, colonne « ${esc(j.attCol)} » du FEC utilisée` : ''}. Chaque écriture est rapprochée d'un justificatif par ${j.attCol ? 'le nom de pièce jointe indiqué dans le FEC' : 'son n° de pièce, retrouvé dans le nom du fichier'} ; seuls les noms des fichiers sont lus.</p>
     <div class="grid-wrap"><table class="dtable num"><thead><tr><th>Écritures</th><th></th><th>Total</th><th>Avec justificatif</th><th>Sans justificatif</th><th>Non rapprochables</th></tr></thead>
     <tbody>${Object.entries(JUSTIF_KINDS).map(([k, l]) => { const x = j.kinds[k]; return `<tr><td>${l}</td><td></td><td>${x.n}</td><td>${x.ok} <span class="muted small">${pc(x.ok, x.n - x.unk)}</span></td><td class="${x.n - x.unk - x.ok ? 'cred' : ''}">${x.n - x.unk - x.ok}</td><td>${x.unk || ''}</td></tr>`; }).join('')}</tbody></table></div>

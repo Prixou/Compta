@@ -37,7 +37,7 @@ const server = http.createServer((req, res) => {
 });
 
 const filters = process.argv.slice(2);
-const suites = fs.readdirSync(path.join(__dirname, 'suites')).filter((f) => f.endsWith('.js')).sort()
+const suites = fs.readdirSync(path.join(__dirname, 'suites')).filter((f) => f.endsWith('.js') && f !== 'lib.js').sort()
   .filter((f) => !filters.length || filters.some((x) => f.includes(x)));
 
 function runSuite(file) {

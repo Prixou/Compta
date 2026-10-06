@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
+const { fecTab, fecMonth } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' });
@@ -45,8 +46,7 @@ const O = path.join(__dirname, '../out/');
   await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-drop');
   const [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
   await ch.setFiles(D + '444444444FEC20251231.txt'); await p.waitForSelector('.fec-meta');
-  await p.click('button[data-tab=pieces]'); await p.click('button[data-action=pieces-mode][data-mode=mois]'); await p.waitForTimeout(150);
-  await p.fill('input[data-pieces=mois]', '2025-06'); await p.dispatchEvent('input[data-pieces=mois]', 'change'); await p.waitForTimeout(150);
+  await fecTab(p, 'mois-pieces', 0); await fecMonth(p, '2025-06', 150);
   await p.click('button[data-action=pieces-demande]'); await p.waitForSelector('#modal[open]');
   await p.click('#modal [data-action=close-modal]');
   await p.goto('http://localhost:8765/#/grille'); await p.waitForSelector('select[data-grille=annee]');
@@ -65,7 +65,7 @@ const O = path.join(__dirname, '../out/');
   // D. Mission de revue synchronisée avec la feuille de travail
   await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-meta');
   await p.click('button[data-action=fec-mission]'); await p.waitForTimeout(150);
-  await p.click('button[data-tab=achats]'); await p.waitForTimeout(150);
+  await fecTab(p, 'achats', 0); await p.waitForTimeout(150);
   const first = p.locator('.wp > li:has(select[data-wp=st])').first();
   const label = (await first.locator('strong').first().textContent()).trim();
   await first.locator('select[data-wp=st]').selectOption('justifie'); await p.waitForTimeout(200);
@@ -78,7 +78,7 @@ const O = path.join(__dirname, '../out/');
   // E. Tous les cycles revus -> « Révision des comptes » du bilan 2025
   await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-meta');
   for (const k of ['achats', 'charges', 'clients', 'treso']) {
-    await p.click(`button[data-tab=${k}]`); await p.waitForTimeout(100);
+    await fecTab(p, k, 0); await p.waitForTimeout(100);
     await p.click(`button[data-action=wp-review][data-cycle=${k}]:not([data-undo])`); await p.waitForTimeout(150);
   }
   console.log('E. toast :', await p.textContent('#toast'));
@@ -112,7 +112,7 @@ const O = path.join(__dirname, '../out/');
   console.log('G. après rechargement, SCI AUTRE juin :', (await p.locator('.grille tbody tr', { hasText: 'SCI AUTRE' }).locator('td[data-col="6"]').textContent()).trim());
 
   // H. Dépôt de plusieurs FEC sur le portefeuille
-  await p.goto('http://localhost:8765/#/fec/lot'); await p.waitForSelector('.fec-drop');
+  await p.goto('http://localhost:8765/#/portefeuille'); await p.waitForSelector('.fec-drop');
   const txt = fs.readFileSync(D + '444444444FEC20251231.txt', 'latin1');
   await p.evaluate((content) => {
     const dt = new DataTransfer();

@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
+const { fecTab, fecMonth } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', acceptDownloads: true });
@@ -21,7 +22,7 @@ const O = path.join(__dirname, '../out/');
   const [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
   await ch.setFiles(D + '777777777FEC20251231.txt'); await p.waitForSelector('.fec-meta');
   console.log('onglets :', await p.$$eval('.fec-tabs button', (l) => l.map((x) => x.textContent).join(' · ')));
-  await p.click('.fec-tabs button[data-tab=tva]'); await p.waitForSelector('.tva-draft');
+  await fecTab(p, 'tva', 0); await p.waitForSelector('.tva-draft');
   const dump = async (title) => {
     console.log(`\n===== ${title} :`, await p.$eval('main .card h2', (x) => x.textContent));
     console.log('KPI :', await p.$$eval('main .fec-kpis .kpi', (l) => l.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).join(' | ')));

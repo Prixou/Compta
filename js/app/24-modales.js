@@ -156,7 +156,7 @@ let lastActivity = Date.now();
 
 // Efface de la mémoire et de l'écran tout ce qui concerne les dossiers (verrouillage, réinitialisation).
 function forgetSession() {
-  ui.fecStates = { classique: null, pharmacie: null };
+  ui.fecState = null;
   ui.batch = null;
   closeGrillePop();
   ui.imp = null;

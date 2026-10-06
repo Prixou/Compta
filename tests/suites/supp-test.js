@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
+const { fecTab, fecMonth } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', permissions: ['clipboard-read', 'clipboard-write'] });
@@ -18,7 +19,7 @@ const O = path.join(__dirname, '../out/');
   await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-drop');
   const [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
   await ch.setFiles(D + '444444444FEC20251231.txt'); await p.waitForSelector('.fec-meta');
-  await p.click('button[data-tab=pieces]'); await p.waitForTimeout(200);
+  await fecTab(p, 'pieces', 0); await p.waitForTimeout(200);
   console.log('fournisseurs :', await p.$$eval('.supp-row .supp-name', (l) => l.map((x) => x.textContent.replace(/\s+/g, ' ').trim())));
   const row = '.supp-row:has-text("PAPETERIE NIMOISE")';
   await p.fill(`${row} input[data-supp=numClient]`, 'CL-778899'); await p.press(`${row} input[data-supp=numClient]`, 'Tab');
@@ -28,7 +29,7 @@ const O = path.join(__dirname, '../out/');
   console.log('--- mail ---\n' + await p.evaluate(() => navigator.clipboard.readText()));
   console.log('ligne après envoi :', (await p.textContent(row)).replace(/\s+/g, ' ').trim().slice(0, 140));
   // Mode mois : septembre seulement
-  await p.click('button[data-action=pieces-mode][data-mode=mois]'); await p.fill('input[data-pieces=mois]', '2025-09'); await p.dispatchEvent('input[data-pieces=mois]', 'change'); await p.waitForTimeout(200);
+  await fecTab(p, 'mois-pieces', 0); await fecMonth(p, '2025-09');
   console.log('mois de septembre :', await p.$$eval('.supp-row .supp-name', (l) => l.map((x) => x.textContent.replace(/\s+/g, ' ').trim())));
   console.log('n° client conservé :', await p.$eval(`${row} input[data-supp=numClient]`, (i) => i.value));
   await p.screenshot({ path: O + 'supp.png', fullPage: true });

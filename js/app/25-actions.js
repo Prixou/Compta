@@ -198,9 +198,9 @@ const actions = {
   'batch-open': (el) => {
     const it = ui.batch && ui.batch.items[Number(el.dataset.i)];
     if (!it || !it.st) return;
-    if (el.dataset.mois) Object.assign(it.st, { section: 'pieces', pieces: { mode: 'mois', arrete: it.sum.moisArrete, excluded: new Set() } });
-    ui.fecStates[it.profile] = it.st;
-    location.hash = it.profile === 'pharmacie' ? '#/fec/pharma' : '#/fec';
+    if (el.dataset.mois) Object.assign(it.st, { space: 'mois', section: 'mois-pieces', month: ymOf(it.sum.moisArrete) });
+    ui.fecState = it.st;
+    location.hash = '#/fec';
   },
   'batch-save': () => {
     const list = (ui.batch ? ui.batch.items : []).filter((it) => it.st && it.st.clientId);
@@ -211,11 +211,30 @@ const actions = {
     const ok = await ask({ title: 'Export Excel non chiffré', message: 'Le fichier liste les dossiers et leurs chiffres clés, <strong>non chiffrés</strong>. Supprimez-le après usage.', okLabel: 'Exporter' });
     if (ok) batchExport();
   },
-  'fec-pick': async () => startFec(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true)),
+  'fec-pick': async (el) => {
+    // Depuis l'accueil de l'analyse : l'espace choisi s'ouvrira à l'arrivée du FEC.
+    if (el.dataset.space && FEC_SPACES[el.dataset.space] && data.settings.fecSpace !== el.dataset.space) { data.settings.fecSpace = el.dataset.space; persist(); }
+    startFec(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true));
+  },
   'fec-tab': (el) => {
     ui.fec.section = el.dataset.tab;
     refresh();
   },
+  'fec-space': (el) => {
+    const f = ui.fec;
+    if (!f || !FEC_SPACES[el.dataset.space]) return;
+    Object.assign(f, { space: el.dataset.space, section: null });
+    // L'espace choisi est repris à l'ouverture du FEC suivant.
+    if (data.settings.fecSpace !== f.space) { data.settings.fecSpace = f.space; persist(); }
+    refresh();
+  },
+  'fec-month': (el) => {
+    const months = ui.fec.result.monthly.map((x) => x.mois);
+    const ym = months[months.indexOf(fecMonth()) + Number(el.dataset.step)];
+    if (ym) setFecMonth(ym);
+    refresh();
+  },
+  'fec-profile': (el) => setFecProfile(el.dataset.to),
   'fec-export': async () => {
     const ok = await ask({ title: 'Export Excel non chiffré', message: "Le fichier contient la balance et l'analyse du dossier, <strong>non chiffrées</strong>. Enregistrez-le sur un support sécurisé et supprimez-le après usage.", okLabel: 'Exporter' });
     if (ok) fecExport();
@@ -227,7 +246,7 @@ const actions = {
     const cy = wpStore().cycles;
     if (el.dataset.undo) delete cy[el.dataset.cycle];
     else cy[el.dataset.cycle] = { by: data.settings.utilisateur || '', at: nowIso() };
-    if (!el.dataset.undo) revisionSigned();
+    if (!el.dataset.undo) { revisionSigned(); saisieSigned(el.dataset.cycle); }
     wpSave();
     refresh();
   },
@@ -241,6 +260,7 @@ const actions = {
   },
   'tva-goto': (el) => {
     tvaState().key = el.dataset.key;
+    monthFromTva();
     window.scrollTo(0, 0);
     refresh();
   },
@@ -263,14 +283,6 @@ const actions = {
   },
   'ecr-xlsx': () => ecrExport('xlsx'),
   'ecr-csv': () => ecrExport('csv'),
-  'fec-switch': (el) => {
-    // Le FEC déjà analysé passe dans l'autre analyseur, sans relecture du fichier.
-    const st = ui.fec;
-    ui.fecStates[el.dataset.to] = st;
-    ui.fecStates[ui.fecProfile] = null;
-    if (st) st.section = 'synthese';
-    location.hash = el.dataset.to === 'pharmacie' ? '#/fec/pharma' : '#/fec';
-  },
   'fec-prev': async () => startFec(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true), 'prev'),
   'fec-note': () => openNote(),
   'prev-mode': (el) => {
@@ -460,6 +472,7 @@ document.addEventListener('change', (e) => {
     refresh();
   } else if (t.dataset.tva === 'key' && ui.fec && ui.fec.result) {
     tvaState().key = t.value;
+    monthFromTva();
     refresh();
   } else if (t.dataset.tvaDecl && ui.fec && ui.fec.result) {
     const key = tvaState().key;
@@ -477,13 +490,16 @@ document.addEventListener('change', (e) => {
   } else if (t.dataset.pieces === 'arrete' && ui.fec) {
     if (t.value) piecesState().arrete = t.value;
     refresh();
-  } else if (t.dataset.pieces === 'mois' && ui.fec) {
-    if (/^\d{4}-\d{2}$/.test(t.value)) piecesState().arrete = endOfMonth(`${t.value}-01`);
-    refresh();
   } else if (t.dataset.fec && ui.fec) {
     if (t.dataset.fec === 'q') return;
-    if (t.dataset.fec === 'client') ui.fec.clientId = t.value;
-    else ui.fec[t.dataset.fec] = t.value;
+    if (t.dataset.fec === 'profile') return setFecProfile(t.value);
+    if (t.dataset.fec === 'month') setFecMonth(t.value);
+    else if (t.dataset.fec === 'client') {
+      ui.fec.clientId = t.value;
+      // Dossier dont l'activité est connue : elle fixe le profil d'analyse.
+      const c = clientById(t.value);
+      if (c && c.activite) Object.assign(ui.fec, { profile: c.activite, profileAuto: false });
+    } else ui.fec[t.dataset.fec] = t.value;
     refresh();
   } else if (t.dataset.dash) {
     data.settings.dashResp = t.value;

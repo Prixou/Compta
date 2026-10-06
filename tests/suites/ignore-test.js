@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
+const { fecTab, fecMonth } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const p = await (await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' })).newPage();
@@ -15,8 +16,7 @@ const O = path.join(__dirname, '../out/');
   const sept = async () => {
     await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-drop, .fec-meta');
     if (await p.$('.fec-drop')) { const [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]); await ch.setFiles(D + '444444444FEC20251231.txt'); await p.waitForSelector('.fec-meta'); }
-    await p.click('button[data-tab=pieces]'); if (!(await p.$('input[data-pieces=mois]'))) await p.click('button[data-action=pieces-mode][data-mode=mois]');
-    await p.fill('input[data-pieces=mois]', '2025-09'); await p.dispatchEvent('input[data-pieces=mois]', 'change'); await p.waitForTimeout(200);
+    await fecTab(p, 'mois-pieces', 0); await fecMonth(p, '2025-09');
     return p.$$eval('.piece span', (l) => l.map((x) => x.textContent));
   };
   console.log('avant :', await sept());

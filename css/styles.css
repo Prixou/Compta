@@ -622,17 +622,35 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
 @media (max-width: 760px) { .dtable.sig td { padding: .45rem .4rem; } }
 .more-btn { margin-top: .6rem; }
 
-/* ---------- Analyseurs FEC : classique / pharmacie ---------- */
+/* ---------- Analyse FEC : espaces Mois / Révision / Consultation ---------- */
 
-.fec-profiles { margin: -.4rem 0 1rem; }
-.fec-profiles a { display: inline-flex; align-items: center; gap: .45rem; padding: .55rem 1rem; font-weight: 700; color: var(--muted); text-decoration: none; background: var(--surface); min-height: 40px; }
-.fec-profiles a + a { border-left: 1px solid var(--border); }
-.fec-profiles a.on { background: var(--primary); color: var(--primary-ink); }
-.fec-profiles a .ico { width: 16px; height: 16px; }
+.fec-spaces { display: flex; margin-bottom: .75rem; }
+.fec-spaces button { flex: 1 1 0; display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; text-align: left; padding: .55rem .9rem; min-height: 48px; }
+.fec-spaces button strong { font-size: 1rem; color: var(--text); }
+.fec-spaces button span { font-size: .76rem; font-weight: 500; line-height: 1.3; }
+.fec-spaces button.on { background: var(--primary); color: var(--primary-ink); }
+.fec-spaces button.on strong { color: var(--primary-ink); }
+.space-card { display: flex; flex-direction: column; align-items: flex-start; gap: .25rem; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.space-card strong { font-size: 1.05rem; }
+.space-card em { font-style: normal; font-size: .75rem; font-weight: 700; color: var(--primary); }
+.space-card:hover, .space-card.on { border-color: var(--primary); }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 1rem; align-items: start; }
+.badge.beta { background: var(--warn-soft); color: var(--warn); font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; vertical-align: middle; }
+.mois-head .fec-kpis { margin-bottom: 0; }
+.mois-nav { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .8rem; }
+.mois-nav .inline-label { margin: 0; }
+.mois-nav .btn { min-width: 38px; justify-content: center; font-size: 1.1rem; }
+.mois-name { font-size: 1.1rem; margin-left: .3rem; }
 .dtable.tp tr.flag td { background: var(--warn-soft); }
 .tp-detail { border-top: 1px solid var(--border); padding: .5rem 0; }
 .tp-detail summary { cursor: pointer; }
-@media (max-width: 760px) { .fec-profiles { display: flex; } .fec-profiles a { flex: 1; justify-content: center; font-size: .82rem; padding: .5rem .4rem; } }
+@media (max-width: 1000px) { .grid3 { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) {
+  .fec-spaces button { align-items: center; text-align: center; padding: .5rem .4rem; }
+  .fec-spaces button span { display: none; }
+  .fec-tabs { display: flex; }
+  .fec-tabs button { flex: 1 1 auto; }
+}
 
 /* Cycles de révision */
 .kpi em { display: block; font-style: normal; font-size: .75rem; color: var(--muted); margin-top: .15rem; }

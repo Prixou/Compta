@@ -47,7 +47,8 @@ function tvaState() {
   const T = f.result.cycles && f.result.cycles.tva;
   if (!f.tvaCtl && T) {
     const months = Object.keys(T.months).sort();
-    let ym = ymOf(defaultArrete(f.result, 'situation'));
+    // Période du mois affiché dans l'espace « Mois »
+    let ym = fecMonth();
     if (!T.months[ym]) ym = months[months.length - 1];
     const kind = tvaRegime() === 'T' ? 'quarter' : 'month';
     f.tvaCtl = { kind, key: kind === 'quarter' ? quarterOf(ym) : ym };
@@ -378,7 +379,7 @@ function viewTva() {
   const sumRates = Object.entries(A.rates).sort((a, b) => Number(b[0]) - Number(a[0]));
   return `
     <section class="card">
-      <div class="card-head"><h2>Contrôle de la TVA — ${esc(per.label)}</h2>
+      <div class="card-head"><h2>Contrôle de la TVA — ${esc(per.label)} <span class="badge beta">bêta</span></h2>
         <div class="head-actions">
           <button class="btn small" data-action="tva-xlsx">Excel</button>
           <button class="btn small" data-action="tva-print">Imprimer / PDF</button>
@@ -391,6 +392,7 @@ function viewTva() {
         <select data-tva="key" aria-label="Période">${options(Object.fromEntries(keys.map((k) => [k, tvaPeriod(k).label.replace(/^./, (x) => x.toUpperCase())])), per.key)}</select>
         ${regTxt ? `<span class="muted small">Dossier : ${esc(regTxt)}${reg === 'T' && st.kind === 'month' ? ' — passez en « Trimestre »' : reg === 'M' && st.kind === 'quarter' ? ' — passez en « Mois »' : ''}</span>` : ''}
       </div>
+      <div class="banner info"><span><strong>Fonction en bêta</strong> : ce contrôle n'a pas encore été validé sur de vrais dossiers (exigibilité, liquidations, régularisations). Comparez-le à votre outil de contrôle avant de vous y fier.</span></div>
       ${reg === 'CA12' ? '<div class="banner info"><span>Dossier au régime simplifié : ce contrôle mensuel sert à suivre la TVA en cours d\'année ; la déclaration annuelle CA12 reprend l\'exercice entier.</span></div>' : ''}
       ${A.months < per.months.length ? `<div class="banner warn"><span>Le FEC ne couvre que ${A.months} mois sur ${per.months.length} de la période.</span></div>` : ''}
       <div class="kpis fec-kpis">

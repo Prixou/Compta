@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
+const { fecTab, fecMonth } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' });
@@ -23,7 +24,7 @@ const O = path.join(__dirname, '../out/');
   const [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
   await ch.setFiles(D + '987654321FEC20251231.txt');
   await p.waitForSelector('.fec-meta');
-  await p.click('button[data-action=fec-tab][data-tab=pieces]');
+  await fecTab(p, 'pieces', 0);
   await p.click('button[data-action=pieces-mode][data-mode=situation]');
   console.log('arrêté proposé (situation) :', await p.inputValue('input[data-pieces=arrete]'));
   const dump = async () => p.$$eval('.pieces-group', (g) => g.map((x) => x.querySelector('h3').textContent.replace(/\s+/g, ' ').trim() + '\n   - ' + Array.from(x.querySelectorAll('.piece span')).map((s) => s.textContent).join('\n   - ')).join('\n'));
