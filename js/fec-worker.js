@@ -173,6 +173,8 @@ function analyse(buffer, fileName, until, docs) {
   const aux = new Map();
   const journals = new Map();
   const entries = new Map();
+  const splits = new Map(); // parties d'écritures multi-dates (voir plus bas)
+  const remap = new Map(); // partie réintégrée dans son écriture → clé de l'écriture
   const months = new Map();
   const caisse = [];
   const dupSeen = new Map();
@@ -279,6 +281,13 @@ function analyse(buffer, fileName, until, docs) {
     a.c += c;
     if (an) { a.dAN += d; a.cAN += c; }
 
+    // Écriture « d'opération » : une même référence journal + n° portant plusieurs dates (n° réutilisé d'un jour ou
+    // d'un mois à l'autre, fréquent après import d'un logiciel de caisse) est découpée par date, pour ne pas fusionner
+    // des opérations distinctes ni les rattacher au mauvais mois.
+    const ek0 = jc + '\u0001' + num;
+    const head = entries.get(ek0);
+    const oek = head && head.date && date && head.date !== date ? ek0 + '\u0002' + date : ek0;
+
     // Comptes auxiliaires de tiers
     if (/^4[01]/.test(compte)) {
       const k = compte.slice(0, 3) + '|' + (auxNum || compte);
@@ -287,7 +296,7 @@ function analyse(buffer, fileName, until, docs) {
       t.d += d;
       t.c += c;
       // Lignes conservées pour la balance âgée : date, débit, crédit, lettrage, libellé, à-nouveau.
-      if (date || an) t.lines.push([date || '0000-00-00', d, c, g('EcritureLet'), elib, an ? 1 : 0, jc + '\u0001' + num]);
+      if (date || an) t.lines.push([date || '0000-00-00', d, c, g('EcritureLet'), elib, an ? 1 : 0, oek]);
       if (date && !an) {
         if (d > 0 && date > (t.lastD || '')) t.lastD = date;
         if (c > 0 && date > (t.lastC || '')) t.lastC = date;
@@ -300,8 +309,8 @@ function analyse(buffer, fileName, until, docs) {
     j.lines++;
     j.d += d;
     j.c += c;
-    const ek = jc + '\u0001' + num;
-    let en = entries.get(ek);
+    const ek = ek0;
+    let en = head;
     if (!en) {
       entries.set(ek, (en = { jc, num, date, valid: vd.iso || date, d: 0, c: 0, line: lineNo, an, lib: elib }));
       j.entries++;
@@ -311,12 +320,20 @@ function analyse(buffer, fileName, until, docs) {
     }
     en.d += d;
     en.c += c;
-    if (attIdx >= 0 && !en.att && f[attIdx] && f[attIdx].trim()) en.att = f[attIdx].trim();
-    if (/^5[13]/.test(compte)) en.has5 = true;
-    if (/^4[01]/.test(compte)) en.has4 = true;
+    // Partie datée autrement d'une écriture multi-dates : traitée comme une écriture à part pour l'analyse des opérations.
+    let oe = en;
+    if (oek !== ek) {
+      oe = splits.get(oek);
+      if (!oe) splits.set(oek, (oe = { jc, num, date, valid: vd.iso || date, d: 0, c: 0, line: lineNo, an, lib: elib }));
+      oe.d += d;
+      oe.c += c;
+    }
+    if (attIdx >= 0 && !oe.att && f[attIdx] && f[attIdx].trim()) oe.att = f[attIdx].trim();
+    if (/^5[13]/.test(compte)) oe.has5 = true;
+    if (/^4[01]/.test(compte)) oe.has4 = true;
     if (date && !an) {
-      (en.l = en.l || []).push(compte, auxNum, d, c); // à plat (4 valeurs par ligne) pour limiter la mémoire
-      if (!en.piece && piece) en.piece = piece;
+      (oe.l = oe.l || []).push(compte, auxNum, d, c); // à plat (4 valeurs par ligne) pour limiter la mémoire
+      if (!oe.piece && piece) oe.piece = piece;
       if (/^4[01]/.test(compte) && !auxNames.has(auxNum || compte)) auxNames.set(auxNum || compte, auxLib || clib);
     }
     if (/^5[0-8]/.test(compte)) {
@@ -359,7 +376,7 @@ function analyse(buffer, fileName, until, docs) {
       if (/^47[1-8]/.test(compte) && attenteLines.length < 400) attenteLines.push({ date, compte, lib: elib, d, c, lettre: !!g('EcritureLet') });
       if (/^2[0-7]/.test(compte) && d > 0 && immoLines.length < 300) immoLines.push({ date, compte, clib, lib: elib, montant: d });
       if (compte.startsWith('455') && ccaLines.length < 300) ccaLines.push({ date, lib: elib, d, c });
-      if (compte[0] === '6' && d > 0) chargeLines.push([ek, compte, clib, elib, d, date]);
+      if (compte[0] === '6' && d > 0) chargeLines.push([oek, compte, clib, elib, d, date]);
       // Séparation des exercices : pièce datée hors de l'exercice
       if (closing && pd.iso && /^(60|61|62|70)/.test(compte)) {
         const cyc = compte[0] === '7' ? 'ventes' : compte.startsWith('60') ? 'achats' : 'charges';
@@ -394,7 +411,7 @@ function analyse(buffer, fileName, until, docs) {
           const dow = new Date(date + 'T00:00:00Z').getUTCDay();
           if (dow === 0 || dow === 6) addEx(weekend, d, `${dow ? 'Samedi' : 'Dimanche'} ${exm()}`);
         }
-        if (compte.startsWith('6234') && d > 73) { addEx(gifts, d, exm()); en.gift = compte; }
+        if (compte.startsWith('6234') && d > 73) { addEx(gifts, d, exm()); oe.gift = compte; }
       }
     }
 
@@ -432,6 +449,24 @@ function analyse(buffer, fileName, until, docs) {
   }
   self.postMessage({ type: 'progress', pct: 100 });
   if (!lines) throw new Error('Le fichier ne contient aucune écriture.');
+
+  // Écritures multi-dates : découpées seulement si chaque partie est équilibrée (n° réutilisé pour des opérations
+  // distinctes) ; sinon il s'agit d'une seule opération, dont toutes les lignes restent ensemble.
+  const opEntries = new Map(entries);
+  const byHead = new Map();
+  splits.forEach((p, k) => { const h = k.slice(0, k.indexOf('\u0002')); (byHead.get(h) || byHead.set(h, []).get(h)).push([k, p]); });
+  const bal0 = (x) => Math.abs(x.d - x.c) < 0.01;
+  byHead.forEach((parts, h) => {
+    const head = entries.get(h);
+    if (bal0(head) && parts.every(([, p]) => bal0(p))) { parts.forEach(([k, p]) => opEntries.set(k, p)); return; }
+    const merged = Object.assign({}, head, { l: (head.l || []).slice() });
+    parts.forEach(([k, p]) => {
+      if (p.l) merged.l.push(...p.l);
+      ['has5', 'has4', 'att', 'piece', 'gift'].forEach((f) => { if (p[f] && !merged[f]) merged[f] = p[f]; });
+      remap.set(k, h);
+    });
+    opEntries.set(h, merged);
+  });
 
   // Écritures déséquilibrées, dates atypiques, numérotation
   const numsByJournal = new Map();
@@ -565,8 +600,8 @@ function analyse(buffer, fileName, until, docs) {
   };
 
   perso.groups = Array.from(persoG.values()).sort((a, b) => b.total - a.total).slice(0, 30);
-  const cycles = buildCycles({ entries, aux, auxNames, accounts, chAcc, tresoAcc, cut, perso, amendes, weekend, gifts, closing, start, months, maxOp, docs, attCol: attIdx >= 0 ? header[attIdx] : '' });
-  cycles.tva = buildTva({ entries, accounts, auxNames });
+  const cycles = buildCycles({ entries: opEntries, aux, auxNames, accounts, chAcc, tresoAcc, cut, perso, amendes, weekend, gifts, closing, start, months, maxOp, docs, attCol: attIdx >= 0 ? header[attIdx] : '' });
+  cycles.tva = buildTva({ entries: opEntries, accounts, auxNames });
 
   // ---------- Mensuel ----------
   let cumul = 0;
@@ -617,7 +652,7 @@ function analyse(buffer, fileName, until, docs) {
       if (lettered && let_) return;
       const amt = round2(sign * (d - c));
       if (!amt) return;
-      const en = !isAn && entries.get(ek);
+      const en = !isAn && opEntries.get(remap.get(ek) || ek);
       items.push({ date, amt, lib, bank: !!(en && en.has5) });
     });
     const pays = items.filter((x) => x.amt < 0 && x.bank).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -726,7 +761,7 @@ function analyse(buffer, fileName, until, docs) {
   const direct = new Map();
   const directLines = []; // paiements directs ligne à ligne, pour la demande mensuelle
   chargeLines.forEach(([ek, compte, clib, elib, amt, date]) => {
-    const en = entries.get(ek);
+    const en = opEntries.get(remap.get(ek) || ek);
     if (!en || !en.has5 || en.has4 || /^(627|6[3-9]|64|658|66|67|68|69)/.test(compte)) return;
     if (directLines.length < 5000) directLines.push([date, compte, clib, elib, round2(amt)]);
     const key = compte + '|' + labelKey(elib);
@@ -1250,7 +1285,7 @@ function buildTva({ entries, accounts, auxNames }) {
     noVat: { export: Z(), intra: Z(), exo: Z(), autoliq: Z(), regul: Z(), unknown: Z() },
     coll: 0, collAtt: 0, collAcc: {}, collInv: 0, dedImmo: 0, dedAbs: 0,
     autoliq: { biens: { base: 0, tva: 0, n: 0, rates: {} }, services: { base: 0, tva: 0, n: 0, rates: {} } },
-    liq: [], pay: [], mv: {}, enc: { ttc: 0, tva: 0 },
+    liq: [], pay: [], mv: {}, acc: {}, lines: [], enc: { ttc: 0, tva: 0 },
     chk: { rate: bucket(), mismatch: bucket(), immoAbs: bucket(), absImmo: bucket(), fuel: bucket(), vehicle: bucket(), lodging: bucket(), gift: bucket(), perso: bucket(), overP: bucket(), noVatP: bucket(), autoliqND: bucket() },
   });
   const addRate = (M, r, base, tva) => {
@@ -1305,6 +1340,17 @@ function buildTva({ entries, accounts, auxNames }) {
     }
     M.ca70 += b70;
     M.serv += serv;
+    // Détail par compte de TVA (mouvements d'opérations, de liquidation, de paiement) et lignes pour le justificatif
+    const record = (cls) => {
+      for (let i = 0; i < en.l.length; i += 4) {
+        const compte = en.l[i], d = en.l[i + 2], c = en.l[i + 3];
+        if (!compte.startsWith('445')) continue;
+        const a = (M.acc[compte] = M.acc[compte] || { d: 0, c: 0, liq: 0, pay: 0, n: 0 });
+        if (cls === 'liq') a.liq += d - c; else if (cls === 'pay') a.pay += d - c; else { a.d += d; a.c += c; }
+        a.n++;
+        if (M.lines.length < 20000) M.lines.push([en.date, `${en.jc} ${en.num}`, en.piece || '', compte, round2(d), round2(c), cls, (en.lib || '').slice(0, 50)]);
+      }
+    };
 
     // Liquidation (déclaration comptabilisée) et paiement de la TVA
     const isLiq = (has4455 && n445 > 1 && (d4457 > 0.005 || c4456 > 0.005 || v52 < -0.005)) || (d4457 > 0.005 && c4456 > 0.005 && !has7 && !has6 && !im && !sup && !cli);
@@ -1322,12 +1368,15 @@ function buildTva({ entries, accounts, auxNames }) {
       }
       ['coll', 'ded', 'autoliq', 'due', 'credit', 'creditUsed', 'other'].forEach((k) => { x[k] = round2(x[k]); });
       if (M.liq.length < 20) M.liq.push(x);
+      record('liq');
       return;
     }
     if (has4455 && tr < -0.005 && !d4457 && !v6) {
       if (M.pay.length < 20) M.pay.push({ date: en.date, amt: round2(-tr), lib: (en.lib || '').slice(0, 60), ref: `${en.jc} ${en.num}` });
+      record('pay');
       return;
     }
+    if (n445) record('op');
 
     // TVA collectée exigible ou en attente (factures, acomptes, virements de l'attente vers l'exigible)
     vatLines.forEach(([compte, v]) => {
@@ -1455,6 +1504,7 @@ function buildTva({ entries, accounts, auxNames }) {
     Object.values(M.rates).forEach(r2); Object.values(M.noVat).forEach(r2);
     Object.keys(M.collAcc).forEach((k) => { M.collAcc[k] = round2(M.collAcc[k]); });
     Object.keys(M.mv).forEach((k) => { M.mv[k] = round2(M.mv[k]); });
+    Object.values(M.acc).forEach(r2);
     ['biens', 'services'].forEach((k) => { r2(M.autoliq[k]); Object.keys(M.autoliq[k].rates).forEach((x) => { M.autoliq[k].rates[x] = round2(M.autoliq[k].rates[x]); }); });
   });
   return { meta, months, usual };

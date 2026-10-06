@@ -2332,7 +2332,7 @@
   // Analyse de FEC
   // ---------------------------------------------------------------------------
 
-  const ASSET_VERSION = '23';
+  const ASSET_VERSION = '24';
   let fecWorker = null;
 
   const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -4622,6 +4622,15 @@
   // ---------- Contrôle de la TVA du mois (ou du trimestre) ----------
 
   const QUARTER_NAMES = ['1er', '2e', '3e', '4e'];
+  const TVA_KIND = { coll: 'TVA collectée', 'coll-att': 'Collectée en attente (non exigible)', ded: 'TVA déductible', 'ded-immo': 'TVA déductible sur immobilisations', autoliq: 'TVA autoliquidée', due: 'TVA à décaisser', credit: 'Crédit de TVA', regul: 'À régulariser (non déclarée)', autre: 'Autre' };
+
+  function tvaAccountsTable(core) {
+    const tot = (k) => core.accounts.reduce((t, x) => t + x[k], 0);
+    return `<div class="grid-wrap"><table class="dtable num tva-acc"><thead><tr><th>Compte</th><th>Libellé</th><th>Pris comme</th><th>Solde d'ouverture</th><th>Débit opérations</th><th>Crédit opérations</th><th>Liquidation</th><th>Paiement</th><th>Solde de fin</th></tr></thead>
+      <tbody>${core.accounts.map((x) => `<tr><td>${esc(x.compte)}</td><td>${esc(x.lib)}</td><td class="small">${esc(TVA_KIND[x.kind] || '')}${x.rate ? ` · ${rateTxt(x.rate)}` : ''}</td>
+        <td>${eur(x.start)}</td><td>${eur(x.d)}</td><td>${eur(x.c)}</td><td>${x.liq ? eur(x.liq) : ''}</td><td>${x.pay ? eur(x.pay) : ''}</td><td class="${Math.abs(x.end) >= 0.01 && /coll|ded/.test(x.kind) ? 'cred' : ''}">${eur(x.end)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><th colspan="3">Total</th><th>${eur(tot('start'))}</th><th>${eur(tot('d'))}</th><th>${eur(tot('c'))}</th><th>${eur(tot('liq'))}</th><th>${eur(tot('pay'))}</th><th>${eur(tot('end'))}</th></tr></tfoot></table></div>`;
+  }
   const rateTxt = (r) => `${String(r).replace('.', ',')} %`;
   // Ligne de la déclaration CA3 (formulaire 3310-CA3) pour chaque taux.
   const CA3_RATE_LINE = { 20: '08', 5.5: '09', 10: '9B', 8.5: '10', 2.1: '14', 13: '14', 0.9: '14', 1.05: '14', 19.6: '13', 7: '13' };
@@ -4690,6 +4699,7 @@
       else if (s1 < 1 && s0 >= 1) pick = k1;
       if (!tot[pick]) pick = tot[k1] ? k1 : k0;
       if (!tot[pick]) return;
+      l['_k' + kind] = pick;
       const cur = assigned[pick];
       if (!cur) assigned[pick] = l;
       else (extra[pick] = extra[pick] || []).push(score(l, pick) < score(cur, pick) ? ((assigned[pick] = l), cur) : l);
@@ -4753,7 +4763,32 @@
     // Report du crédit (ligne 22) : celui imputé par la liquidation, sinon le crédit disponible avant la déclaration à préparer.
     A.report = L.liq ? L.liq.creditUsed : L.res.credit;
     A.creditAvail = L.res.credit;
-    return Object.assign({ A, hasAtt: Object.values(T.meta).some((m) => m.kind === 'coll-att') }, L);
+    // Comptes de TVA de la période : solde d'ouverture, mouvements des opérations, liquidation, paiement, solde de fin
+    const months = Object.keys(T.months).sort();
+    const accounts = Object.entries(T.meta).map(([c, m]) => {
+      const start = m.an + months.filter((k) => k < per.months[0]).reduce((t, k) => t + (T.months[k].mv[c] || 0), 0);
+      const x = { compte: c, lib: m.lib, kind: m.kind, rate: m.rate, start, d: 0, c: 0, liq: 0, pay: 0, n: 0 };
+      per.months.forEach((ym) => { const a = T.months[ym] && T.months[ym].acc[c]; if (a) { x.d += a.d; x.c += a.c; x.liq += a.liq; x.pay += a.pay; x.n += a.n; } });
+      x.end = round2(x.start + x.d - x.c + x.liq + x.pay);
+      return x;
+    }).filter((x) => x.n || Math.abs(x.start) >= 0.01 || Math.abs(x.end) >= 0.01).sort((a, b) => a.compte.localeCompare(b.compte));
+    // Méthode des soldes (déclaration établie sur le solde des comptes avant liquidation, comme les logiciels de production) :
+    // la TVA restée en compte des périodes précédentes est reprise. Seulement si le dossier comptabilise ses liquidations.
+    // Pas de méthode des soldes si des liquidations d'autres périodes sont datées dans celle-ci (ex. trimestre d'un dossier mensuel).
+    const kk = '_k' + per.kind;
+    const foreign = L.extra.length > 0 || per.months.some((ym) => T.months[ym] && T.months[ym].liq.some((l) => l[kk] && l[kk] !== per.key && l[kk] !== prevPeriodKey(per.key)));
+    const hasLiq = !foreign && months.some((k) => T.months[k].liq.length);
+    const own = L.liq && !L.after ? L.liq : null;
+    const sumEnd = (kinds) => accounts.filter((x) => kinds.includes(x.kind)).reduce((t, x) => t + x.end, 0);
+    const solde = hasLiq ? {
+      coll: round2(-sumEnd(['coll']) + (own ? own.coll : 0)),
+      ded: round2(sumEnd(['ded', 'ded-immo']) + (own ? own.ded : 0)),
+      autoliq: round2(-sumEnd(['autoliq']) + (own ? own.autoliq : 0)),
+    } : null;
+    A.relColl = solde ? round2(solde.coll - A.coll) : 0;
+    A.relDed = solde ? round2(solde.ded - A.ded) : 0;
+    A.relAuto = solde ? round2(solde.autoliq - A.autoliqTva) : 0;
+    return Object.assign({ A, accounts, solde, hasLiq, hasAtt: Object.values(T.meta).some((m) => m.kind === 'coll-att') }, L);
   }
 
   // Brouillon de déclaration : lignes de la CA3, bases et TVA.
@@ -4793,14 +4828,18 @@
     if (A.unrated.tva) rows.push({ line: '?', label: 'TVA collectée au taux non identifié', base: A.unrated.base, tva: A.unrated.tva, warn: true });
     if (A.other7.tva) rows.push({ line: '', label: 'TVA sur autres opérations imposables', base: A.other7.base, tva: A.other7.tva });
     if (Math.abs(otherColl) >= 0.01) rows.push({ line: '', label: 'Autre TVA collectée (acomptes, régularisations, virements)', tva: otherColl });
-    const brute = A.coll + A.autoliqTva;
+    const rel = Math.abs(A.relColl || 0) >= 0.01 ? A.relColl : 0, relA = Math.abs(A.relAuto || 0) >= 0.01 ? A.relAuto : 0, relD = Math.abs(A.relDed || 0) >= 0.01 ? A.relDed : 0;
+    if (rel) rows.push({ line: '', label: 'Reliquat de TVA collectée resté en compte (périodes précédentes)', tva: rel, warn: true });
+    if (relA) rows.push({ line: '', label: 'Reliquat de TVA autoliquidée resté en compte', tva: relA, warn: true });
+    const brute = A.coll + A.autoliqTva + rel + relA;
     rows.push({ line: '16', label: 'Total de la TVA brute due', tva: brute, strong: true });
     if (A.autoliq.biens.tva) rows.push({ line: '17', label: 'dont TVA sur acquisitions intracommunautaires', tva: A.autoliq.biens.tva });
     rows.push({ h: 'TVA déductible' });
     rows.push({ line: '19', label: 'Biens constituant des immobilisations', tva: A.dedImmo });
     rows.push({ line: '20', label: 'Autres biens et services', tva: A.dedAbs });
+    if (relD) rows.push({ line: '20', label: 'Reliquat de TVA déductible resté en compte (périodes précédentes)', tva: relD, warn: true });
     if (A.report) rows.push({ line: '22', label: 'Report du crédit de la déclaration précédente', tva: A.report });
-    const ded = A.ded + A.report;
+    const ded = A.ded + relD + A.report;
     rows.push({ line: '23', label: 'Total de la TVA déductible', tva: ded, strong: true });
     const net = brute - ded;
     rows.push(net >= 0 ? { line: '28', label: 'TVA nette due', tva: net, strong: true } : { line: '25', label: 'Crédit de TVA', tva: -net, strong: true });
@@ -5003,6 +5042,11 @@
           <p class="muted small">Après chaque liquidation, les comptes de TVA collectée et déductible doivent être soldés : un reste signale de la TVA comptabilisée mais non déclarée.</p>
         </section>
       </div>
+      <section class="card"><h2>Comptes de TVA de la période</h2>
+        <p class="muted small">À comparer ligne à ligne avec la balance ou le grand livre des comptes 445 dans votre logiciel (ACD…) pour la même période. Soldes : débiteurs positifs, créditeurs négatifs. « Liquidation » : écriture de déclaration de TVA ; « Paiement » : règlement de la TVA à décaisser. ${core.solde ? `Solde à déclarer avant liquidation : TVA collectée ${eur(core.solde.coll)} €, déductible ${eur(core.solde.ded)} €${Math.abs(A.relColl) >= 0.01 || Math.abs(A.relDed) >= 0.01 ? ` — dont reliquats des périodes précédentes ${eur(A.relColl)} € collectée et ${eur(A.relDed)} € déductible` : ''}.` : 'Aucune liquidation de TVA comptabilisée dans le FEC : la TVA de la période est calculée sur les seules écritures de la période.'}</p>
+        ${tvaAccountsTable(core)}
+        <div class="pieces-actions"><button class="btn small" data-action="tva-lines">Exporter le détail des lignes de TVA (Excel)</button></div>
+      </section>
       <section class="card"><h2>TVA collectée par taux</h2>
         ${sumRates.length || A.unrated.n ? `<div class="grid-wrap"><table class="dtable num"><thead><tr><th>Taux</th><th>Écritures</th><th>Base HT</th><th>TVA comptabilisée</th><th>TVA théorique</th><th>Écart</th></tr></thead>
         <tbody>${sumRates.map(([rt, x]) => { const theo = (x.base * Number(rt)) / 100; return `<tr><td>${rateTxt(Number(rt))}</td><td>${x.n}</td><td>${eur(x.base)}</td><td>${eur(x.tva)}</td><td>${eur(theo)}</td><td class="${Math.abs(x.tva - theo) >= 1 ? 'cred' : ''}">${eur(x.tva - theo)}</td></tr>`; }).join('')}
@@ -5086,9 +5130,10 @@
     </article>`;
   }
 
-  function tvaExport() {
+  function tvaExport(linesOnly) {
     const r = ui.fec.result;
-    const { per, draft, checks, st } = tvaData(r);
+    const { per, draft, checks, st, core } = tvaData(r);
+    const T = r.cycles.tva;
     const c = clientById(ui.fec.clientId);
     const t = (v, s) => ({ v, s: s === undefined ? 2 : s });
     const n = (v, s) => ({ v: Number(v) || 0, s: s || 8 });
@@ -5098,8 +5143,19 @@
     const ctl = [[t('Niveau', 1), t('Contrôle', 1), t('Détail', 1), t('Éléments', 1)]].concat(checks.map((x) => [t(lvl(x.level)), t(x.label), t(x.detail || ''), t((x.examples || []).join('\n'))]));
     const conc = [[t('Période', 1), t('CA HT (70)', 1), t('Base taxable', 1), t('TVA brute', 1), t('TVA déductible', 1), t('Nette calculée', 1), t('Liquidée', 1), t('Déclarée', 1)]]
       .concat(tvaConcordance(r, st.kind).map((x) => [t(x.per.label), n(x.ca), n(x.taxable), n(x.brute), n(x.ded), n(x.net), x.liqNet === null ? t('') : n(x.liqNet), x.declNet === null ? t('') : n(x.declNet)]));
+    const NAT = { op: 'Opération', liq: 'Liquidation', pay: 'Paiement' };
+    const lines = [[t('Date', 1), t('Écriture', 1), t('Pièce', 1), t('Compte', 1), t('Libellé du compte', 1), t('Pris comme', 1), t('Débit', 1), t('Crédit', 1), t('Nature', 1), t("Libellé de l'écriture", 1)]]
+      .concat(per.months.flatMap((ym) => (T.months[ym] ? T.months[ym].lines : [])).map(([date, ref, piece, compte, d, c, cls, lib]) => [t(fmtDate(date)), t(ref), t(piece), t(compte), t((T.meta[compte] || {}).lib || ''), t(TVA_KIND[(T.meta[compte] || {}).kind] || ''), n(d), n(c), t(NAT[cls] || cls), t(lib)]));
+    const accs = [[t('Compte', 1), t('Libellé', 1), t('Pris comme', 1), t("Solde d'ouverture", 1), t('Débit opérations', 1), t('Crédit opérations', 1), t('Liquidation', 1), t('Paiement', 1), t('Solde de fin', 1)]]
+      .concat(core.accounts.map((x) => [t(x.compte), t(x.lib), t(TVA_KIND[x.kind] || ''), n(x.start), n(x.d), n(x.c), n(x.liq), n(x.pay), n(x.end)]));
+    const detail = [{ name: 'Comptes de TVA', rows: accs, widths: [12, 36, 30, 16, 16, 16, 16, 16, 16], freeze: { row: 1 } }, { name: 'Lignes de TVA', rows: lines, widths: [11, 12, 14, 12, 32, 28, 14, 14, 13, 44], freeze: { row: 1 } }];
+    if (linesOnly) {
+      const b2 = XlsxWriter.build({ sheets: detail });
+      return download(`lignes-tva-${r.meta.siren || 'dossier'}-${per.key}.xlsx`, b2, b2.type);
+    }
     const blob = XlsxWriter.build({ sheets: [
       { name: 'Déclaration', rows: decl, widths: [8, 70, 16, 16], filter: false },
+      ...detail,
       { name: 'Contrôles', rows: ctl, widths: [12, 55, 80, 90], freeze: { row: 1 } },
       { name: 'Concordance', rows: conc, widths: [22, 16, 16, 16, 16, 16, 16, 16], freeze: { row: 1 } },
     ] });
@@ -6314,6 +6370,7 @@
         <li><strong>Contrôle de la TVA</strong> (onglet TVA), pour le mois ou le trimestre choisi :
           <ul>
             <li><strong>brouillon de déclaration CA3</strong> reconstitué depuis les écritures : ventes par taux (taux lu sur les comptes de TVA, sinon déduit de chaque écriture, écritures à plusieurs taux ventilées), exportations, livraisons intracommunautaires, autoliquidation (lignes 2A, 03, 17), TVA déductible sur immobilisations et autres biens et services, crédit reporté, TVA nette ou crédit ;</li>
+            <li><strong>comptes de TVA de la période</strong> (solde d'ouverture, mouvements des opérations, liquidation, paiement, solde de fin) à comparer avec la balance de votre logiciel, et export Excel de toutes les lignes de TVA pour retrouver un écart ; la TVA restée en compte des mois précédents est reprise en reliquat, comme dans une déclaration établie sur les soldes ;</li>
             <li><strong>rapprochement</strong> avec l'écriture de liquidation comptabilisée et le paiement à la DGFiP : TVA restée en compte après la déclaration (factures saisies après le dépôt), paiement différent du montant dû, crédit de TVA ;</li>
             <li><strong>contrôles</strong> : taux non identifiés ou différents du compte de vente, ventes sans TVA à justifier, autoliquidation non déduite, TVA déduite sur véhicules de tourisme, hébergement, cadeaux, dépenses personnelles, carburants (80 %), TVA sur immobilisations mal ventilée, factures sans TVA, TVA sur les encaissements pour les prestations de services, crédit remboursable ;</li>
             <li>saisissez les <strong>montants télédéclarés</strong> pour les comparer à la comptabilité ; le tableau de <strong>concordance</strong> récapitule chaque période de l'exercice (calculé, liquidé, déclaré) ;</li>
@@ -7351,6 +7408,10 @@
     },
     'tva-validate': (el) => tvaValidate(!!el.dataset.undo),
     'tva-print': () => printHtml(tvaHtml()),
+    'tva-lines': async () => {
+      const ok = await ask({ title: 'Export Excel non chiffré', message: 'Le fichier liste les écritures de TVA de la période, <strong>non chiffrées</strong>. Supprimez-le après usage.', okLabel: 'Exporter' });
+      if (ok) tvaExport(true);
+    },
     'tva-xlsx': async () => {
       const ok = await ask({ title: 'Export Excel non chiffré', message: 'Le fichier contient les montants de TVA du dossier, <strong>non chiffrés</strong>. Supprimez-le après usage.', okLabel: 'Exporter' });
       if (ok) tvaExport();

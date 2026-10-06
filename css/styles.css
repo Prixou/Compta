@@ -745,3 +745,4 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .tva-decl .inline-label input[type=number] { width: 8.5rem; }
 .dtable.tva-conc .link-btn { white-space: nowrap; }
 .tva-validate .lvl { white-space: normal; }
+.dtable.tva-acc td:nth-child(2) { white-space: normal; min-width: 10rem; }
