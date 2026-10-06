@@ -736,3 +736,12 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .supp-row input { width: 11rem; min-height: 34px; padding: .25rem .5rem; font-size: .88rem; margin: 0; }
 .supp-actions { display: inline-flex; gap: .4rem; }
 @media (max-width: 900px) { .supp-row { grid-template-columns: 1fr; } .supp-row input { width: 100%; } .supp-row .inline-label { display: flex; } }
+/* Contrôle de la TVA */
+.dtable.tva-draft tr.tva-h td { background: var(--surface-2); font-weight: 600; font-size: .85rem; }
+.dtable.tva-draft tr.strong td, .dtable.tva-conc tr.strong td { font-weight: 700; }
+.dtable.tva-draft tr.flag td, .dtable.tva-conc tr.flag td { background: var(--warn-soft); }
+.dtable.tva-draft td:nth-child(2) { white-space: normal; min-width: 14rem; }
+.tva-validate { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-top: .8rem; }
+.tva-decl .inline-label input[type=number] { width: 8.5rem; }
+.dtable.tva-conc .link-btn { white-space: nowrap; }
+.tva-validate .lvl { white-space: normal; }
