@@ -645,6 +645,25 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
 .tva-chip.cred { background: var(--ok-soft); color: var(--ok); }
 .grille td .g-amt { display: block; font-size: .62rem; font-weight: 600; white-space: nowrap; padding: 0 .2rem; opacity: .9; }
 .grille td.g-has-amt { line-height: 1.1; }
+.calc-rates { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.calc-rates .seg button { min-width: 64px; font-size: 1rem; }
+.calc-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem 1rem; }
+.calc-field { font-weight: 700; margin: 0; }
+.calc-input { display: flex; align-items: center; gap: .4rem; margin-top: .3rem; }
+.calc-input input { flex: 1; min-width: 0; font-size: 1.25rem; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.calc-field.src input { border-color: var(--primary); background: var(--primary-soft); }
+.calc-val { background: none; border: 0; padding: .1rem .2rem; font: inherit; color: inherit; cursor: copy; border-radius: 6px; font-variant-numeric: tabular-nums; }
+.calc-val:hover:not(:disabled) { background: var(--primary-soft); color: var(--primary); }
+.calc-val:disabled { cursor: default; color: var(--muted); }
+.calc-vent input { width: 9rem; text-align: right; min-height: 34px; }
+.calc-all td, .calc-vent td { text-align: right; }
+.calc-all td:first-child, .calc-vent td:first-child { text-align: left; font-weight: 700; }
+@media (max-width: 760px) {
+  .calc-fields { grid-template-columns: minmax(0, 1fr); }
+  .calc-vent input { width: 6rem; }
+  /* Barre du bas limitée à six entrées : le calcul de TVA est dans la barre du haut. */
+  .nav a[data-nav=calcul] { display: none; }
+}
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 1rem; align-items: start; }
 .badge.beta { background: var(--warn-soft); color: var(--warn); font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; vertical-align: middle; }
 .mois-head .fec-kpis { margin-bottom: 0; }

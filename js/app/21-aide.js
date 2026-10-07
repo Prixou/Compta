@@ -96,6 +96,12 @@ function viewAide() {
       <li><strong>Officine</strong> : onglet <strong>Tiers payant</strong> (encours AMO, AMC et patients, ancienneté, rejets probables : précis si les comptes 411 sont lettrés, estimés d'après les délais normaux de paiement sinon), onglet <strong>CA et TVA</strong> par taux (2,1 %, 5,5 %, 10 %, 20 %), taux de marque, remises fournisseurs, écarts de caisse. Les comptes 511 (CB, chèques à encaisser) sont traités comme des comptes de transit, et les alertes inadaptées à une officine (Benford, clients créditeurs, ouverture le dimanche) sont retirées. Les pièces à demander ajoutent l'inventaire du LGO, les relevés de tiers payant et de rejets, les RFA et la ROSP.</li>
       <li>Rattachez l'analyse au dossier (reconnu par son SIREN) pour en garder la synthèse, et créez en un clic une <strong>mission de revue</strong> dont les étapes sont les points relevés.</li>
     </ul>`)}
+    ${item('Calcul de TVA', `<ul>
+      <li>Menu <strong>Calcul TVA</strong> : choisissez le taux (20 %, 10 %, 5,5 % ou 2,1 %) puis saisissez le montant connu, HT, TVA ou TTC : les deux autres se calculent pendant la frappe (TVA arrondie au centime, TTC = HT + TVA).</li>
+      <li><strong>Le même montant aux quatre taux</strong> : le tableau donne HT, TVA et TTC pour chaque taux, utile pour retrouver le taux appliqué sur une facture.</li>
+      <li><strong>Ventilation par taux</strong> : pour un ticket, une facture ou un Z de caisse à plusieurs taux (officine), saisissez le TTC (ou le HT) de chaque taux : HT, TVA, TTC et totaux. « Copier le tableau » le colle tel quel dans Excel.</li>
+      <li>Un clic sur un résultat le copie, au format Excel (virgule décimale, sans séparateur de milliers). Rien n'est enregistré.</li>
+    </ul>`)}
     ${item('Fonctions en bêta', `<p>Les fonctions marquées <span class="badge beta">bêta</span> sont récentes et n'ont pas encore été validées sur de vrais dossiers du cabinet. Utilisez-les, mais <strong>contrôlez leurs résultats</strong> avant de vous y fier, et signalez les écarts constatés pour qu'elles soient corrigées.</p>
       <ul>
         <li><strong>Contrôle de la TVA</strong> (espace Mois, onglet TVA) : brouillon de CA3, comptes de TVA et rapprochement avec la liquidation, à comparer à votre outil de contrôle (exigibilité, liquidations, régularisations).</li>

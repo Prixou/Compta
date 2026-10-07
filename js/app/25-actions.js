@@ -211,6 +211,21 @@ const actions = {
     const ok = await ask({ title: 'Export Excel non chiffré', message: 'Le fichier liste les dossiers et leurs chiffres clés, <strong>non chiffrés</strong>. Supprimez-le après usage.', okLabel: 'Exporter' });
     if (ok) batchExport();
   },
+  'calc-rate': (el) => {
+    const st = calcState();
+    st.taux = Number(el.dataset.taux);
+    // Le montant saisi reste la référence : les autres sont recalculés au nouveau taux.
+    delete st.raw;
+    refresh();
+  },
+  'calc-copy': (el) => {
+    if (el.dataset.from) { const st = calcState(); calcCopy(calcTva(st.src, st.val, st.taux)[el.dataset.from]); }
+    else calcCopy(el.dataset.v);
+  },
+  'calc-reset': () => { Object.assign(calcState(), { val: null, raw: undefined, src: 'ht' }); refresh(); },
+  'calc-vent-mode': (el) => { calcState().ventMode = el.dataset.mode; refresh(); },
+  'calc-vent-reset': () => { calcState().vent = {}; refresh(); },
+  'calc-vent-copy': () => calcVentCopy(),
   'fec-pick': async (el) => {
     // Depuis l'accueil de l'analyse : l'espace choisi s'ouvrira à l'arrivée du FEC.
     if (el.dataset.space && FEC_SPACES[el.dataset.space] && data.settings.fecSpace !== el.dataset.space) { data.settings.fecSpace = el.dataset.space; persist(); }
@@ -582,6 +597,7 @@ function applyTemplateToForm(form, keepSteps) {
 let filterTimer = null;
 document.addEventListener('input', (e) => {
   const t = e.target;
+  if ((t.dataset.calc || t.dataset.calcVent) && data) return calcUpdate(t);
   if (t.dataset.filter && data) {
     const path = t.dataset.filter.split('.');
     const value = t.type === 'checkbox' ? t.checked : t.value;

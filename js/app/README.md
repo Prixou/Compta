@@ -21,7 +21,9 @@ de sécurité (CSP) n'autorise que les scripts du site.
 | `18-revision.js` | Feuille de travail, mémoire du dossier, liens avec les missions |
 | `19-fec-ecritures.js` | Écritures proposées et exports de l'analyse |
 | `20-sauvegarde.js` … `24-modales.js` | Sauvegarde automatique, agenda, aide, import du classeur cabinet, paramètres, fenêtres, verrouillage |
-| `25-actions.js`, `26-formulaires.js` | Actions et événements, formulaires, démarrage (toujours en dernier) |
+| `25-actions.js` | Actions et événements |
+| `26-calcul-tva.js` | Calcul de TVA : HT, TVA, TTC aux quatre taux, ventilation par taux |
+| `27-formulaires.js` | Formulaires, démarrage (toujours en dernier) |
 
 Règles : un fichier ne doit pas exécuter au chargement une fonction déclarée dans un fichier suivant (les appels depuis
 des événements ou d'autres fonctions sont libres) ; deux fichiers ne doivent pas déclarer le même nom ; les noms ne doivent
