@@ -334,6 +334,16 @@ function analyse(buffer, fileName, until, docs) {
     if (/^5[13]/.test(compte)) oe.has5 = true;
     if (/^4[01]/.test(compte)) oe.has4 = true;
     if (date && !an) {
+      // Contrôle de la TVA : mouvements exacts des comptes 445 et de classe 7 de chaque écriture (journal + n° + date)
+      if (compte.startsWith('445') || compte[0] === '7') {
+        const v = oe.v || (oe.v = {});
+        v[compte] = (v[compte] || 0) + d - c;
+        if (compte.startsWith('445')) oe.t445 = 1;
+        else if (compte.startsWith('70')) oe.t70 = 1;
+      } else if (/^4[0-3]/.test(compte)) oe.fT = 1;
+      else if (compte[0] === '6' && !compte.startsWith('658')) oe.f6 = 1;
+      else if (compte[0] === '2') oe.f2 = 1;
+      else if (compte[0] === '5') oe.p5 = (oe.p5 || 0) + d - c;
       (oe.l = oe.l || []).push(compte, auxNum, d, c); // à plat (4 valeurs par ligne) pour limiter la mémoire
       if (!oe.piece && piece) oe.piece = piece;
       if (/^4[01]/.test(compte) && !auxNames.has(auxNum || compte)) auxNames.set(auxNum || compte, auxLib || clib);
@@ -603,7 +613,7 @@ function analyse(buffer, fileName, until, docs) {
 
   perso.groups = Array.from(persoG.values()).sort((a, b) => b.total - a.total).slice(0, 30);
   const cycles = buildCycles({ entries: opEntries, aux, auxNames, accounts, chAcc, tresoAcc, cut, perso, amendes, weekend, gifts, closing, start, months, maxOp, docs, attCol: attIdx >= 0 ? header[attIdx] : '' });
-  cycles.tva = buildTva({ entries: opEntries, accounts, auxNames });
+  cycles.tva = buildTva({ groups: [entries.values(), splits.values()], accounts, opEntries });
 
   // ---------- Mensuel ----------
   let cumul = 0;
@@ -1237,282 +1247,85 @@ function matchDocs(need, docs, attCol) {
   };
 }
 
-// ---------- Contrôle de la TVA (déclaration mensuelle ou trimestrielle) ----------
-
-// Taux de TVA connus : métropole, DOM, Corse et anciens taux (régularisations).
-const VAT_RATES = [20, 10, 5.5, 2.1, 8.5, 13, 0.9, 1.05, 19.6, 7];
-// Taux indiqué dans un libellé de compte (« TVA collectée 5,5 % », « Ventes 20% »). `strict` : le libellé doit parler de TVA ou de taux.
-function rateInLabel(lib, strict) {
-  const t = normTxt(lib);
-  if (strict && !/%|tva|taux|\btx\b/.test(t)) return null;
-  const m = t.match(/(?:^|[^\d,.])(19[,.]60?|2[,.]10?|5[,.]50?|8[,.]50?|1[,.]05|0[,.]90?|20|10|13|7)(?:[,.]0+)?\s*(?:%|$|[^\d,.])/);
-  return m ? parseFloat(m[1].replace(',', '.')) : null;
-}
-// Taux correspondant à une TVA et une base, aux arrondis près.
-function snapRate(base, vat) {
-  if (Math.abs(base) < 0.01) return null;
-  for (const r of VAT_RATES) if (Math.abs(vat - (base * r) / 100) <= Math.max(0.05, Math.abs(base) * 0.0015)) return r;
-  return null;
-}
+// ---------- Contrôle de la TVA ----------
+// Le moteur ne fait que des sommes exactes : mouvements des comptes 445 et de classe 7 de chaque écriture (journal,
+// n° et date) et par mois. La nature des comptes, les taux et les écritures de déclaration sont établis dans
+// l'application, où l'utilisateur peut les corriger sans relancer l'analyse.
 const RE_FUEL = /carbur|gazole|gasoil|gas-oil|essence|\bsp ?9[58]\b|\be10\b|\bgpl\b|fioul|station[- ]service|total ?energies|\besso\b|\bshell\b|\bavia\b|\bbp\b|\bagip\b|dyneff/;
 const RE_LODGING = /hotel|\bibis\b|novotel|mercure|campanile|kyriad|premiere classe|b ?& ?b hotel|\bb&b\b|airbnb|booking\.com|\blogis\b|hebergement|nuitee|chambre d.hote/;
 const RE_VEHICLE = /vehicul|voiture|automobile|\bvp\b|\blld\b|\bloa\b|location longue|leasing auto|credit.bail auto/;
-const RE_EXPORT = /export|hors ?(ue|cee|union|communaut)|pays tiers/;
-const RE_INTRA = /intra|\bue\b|\bcee\b|communautaire|union europ|livraisons? (ue|europe)/;
-const RE_EXO = /exon|non soumis|non assujet|hors champ|franchise|art\.? ?(26[1-3]|293)|\bdebours\b|(?:^|[^\d,.])0 ?%|taux zero|sans tva|ht seul/;
-const RE_AUTOLIQ_S = /autoliq|283|sous.trait/;
 
-function buildTva({ entries, accounts, auxNames }) {
-  const libOf = (c) => (accounts.get(c) || {}).lib || '';
-  // Comptes de TVA : nature et taux indiqué dans le libellé
-  const meta = {};
+function buildTva({ groups, accounts, opEntries }) {
+  const accs = {}, ca = {};
   accounts.forEach((a, compte) => {
-    if (!compte.startsWith('445')) return;
-    const t = normTxt(a.lib);
-    let kind = 'autre';
-    if (compte.startsWith('4457')) kind = /attente|encaiss|non exigible|a regulariser|differe/.test(t) ? 'coll-att' : 'coll';
-    else if (compte.startsWith('44567')) kind = 'credit';
-    else if (compte.startsWith('44562')) kind = 'ded-immo';
-    else if (compte.startsWith('4456')) kind = 'ded';
-    else if (compte.startsWith('4452')) kind = 'autoliq';
-    else if (compte.startsWith('4455')) kind = 'due';
-    else if (compte.startsWith('4458')) kind = 'regul';
-    meta[compte] = { lib: a.lib, kind, rate: rateInLabel(a.lib, false), an: round2(a.dAN - a.cAN) };
+    if (compte.startsWith('445')) accs[compte] = { lib: a.lib, an: round2(a.dAN - a.cAN) };
+    else if (compte[0] === '7') ca[compte] = { lib: a.lib };
   });
-  const kindOf = (c) => (meta[c] || {}).kind || '';
-  const rate70 = new Map();
-  const rate7 = (c) => { if (!rate70.has(c)) rate70.set(c, rateInLabel(libOf(c), true)); return rate70.get(c); };
+  // Écritures qui mouvementent la TVA (avec leurs comptes 445 et 7), ventes sans TVA, produits par mois
+  const g = [], nv = [], ca7 = {}, months = {};
+  let nvN = 0;
+  for (const it of groups) {
+    for (const oe of it) {
+      if (!oe.v || !oe.date || oe.an) continue;
+      const ym = oe.date.slice(0, 7);
+      months[ym] = 1;
+      const m = {};
+      for (const k in oe.v) {
+        if (k[0] === '7') { const x = (ca7[ym] = ca7[ym] || {}); x[k] = (x[k] || 0) - oe.v[k]; }
+        const v = round2(oe.v[k]);
+        if (v) m[k] = v;
+      }
+      const ref = `${oe.jc} ${oe.num}`.trim(), lib = (oe.lib || '').slice(0, 60);
+      if (oe.t445) g.push([oe.date, ref, oe.piece || '', lib, m, round2(oe.p5 || 0), (oe.fT ? 1 : 0) | (oe.f6 ? 2 : 0) | (oe.f2 ? 4 : 0)]);
+      else if (oe.t70) { nvN++; if (nv.length < 6000) nv.push([oe.date, ref, oe.piece || '', lib, m]); }
+    }
+  }
+  Object.values(ca7).forEach((x) => Object.keys(x).forEach((k) => { x[k] = round2(x[k]); }));
+  g.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
 
-  const months = {};
-  const Z = () => ({ base: 0, n: 0, ex: [] });
-  const month = (ym) => months[ym] || (months[ym] = {
-    ca70: 0, serv: 0, rates: {}, other7: { base: 0, tva: 0, n: 0 }, unrated: { base: 0, tva: 0, n: 0 },
-    noVat: { export: Z(), intra: Z(), exo: Z(), autoliq: Z(), regul: Z(), unknown: Z() },
-    coll: 0, collAtt: 0, collAcc: {}, collInv: 0, dedImmo: 0, dedAbs: 0,
-    autoliq: { biens: { base: 0, tva: 0, n: 0, rates: {} }, services: { base: 0, tva: 0, n: 0, rates: {} } },
-    liq: [], pay: [], mv: {}, acc: {}, lines: [], enc: { ttc: 0, tva: 0 },
-    chk: { rate: bucket(), mismatch: bucket(), immoAbs: bucket(), absImmo: bucket(), fuel: bucket(), vehicle: bucket(), lodging: bucket(), gift: bucket(), perso: bucket(), overP: bucket(), noVatP: bucket(), autoliqND: bucket() },
-  });
-  const addRate = (M, r, base, tva) => {
-    const x = (M.rates[r] = M.rates[r] || { base: 0, tva: 0, n: 0 });
-    x.base += base; x.tva += tva; x.n++;
-  };
-  const rateCount = {};
-  const unresolved = []; // ventes à plusieurs taux sans compte de TVA par taux : ventilées une fois les taux habituels connus
-  const cliVat = new Map(); // client → [TVA facturée, TTC facturé], pour estimer la TVA sur les encaissements
-  const encBy = new Map(); // mois|client → encaissements
-
-  entries.forEach((en) => {
+  // Points de révision de la TVA déductible, par mois (indépendants du calcul)
+  const chk = {};
+  const B = (ym, k) => { const c = (chk[ym] = chk[ym] || {}); return c[k] || (c[k] = bucket()); };
+  const libOf = (c) => (accounts.get(c) || {}).lib || '';
+  opEntries.forEach((en) => {
     if (en.an || !en.l || !en.date) return;
-    const ym = en.date.slice(0, 7);
-    const M = month(ym);
-    const ref = `${dmy(en.date)} · ${en.jc} ${en.num} · ${(en.lib || '').slice(0, 45)}`;
-    let b70 = 0, b7o = 0, serv = 0, ch = 0, im = 0, biens = 0, tr = 0, sup = 0, cli = 0, cliKey = '', cliMax = 0;
-    let v7 = 0, v6 = 0, v6i = 0, v52 = 0, d4457 = 0, c4456 = 0, n445 = 0, nOther = 0;
-    let has4455 = false, has4458 = false, hasRegul = false, has7 = false, has6 = false;
-    const vatLines = [], lines70 = [];
+    let ch = 0, im = 0, v6 = 0, v6i = 0, v52 = 0, sup = 0, tr = 0, decl = false, has445 = false, exempt = false;
     let txt = normTxt(en.lib || '');
+    const comptes = [];
     for (let i = 0; i < en.l.length; i += 4) {
-      const compte = en.l[i], auxNum = en.l[i + 1], d = en.l[i + 2], c = en.l[i + 3];
+      const compte = en.l[i], d = en.l[i + 2], c = en.l[i + 3];
+      comptes.push(compte);
       if (compte.startsWith('445')) {
-        M.mv[compte] = (M.mv[compte] || 0) + d - c;
-        n445++;
-        const k = kindOf(compte);
-        if (k === 'coll' || k === 'coll-att') { v7 += c - d; d4457 += d; vatLines.push([compte, c - d]); }
-        else if (k === 'ded') v6 += d - c;
-        else if (k === 'ded-immo') { v6 += d - c; v6i += d - c; }
-        else if (k === 'autoliq') v52 += c - d;
-        else if (k === 'due' || k === 'credit') has4455 = true;
-        else if (k === 'regul') has4458 = true;
-        if (k === 'ded' || k === 'ded-immo') c4456 += c;
-        continue;
-      }
-      nOther++;
-      if (compte[0] === '7') {
-        has7 = true;
-        if (compte.startsWith('70')) { b70 += c - d; lines70.push([compte, c - d]); if (compte.startsWith('706')) serv += c - d; }
-        else b7o += c - d;
-      } else if (compte[0] === '6') {
-        has6 = true;
-        ch += d - c;
-        if (/^60[1-3]|^607|^6091/.test(compte)) biens += d - c;
-        txt += ' ' + normTxt(libOf(compte));
-      } else if (/^2[0-3]/.test(compte)) { im += d - c; biens += d - c; txt += ' ' + normTxt(libOf(compte)); }
+        has445 = true;
+        if (/^(4455|44567|44583)/.test(compte)) decl = true;
+        else if (compte.startsWith('44562')) { v6 += d - c; v6i += d - c; }
+        else if (compte.startsWith('4456')) v6 += d - c;
+        else if (compte.startsWith('4452')) v52 += c - d;
+      } else if (compte[0] === '6') { ch += d - c; txt += ' ' + normTxt(libOf(compte)); if (/^(616|627|63|64|65|66|67|68|6226)/.test(compte)) exempt = true; }
+      else if (/^2[0-3]/.test(compte)) { im += d - c; txt += ' ' + normTxt(libOf(compte)); }
+      else if (compte.startsWith('40')) sup += c - d;
       else if (/^5[1-8]/.test(compte)) tr += d - c;
-      else if (/^40/.test(compte)) sup += c - d;
-      else if (/^41[13]/.test(compte)) { cli += d - c; if (Math.abs(d - c) > cliMax) { cliMax = Math.abs(d - c); cliKey = auxNum || compte; } }
-      if (/^(418|4198|419|486|487|408|4091)/.test(compte)) hasRegul = true;
     }
-    M.ca70 += b70;
-    M.serv += serv;
-    // Détail par compte de TVA (mouvements d'opérations, de liquidation, de paiement) et lignes pour le justificatif
-    const record = (cls) => {
-      for (let i = 0; i < en.l.length; i += 4) {
-        const compte = en.l[i], d = en.l[i + 2], c = en.l[i + 3];
-        if (!compte.startsWith('445')) continue;
-        const a = (M.acc[compte] = M.acc[compte] || { d: 0, c: 0, liq: 0, pay: 0, n: 0 });
-        if (cls === 'liq') a.liq += d - c; else if (cls === 'pay') a.pay += d - c; else { a.d += d; a.c += c; }
-        a.n++;
-        if (M.lines.length < 20000) M.lines.push([en.date, `${en.jc} ${en.num}`, en.piece || '', compte, round2(d), round2(c), cls, (en.lib || '').slice(0, 50)]);
-      }
-    };
-
-    // Liquidation (déclaration comptabilisée) et paiement de la TVA
-    const isLiq = (has4455 && n445 > 1 && (d4457 > 0.005 || c4456 > 0.005 || v52 < -0.005)) || (d4457 > 0.005 && c4456 > 0.005 && !has7 && !has6 && !im && !sup && !cli);
-    if (isLiq) {
-      const x = { date: en.date, ref: `${en.jc} ${en.num}`, piece: en.piece || '', lib: (en.lib || '').slice(0, 60), coll: 0, ded: 0, autoliq: 0, due: 0, credit: 0, creditUsed: 0, pay: round2(-Math.min(0, tr)), other: 0 };
-      for (let i = 0; i < en.l.length; i += 4) {
-        const compte = en.l[i], d = en.l[i + 2], c = en.l[i + 3];
-        const k = kindOf(compte);
-        if (k === 'coll' || k === 'coll-att') x.coll += d - c;
-        else if (k === 'ded' || k === 'ded-immo') x.ded += c - d;
-        else if (k === 'autoliq') x.autoliq += d - c;
-        else if (k === 'credit') { x.credit += d; x.creditUsed += c; }
-        else if (k === 'due') x.due += c - d;
-        else if (!/^5/.test(compte)) x.other += d - c;
-      }
-      ['coll', 'ded', 'autoliq', 'due', 'credit', 'creditUsed', 'other'].forEach((k) => { x[k] = round2(x[k]); });
-      if (M.liq.length < 20) M.liq.push(x);
-      record('liq');
-      return;
-    }
-    if (has4455 && tr < -0.005 && !d4457 && !v6) {
-      if (M.pay.length < 20) M.pay.push({ date: en.date, amt: round2(-tr), lib: (en.lib || '').slice(0, 60), ref: `${en.jc} ${en.num}` });
-      record('pay');
-      return;
-    }
-    if (n445) record('op');
-
-    // TVA collectée exigible ou en attente (factures, acomptes, virements de l'attente vers l'exigible)
-    vatLines.forEach(([compte, v]) => {
-      if (kindOf(compte) === 'coll') { M.coll += v; M.collAcc[compte] = (M.collAcc[compte] || 0) + v; }
-      else M.collAtt += v;
-    });
-
-    // Ventes : base et TVA par taux
-    const base = Math.abs(b70) >= 0.01 ? b70 : Math.abs(b7o) >= 0.01 && Math.abs(v7) >= 0.01 ? b7o : 0;
-    if (Math.abs(base) >= 0.01) {
-      if (Math.abs(v7) < 0.005 && !vatLines.length) {
-        if (Math.abs(b70) >= 0.01) {
-          const t70 = normTxt(lines70.map(([c]) => libOf(c)).join(' ') + ' ' + (en.lib || ''));
-          // Compte de vente qui porte un taux (« Prestations 20 % ») : la TVA manque.
-          const taxed = lines70.some(([c]) => rate7(c));
-          const cat = hasRegul || has4458 ? 'regul' : taxed ? 'unknown' : RE_EXPORT.test(t70) ? 'export' : RE_INTRA.test(t70) ? 'intra' : RE_AUTOLIQ_S.test(t70) ? 'autoliq' : RE_EXO.test(t70) ? 'exo' : 'unknown';
-          const z = M.noVat[cat];
-          z.base += b70; z.n++;
-          if (z.ex.length < 15) z.ex.push(`${ref} · ${fmt(round2(b70))} € HT`);
-        }
-      } else if (base === b70) {
-        M.collInv += v7;
-        // Comptes de TVA collectée par taux (libellés) : ventilation exacte
-        const vr = {};
-        let allRated = vatLines.length > 0;
-        vatLines.forEach(([compte, v]) => { const r = (meta[compte] || {}).rate; if (r === null || r === undefined) allRated = false; else vr[r] = (vr[r] || 0) + v; });
-        const r70 = lines70.map(([c, v]) => [rate7(c), v]);
-        const rates = Object.keys(vr).map(Number);
-        if (allRated && rates.length === 1) {
-          const r = rates[0];
-          addRate(M, r, base, v7);
-          rateCount[r] = (rateCount[r] || 0) + 1;
-          const own = snapRate(base, v7);
-          const rl = r70.length && r70.every(([x]) => x !== null && x === r70[0][0]) ? r70[0][0] : null;
-          if (rl !== null && rl !== r) addLazy(M.chk.mismatch, Math.abs(v7), () => `${ref} · compte de vente à ${String(rl).replace('.', ',')} %, TVA en compte à ${String(r).replace('.', ',')} % (${fmt(round2(v7))} €)`, 15);
-          else if (own === null || own !== r) addLazy(M.chk.rate, Math.abs(v7 - (base * r) / 100), () => `${ref} · base ${fmt(round2(base))} € · TVA ${fmt(round2(v7))} € en compte à ${String(r).replace('.', ',')} % (${(v7 / base * 100).toFixed(2).replace('.', ',')} %)`, 15);
-        } else if (allRated && rates.length > 1) {
-          const exact = r70.every(([r]) => r !== null);
-          rates.forEach((r) => {
-            const b = exact ? r70.filter(([x]) => x === r).reduce((t, [, v]) => t + v, 0) : (vr[r] * 100) / r;
-            addRate(M, r, b, vr[r]);
-            rateCount[r] = (rateCount[r] || 0) + 1;
-          });
-        } else {
-          const r = snapRate(base, v7);
-          if (r !== null) {
-            addRate(M, r, base, v7);
-            rateCount[r] = (rateCount[r] || 0) + 1;
-            const rl = r70.length && r70.every(([x]) => x !== null && x === r70[0][0]) ? r70[0][0] : null;
-            if (rl !== null && rl !== r) addLazy(M.chk.mismatch, Math.abs(v7), () => `${ref} · compte de vente à ${String(rl).replace('.', ',')} %, TVA appliquée ${String(r).replace('.', ',')} % (${fmt(round2(v7))} €)`, 15);
-          } else unresolved.push({ ym, base, v7, ref });
-        }
-      } else {
-        M.other7.base += base; M.other7.tva += v7; M.other7.n++;
-        M.collInv += v7;
-      }
-      if (cliKey && cli > 0.005) { const cv = cliVat.get(cliKey) || [0, 0]; cv[0] += v7; cv[1] += cli; cliVat.set(cliKey, cv); }
-    }
-
-    // Encaissements clients du mois (TVA sur les encaissements, prestations de services)
-    if (cli < -0.005 && tr > 0.005 && cliKey) encBy.set(ym + '|' + cliKey, (encBy.get(ym + '|' + cliKey) || 0) - cli);
-
-    // TVA déductible
-    M.dedImmo += v6i;
-    M.dedAbs += v6 - v6i;
+    if (decl || (!has445 && sup <= 0.005)) return;
+    const ym = en.date.slice(0, 7);
+    const ref = `${dmy(en.date)} · ${en.jc} ${en.num} · ${(en.lib || '').slice(0, 45)}`;
     const ht = ch + im;
-    if (im > 0.01 && v6 - v6i > 0.01 && v6i < 0.01) addLazy(M.chk.immoAbs, v6 - v6i, () => `${ref} · immobilisation de ${fmt(round2(im))} € HT · TVA ${fmt(round2(v6 - v6i))} € en ${Object.keys(M.mv).find((c) => kindOf(c) === 'ded') || '44566'}`, 15);
-    if (im < 0.01 && ch > 0.01 && v6i > 0.01) addLazy(M.chk.absImmo, v6i, () => `${ref} · charge de ${fmt(round2(ch))} € HT · TVA ${fmt(round2(v6i))} € en TVA sur immobilisations`, 15);
+    if (im > 0.01 && v6 - v6i > 0.01 && v6i < 0.01) addLazy(B(ym, 'immoAbs'), v6 - v6i, () => `${ref} · immobilisation de ${fmt(round2(im))} € HT · TVA ${fmt(round2(v6))} € en autres biens et services`, 15);
+    if (im < 0.01 && ch > 0.01 && v6i > 0.01) addLazy(B(ym, 'absImmo'), v6i, () => `${ref} · charge de ${fmt(round2(ch))} € HT · TVA ${fmt(round2(v6i))} € en TVA sur immobilisations`, 15);
     if (v6 > 0.01 && v52 < 0.01) {
-      const share = (re) => (re.test(txt) ? v6 : 0);
-      const ex = (v) => `${ref} · TVA déduite ${fmt(round2(v))} €`;
-      const fuel = share(RE_FUEL), lodging = share(RE_LODGING), vehicle = /\b2182/.test(en.l.filter((_, i) => i % 4 === 0).join(' ')) || RE_VEHICLE.test(txt) ? v6 : 0;
-      if (fuel) addLazy(M.chk.fuel, fuel, () => ex(fuel), 15);
-      else if (vehicle) addLazy(M.chk.vehicle, vehicle, () => ex(vehicle), 15);
-      if (lodging) addLazy(M.chk.lodging, lodging, () => ex(lodging), 15);
-      if (en.gift) addLazy(M.chk.gift, v6, () => ex(v6), 15);
-      if (RE_PERSO.test(normTxt(en.lib || ''))) addLazy(M.chk.perso, v6, () => ex(v6), 15);
-      if (ht > 0.01 && v6 > ht * 0.2 + 1) addLazy(M.chk.overP, v6, () => `${ref} · HT ${fmt(round2(ht))} € · TVA ${fmt(round2(v6))} € (${(v6 / ht * 100).toFixed(1).replace('.', ',')} %)`, 15);
+      const ex = () => `${ref} · TVA déduite ${fmt(round2(v6))} €`;
+      if (RE_FUEL.test(txt)) addLazy(B(ym, 'fuel'), v6, ex, 15);
+      else if (comptes.some((c) => c.startsWith('2182')) || RE_VEHICLE.test(txt)) addLazy(B(ym, 'vehicle'), v6, ex, 15);
+      if (RE_LODGING.test(txt)) addLazy(B(ym, 'lodging'), v6, ex, 15);
+      if (en.gift) addLazy(B(ym, 'gift'), v6, ex, 15);
+      if (RE_PERSO.test(normTxt(en.lib || ''))) addLazy(B(ym, 'perso'), v6, ex, 15);
+      if (ht > 0.01 && v6 > ht * 0.2 + 1) addLazy(B(ym, 'overP'), v6, () => `${ref} · HT ${fmt(round2(ht))} € · TVA ${fmt(round2(v6))} € (${(v6 / ht * 100).toFixed(1).replace('.', ',')} %)`, 15);
     }
-    if (sup > 0.005 && ht >= 150 && v6 < 0.01 && v52 < 0.01 && !tr && !en.l.some((x, i) => i % 4 === 0 && /^(616|627|63|64|65|66|67|68|6226)/.test(x))) {
-      addLazy(M.chk.noVatP, ht, () => `${ref} · ${fmt(round2(ht))} € HT sans TVA`, 15);
-    }
-    // Autoliquidation (acquisitions intracommunautaires, services de prestataires étrangers, sous-traitance du BTP)
-    if (v52 > 0.01) {
-      const kind = biens > ht * 0.5 ? 'biens' : 'services';
-      const a = M.autoliq[kind];
-      a.base += ht; a.tva += v52; a.n++;
-      const r = snapRate(ht, v52) || 'x';
-      a.rates[r] = (a.rates[r] || 0) + v52;
-      if (v6 < v52 - 1) addLazy(M.chk.autoliqND, v52 - v6, () => `${ref} · TVA autoliquidée ${fmt(round2(v52))} €, déduite ${fmt(round2(Math.max(0, v6)))} €`, 15);
-    }
+    if (sup > 0.005 && ht >= 150 && v6 < 0.01 && v52 < 0.01 && !tr && !exempt) addLazy(B(ym, 'noVatP'), ht, () => `${ref} · ${fmt(round2(ht))} € HT sans TVA`, 15);
+    if (v52 > 0.01 && v6 < v52 - 1) addLazy(B(ym, 'autoliqND'), v52 - v6, () => `${ref} · TVA autoliquidée ${fmt(round2(v52))} €, déduite ${fmt(round2(Math.max(0, v6)))} €`, 15);
   });
-
-  // Ventes à plusieurs taux : ventilées entre les deux taux habituels du dossier
-  const usual = Object.entries(rateCount).sort((a, b) => b[1] - a[1]).map(([r]) => Number(r));
-  unresolved.forEach(({ ym, base, v7, ref }) => {
-    const M = months[ym];
-    for (let i = 0; i < usual.length; i++) {
-      for (let j = i + 1; j < usual.length; j++) {
-        const hi = Math.max(usual[i], usual[j]), lo = Math.min(usual[i], usual[j]);
-        const bHi = (v7 - (base * lo) / 100) / ((hi - lo) / 100);
-        const bLo = base - bHi;
-        if (bHi >= -0.01 && bLo >= -0.01) {
-          addRate(M, hi, bHi, (bHi * hi) / 100); addRate(M, lo, bLo, (bLo * lo) / 100);
-          return;
-        }
-      }
-    }
-    M.unrated.base += base; M.unrated.tva += v7; M.unrated.n++;
-    addLazy(M.chk.rate, Math.abs(v7), () => `${ref} · base ${fmt(round2(base))} € · TVA ${fmt(round2(v7))} € (${(v7 / base * 100).toFixed(2).replace('.', ',')} %) : taux non identifié`, 15);
-  });
-
-  // TVA sur les encaissements (estimation) : part de TVA des factures de chaque client appliquée à ses règlements
-  encBy.forEach((amt, k) => {
-    const [ym, cli] = k.split('|');
-    const cv = cliVat.get(cli);
-    const M = months[ym];
-    M.enc.ttc += amt;
-    if (cv && cv[1] > 0) M.enc.tva += (amt * cv[0]) / cv[1];
-  });
-
-  const r2 = (o) => { Object.keys(o).forEach((k) => { if (typeof o[k] === 'number') o[k] = round2(o[k]); }); return o; };
-  Object.values(months).forEach((M) => {
-    r2(M); r2(M.other7); r2(M.unrated); r2(M.enc);
-    Object.values(M.rates).forEach(r2); Object.values(M.noVat).forEach(r2);
-    Object.keys(M.collAcc).forEach((k) => { M.collAcc[k] = round2(M.collAcc[k]); });
-    Object.keys(M.mv).forEach((k) => { M.mv[k] = round2(M.mv[k]); });
-    Object.values(M.acc).forEach(r2);
-    ['biens', 'services'].forEach((k) => { r2(M.autoliq[k]); Object.keys(M.autoliq[k].rates).forEach((x) => { M.autoliq[k].rates[x] = round2(M.autoliq[k].rates[x]); }); });
-  });
-  return { meta, months, usual };
+  Object.values(chk).forEach((c) => Object.values(c).forEach((b) => { b.total = round2(b.total); delete b.items; }));
+  return { accs, ca, g, nv, nvN, ca7, months, chk };
 }
 
 // ---------- Factures et règlements imputés sur un autre compte de tiers ----------

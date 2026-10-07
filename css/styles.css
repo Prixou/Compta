@@ -664,6 +664,9 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
   /* Barre du bas limitée à six entrées : le calcul de TVA est dans la barre du haut. */
   .nav a[data-nav=calcul] { display: none; }
 }
+.tva-params select { min-height: 32px; font-size: .82rem; max-width: 100%; }
+.tva-params td { vertical-align: top; }
+.tva-calc tr.strong td { font-weight: 700; }
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 1rem; align-items: start; }
 .badge.beta { background: var(--warn-soft); color: var(--warn); font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; vertical-align: middle; }
 .mois-head .fec-kpis { margin-bottom: 0; }

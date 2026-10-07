@@ -280,6 +280,12 @@ const actions = {
     refresh();
   },
   'tva-validate': (el) => tvaValidate(!!el.dataset.undo),
+  'tvap-reset': (el) => {
+    const P = tvaParams();
+    delete P[el.dataset.kind][el.dataset.c];
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
+  },
   'tva-print': () => printHtml(tvaHtml()),
   'tva-lines': async () => {
     const ok = await ask({ title: 'Export Excel non chiffré', message: 'Le fichier liste les écritures de TVA de la période, <strong>non chiffrées</strong>. Supprimez-le après usage.', okLabel: 'Exporter' });
@@ -505,6 +511,10 @@ document.addEventListener('change', (e) => {
     // Page derrière : seule la case de la grille est mise à jour, sinon la page est redessinée (fenêtre ouverte conservée).
     if ($(`.grille td[data-id="${m.id}"]`)) updateGrilleCell(m);
     else if (!box.closest('#grille-pop')) { const y = window.scrollY; route(); window.scrollTo(0, y); }
+  } else if (t.dataset.tvap && ui.fec && ui.fec.result) {
+    // Paramétrage du contrôle de TVA : nature ou taux d'un compte
+    if (t.dataset.tvap === 'ca') setTvaParam('ca', t.dataset.c, t.value);
+    else setTvaParam('acc', t.dataset.c, t.value, t.dataset.tvap === 'acc-rate' ? 'rate' : 'role');
   } else if (t.dataset.tvaDecl && ui.fec && ui.fec.result) {
     const key = tvaState().key;
     const store = tvaDeclStore();

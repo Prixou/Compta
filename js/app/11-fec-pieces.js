@@ -199,8 +199,13 @@ function monthPieces(r, arrete) {
       push('ventes', `num:${g.prefix}:${ym}`, `Factures de vente n° ${ranges.slice(0, 10).map(([a, b]) => (a === b ? ref(a) : `${ref(a)} à ${ref(b)}`)).join(', ')} (${mois}) : copies, ou confirmation de leur annulation`);
     });
     // Ventes sans TVA dont la nature n'est pas identifiable (contrôle de la TVA du mois)
-    const tvM = cy.tva && cy.tva.months[ym];
-    if (tvM && tvM.noVat.unknown.n) push('questions', `tvanv:${ym}`, `Ventes sans TVA de ${mois} (${tvM.noVat.unknown.n} facture(s), ${eur(tvM.noVat.unknown.base)} € HT) : nature des opérations (export, livraison intracommunautaire avec le n° de TVA du client, opération exonérée) ?`);
+    // Ventes sans TVA sur des comptes taxables ou non qualifiés (contrôle de la TVA)
+    if (cy.tva && cy.tva.nv) {
+      const TM = tvaModel(r);
+      const nvM = cy.tva.nv.filter(([date, , , , m]) => date.slice(0, 7) === ym && Object.keys(m).some((c) => c.startsWith('70') && TM.ca[c] && (typeof TM.ca[c].role === 'number' || TM.ca[c].role === 'sans')));
+      const base = nvM.reduce((t, [, , , , m]) => t - Object.values(m).reduce((x, v) => x + v, 0), 0);
+      if (nvM.length) push('questions', `tvanv:${ym}`, `Ventes sans TVA de ${mois} (${nvM.length} facture(s), ${eur(base)} € HT) : nature des opérations (export, livraison intracommunautaire avec le n° de TVA du client, opération exonérée) ?`);
+    }
     // Encaissements enregistrés en ventes sans facture client (activité facturée)
     const facture = cy.clients.customers.reduce((s, c) => s + c.ht, 0);
     if (r.kpi.ca > 0 && facture >= r.kpi.ca * 0.5) (cy.clients.directSales || []).filter(([date]) => inM(date)).slice(0, 15).forEach(([date, amt, lib], i) => push('ventes', `enc:${ym}:${i}`, `Facture de vente correspondant à l'encaissement « ${lib} » du ${d(date)} (${eur(amt)} €)`));
