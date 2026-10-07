@@ -178,12 +178,21 @@ async function exportGrille() {
     }
     rows.push(cells);
   });
-  const blob = XlsxWriter.build({
-    sheetName: `Suivi ${tplName(ui.grille.type)} ${year}`,
-    rows,
-    widths: [11, 9, 44, 13, 15, 13, 17, 7, 9, 12].concat(Array(cols).fill(6)),
-    freeze: { row: 1, col: 3 },
-  });
+  const sheets = [{ name: `Suivi ${tplName(ui.grille.type)} ${year}`, rows, widths: [11, 9, 44, 13, 15, 13, 17, 7, 9, 12].concat(Array(cols).fill(6)), freeze: { row: 1, col: 3 } }];
+  // Montants déclarés (TVA) : positif à payer, négatif crédit, 0 néant.
+  const withAmt = clients.filter((c) => Object.values(grid.get(c.id)).some((m) => hasTvaAmount(m) && tvaNetSet(m)));
+  if (withAmt.length) {
+    const arows = [[{ v: `Montants de TVA déclarés ${year} — positif : à payer, négatif : crédit, 0 : néant`, s: 10 }], [],
+      ['N°DOSSIER', 'DOSSIERS', 'TVA'].concat(Array.from({ length: cols }, (_, i) => (i < 12 ? MOIS_COURTS[i] : 'ANNÉE')), ['TOTAL']).map((v) => ({ v, s: 1 }))];
+    withAmt.forEach((c) => {
+      const row = grid.get(c.id);
+      const vals = Array.from({ length: cols }, (_, i) => { const m = row[i + 1]; return hasTvaAmount(m) && tvaNetSet(m) ? m.tvaNet : null; });
+      arows.push([{ v: c.code || '', s: 2 }, { v: c.nom || '', s: 2 }, { v: tvaShort(c.regimeTva), s: 2 }]
+        .concat(vals.map((v) => ({ v: v === null ? '' : v, s: v === null ? 2 : 8 })), [{ v: Math.round(vals.reduce((t, v) => t + (v || 0), 0) * 100) / 100, s: 9 }]));
+    });
+    sheets.push({ name: 'Montants TVA', rows: arows, widths: [11, 44, 7].concat(Array(cols).fill(12), [13]), freeze: { row: 3, col: 2 } });
+  }
+  const blob = XlsxWriter.build({ sheets });
   download(`suivi-${norm(tplName(ui.grille.type)).replace(/[^a-z0-9]+/g, '-')}-${year}.xlsx`, blob, blob.type);
 }
 
@@ -198,9 +207,11 @@ function grilleCellView(m, mode) {
     if (done && n) html = `<span class="g-step">${esc(stepReached(m))}</span><span class="g-frac">${done}/${n}</span>`;
     else html = isLate(m) ? '!' : m.statut === 'attente_client' ? 'Att.' : m.statut !== 'a_faire' ? 'En cours' : '·';
   }
+  const amt = hasTvaAmount(m) && tvaNetSet(m);
+  if (amt) html += `<span class="g-amt${m.tvaNet < 0 ? ' cred' : ''}">${esc(tvaNetLabel(m, true))}</span>`;
   const hint = mode === 'pointage' ? `Cliquer pour ${isOpen(m) ? 'pointer OK' : 'annuler'}` : mode === 'etapes' ? 'Cliquer pour choisir l\'étape atteinte' : 'Cliquer pour ouvrir la mission';
   const title = [`${m.titre} — ${STATUTS[m.statut]}${m.echeance ? ' — échéance ' + fmtDate(m.echeance) : ''}`]
-    .concat(m.etapes.map((e) => `${e.done ? '✓' : '○'} ${e.label}`), [hint]).join('\n');
+    .concat(amt ? [`Montant déclaré — ${tvaNetLabel(m)}`] : [], m.etapes.map((e) => `${e.done ? '✓' : '○'} ${e.label}`), [hint]).join('\n');
   return { cls, html, title };
 }
 const grilleMode = () => data.settings.grilleMode || (data.settings.pointage ? 'pointage' : 'etapes');
@@ -211,7 +222,7 @@ function updateGrilleCell(m) {
   const td = $(`.grille td[data-id="${m.id}"]`);
   if (!td) return refresh();
   const v = grilleCellView(m, grilleMode());
-  td.className = v.cls;
+  td.className = v.cls + (hasTvaAmount(m) && tvaNetSet(m) ? ' g-has-amt' : '');
   td.innerHTML = v.html;
   td.title = v.title;
   const col = td.dataset.col;
@@ -248,6 +259,7 @@ function openGrillePop(td, m, focusI) {
       <p class="muted small">Un clic coche l'étape et celles qui la précèdent ; un second clic la décoche. Banque, ventes et achats (repère bleu) se cochent indépendamment, dans l'ordre où vous les faites ; « Banque affectée » coche aussi « Banque importée ». La dernière étape termine la mission. La fenêtre reste ouverte : fermez-la avec ✕, Échap ou un clic à côté.</p>`
       : `<div class="gp-foot"><button class="btn small primary" data-action="grille-step" data-id="${m.id}" data-i="all">Marquer terminée</button></div>`}
     ${req ? `<p class="gp-req small">Demande de pièces en cours : <strong>${reqLeft} pièce(s) attendue(s)</strong>${lastRelance(req) ? `, demandée(s) le ${fmtDate(lastRelance(req).slice(0, 10))}` : ''}. <button class="link-btn" data-action="open-mission" data-id="${req.id}">Voir la demande</button></p>` : ''}
+    ${tvaAmountField(m)}
     <div class="gp-foot">
       <button class="btn small" data-action="grille-step" data-id="${m.id}" data-i="-1">Remettre à faire</button>
       <button class="btn small" data-action="open-mission" data-id="${m.id}">Ouvrir la mission</button>
@@ -314,7 +326,7 @@ function viewGrille() {
     totals[col - 1].all++;
     if (!isOpen(m)) totals[col - 1].done++;
     const v = grilleCellView(m, mode);
-    return `<td class="${v.cls}" data-action="${GRILLE_ACTIONS[mode]}" data-id="${m.id}" data-col="${col}" role="button" tabindex="0" title="${esc(v.title)}">${v.html}</td>`;
+    return `<td class="${v.cls}${hasTvaAmount(m) && tvaNetSet(m) ? ' g-has-amt' : ''}" data-action="${GRILLE_ACTIONS[mode]}" data-id="${m.id}" data-col="${col}" role="button" tabindex="0" title="${esc(v.title)}">${v.html}</td>`;
   };
 
   const body = clients.map((c) => {

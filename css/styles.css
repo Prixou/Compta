@@ -634,6 +634,17 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
 .space-card strong { font-size: 1.05rem; }
 .space-card em { font-style: normal; font-size: .75rem; font-weight: 700; color: var(--primary); }
 .space-card:hover, .space-card.on { border-color: var(--primary); }
+.tva-amt { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem; padding: .6rem .7rem; margin: .2rem 0 .8rem; background: var(--surface-2); border-radius: 10px; }
+.tva-amt-label { font-weight: 700; font-size: .88rem; }
+.tva-amt select { width: auto; min-height: 36px; }
+.tva-amt-input { display: inline-flex; align-items: center; gap: .3rem; }
+.tva-amt-input input { width: 9.5rem; min-height: 36px; text-align: right; }
+#grille-pop .tva-amt { margin: .6rem 0 0; }
+.tva-chip { font-size: .75rem; font-weight: 700; border-radius: 999px; padding: .05rem .5rem; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.tva-chip.pay { background: var(--warn-soft); color: var(--warn); }
+.tva-chip.cred { background: var(--ok-soft); color: var(--ok); }
+.grille td .g-amt { display: block; font-size: .62rem; font-weight: 600; white-space: nowrap; padding: 0 .2rem; opacity: .9; }
+.grille td.g-has-amt { line-height: 1.1; }
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 1rem; align-items: start; }
 .badge.beta { background: var(--warn-soft); color: var(--warn); font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; vertical-align: middle; }
 .mois-head .fec-kpis { margin-bottom: 0; }

@@ -34,7 +34,7 @@ function missionRow(m, showClient) {
       <div class="mrow-main">
         ${showClient ? `<div class="mrow-client">${esc(clientLabel(clientById(m.clientId)))}</div>` : ''}
         <div class="mrow-title">${m.priorite === 'haute' ? '<span class="prio" title="Priorité haute">!</span>' : ''}${esc(m.titre)}</div>
-        <div class="mrow-meta">${statusBadge(m.statut)}${m.responsable ? `<span class="muted">${esc(m.responsable)}</span>` : ''}${m.etapes.length ? `<span class="muted">${done}/${m.etapes.length} étapes</span>` : ''}</div>
+        <div class="mrow-meta">${statusBadge(m.statut)}${m.responsable ? `<span class="muted">${esc(m.responsable)}</span>` : ''}${m.etapes.length ? `<span class="muted">${done}/${m.etapes.length} étapes</span>` : ''}${hasTvaAmount(m) && tvaNetSet(m) ? `<span class="tva-chip${m.tvaNet > 0 ? ' pay' : m.tvaNet < 0 ? ' cred' : ''}">${esc(tvaNetLabel(m))}</span>` : ''}</div>
       </div>
       <div class="mrow-side">${dueBadge(m)}<div class="prog">${bar(p)}<span class="pct">${p} %</span></div></div>
     </div>`;

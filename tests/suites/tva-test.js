@@ -46,6 +46,7 @@ const { fecTab, fecMonth } = require('./lib');
   console.log('\ndéclaré :', (await p.$$eval('.fec-check', (l) => l.map((x) => x.textContent.replace(/\s+/g, ' ')).filter((t) => /déposée/.test(t)))).join(' / ').slice(0, 300));
   await p.click('button[data-action=tva-validate]'); await p.waitForTimeout(200);
   console.log('validation :', await p.textContent('#toast'), '|', (await p.textContent('.tva-validate')).replace(/\s+/g, ' ').trim());
+  console.log('mission TVA 06/2025 :', await p.evaluate(() => { const m = data.missions.find((x) => x.titre === 'TVA 06/2025'); return m && tvaNetLabel(m); }));
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('button[data-action=tva-xlsx]').then(() => p.click('#ask button[type=submit]'))]);
   console.log('export :', dl.suggestedFilename());
   await p.screenshot({ path: O + 'tva-juin.png', fullPage: true });

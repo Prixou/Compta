@@ -474,6 +474,22 @@ document.addEventListener('change', (e) => {
     tvaState().key = t.value;
     monthFromTva();
     refresh();
+  } else if (t.dataset.tvaNet) {
+    // Montant déclaré d'une mission TVA (fiche de la mission ou fenêtre du suivi mensuel)
+    const box = t.closest('.tva-amt');
+    const m = box && missionById(box.dataset.id);
+    if (!m) return;
+    const sens = $('[data-tva-net=sens]', box).value;
+    const input = $('[data-tva-net=montant]', box);
+    input.disabled = sens === 'neant';
+    if (!setTvaNet(m, sens, input.value)) return;
+    input.value = tvaNetSet(m) && m.tvaNet ? eur(Math.abs(m.tvaNet)) : '';
+    if (tvaNetSet(m) && m.tvaNet < 0 && sens !== 'credit') $('[data-tva-net=sens]', box).value = 'credit';
+    const src = $('.muted', box);
+    if (src) src.remove();
+    // Page derrière : seule la case de la grille est mise à jour, sinon la page est redessinée (fenêtre ouverte conservée).
+    if ($(`.grille td[data-id="${m.id}"]`)) updateGrilleCell(m);
+    else if (!box.closest('#grille-pop')) { const y = window.scrollY; route(); window.scrollTo(0, y); }
   } else if (t.dataset.tvaDecl && ui.fec && ui.fec.result) {
     const key = tvaState().key;
     const store = tvaDeclStore();
@@ -481,6 +497,9 @@ document.addEventListener('change', (e) => {
     const v = String(t.value).replace(',', '.').trim();
     d[t.dataset.tvaDecl] = v === '' || !Number.isFinite(Number(v)) ? '' : Number(v);
     if (Object.values(d).every((x) => x === '')) delete store[key];
+    // Le net déclaré est aussi le montant de la mission TVA de la période (suivi mensuel).
+    const mt = t.dataset.tvaDecl === 'net' && tvaMissionOf(ui.fec.clientId, tvaPeriod(key).exercice);
+    if (mt) setTvaNet(mt, d.net < 0 ? 'credit' : d.net === 0 ? 'neant' : 'payer', d.net === '' ? '' : String(Math.abs(d.net)));
     if (clientById(ui.fec.clientId)) persist();
     refresh();
   } else if (t.dataset.piece && ui.fec) {

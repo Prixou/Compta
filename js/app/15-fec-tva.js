@@ -239,6 +239,16 @@ function tvaDeclStore() {
   return (ui.fec.tvaDecl = ui.fec.tvaDecl || {});
 }
 
+// Montants télédéclarés d'une période ; à défaut de net saisi ici, le montant noté dans la mission TVA du dossier.
+function declOf(key) {
+  const d = Object.assign({}, tvaDeclStore()[key]);
+  if (d.net === '' || d.net === undefined) {
+    const m = tvaMissionOf(ui.fec.clientId, tvaPeriod(key).exercice);
+    if (tvaNetSet(m) && m.tvaNetSrc !== 'fec') Object.assign(d, { net: m.tvaNet, fromMission: true });
+  }
+  return d;
+}
+
 function tvaChecks(r, per, core, draft) {
   const { A, liq, liqOk, liqAfter, res, pay, due } = core;
   const out = checksList();
@@ -320,8 +330,8 @@ function tvaChecks(r, per, core, draft) {
   }
 
   // Montants télédéclarés
-  const d = tvaDeclStore()[per.key];
-  if (d) {
+  const d = declOf(per.key);
+  if (Object.keys(d).length) {
     const diffs = [];
     const cmp = (label, decl, calc) => { if (decl !== '' && decl !== undefined && decl !== null && Math.abs(Number(decl) - calc) >= 1) diffs.push(`${label} : déclaré ${eur(decl)} €, comptabilité ${eur(calc)} € (écart ${eur(Number(decl) - calc)} €)`); };
     cmp('Ligne 01 (base des ventes)', d.b01, draft.taxable); cmp('Ligne 16 (TVA brute)', d.t16, draft.brute); cmp('Ligne 23 (TVA déductible)', d.t23, draft.ded); cmp('Net à payer (+) ou crédit (−)', d.net, draft.net);
@@ -345,12 +355,11 @@ function tvaData(r) {
 function tvaConcordance(r, kind) {
   const T = r.cycles.tva;
   const keys = Array.from(new Set(Object.keys(T.months).sort().map((ym) => (kind === 'quarter' ? quarterOf(ym) : ym))));
-  const decl = tvaDeclStore();
   return keys.map((key) => {
     const per = tvaPeriod(key);
     const core = tvaCore(r, per);
     const draft = tvaDraft(core.A, T.meta);
-    const d = decl[key];
+    const d = declOf(key);
     const declNet = d && d.net !== '' && d.net !== undefined ? Number(d.net) : null;
     const liqNet = core.liq ? round2(core.liq.due - core.liq.credit) : null;
     return { key, per, ca: core.A.ca70, taxable: draft.taxable, brute: draft.brute, ded: draft.ded, net: draft.net, liqNet, declNet, ok: (controlOf(key) || {}).at };
@@ -372,7 +381,7 @@ function viewTva() {
   const ctl = controlOf(per.key);
   const pg = wpProgress(cycle, checks);
   const c = clientById(f.clientId);
-  const d = tvaDeclStore()[per.key] || {};
+  const d = declOf(per.key);
   const cell = (v) => (v === undefined || v === null ? '' : eur(v));
   const regTxt = { M: 'TVA mensuelle', T: 'TVA trimestrielle', CA12: 'régime simplifié (CA12 annuelle)', F: 'franchise en base' }[reg];
   const conc = tvaConcordance(r, st.kind);
@@ -474,6 +483,8 @@ function tvaValidate(undo) {
   const store = c ? (c.tvaControles = c.tvaControles || {}) : (f.tvaControles = f.tvaControles || {});
   if (undo) {
     delete store[per.key];
+    const mt = c && tvaMissionOf(c.id, per.exercice);
+    if (mt && mt.tvaNetSrc === 'fec') { delete mt.tvaNet; delete mt.tvaNetSrc; }
     if (c) { log(c.id, `Contrôle de la TVA de ${per.label} annulé.`, true); persist(); }
     return refresh();
   }
@@ -481,8 +492,12 @@ function tvaValidate(undo) {
   if (c) {
     log(c.id, `Contrôle de la TVA de ${per.label} validé depuis le FEC : ${draft.net >= 0 ? `${eur(draft.net)} € à payer` : `crédit de ${eur(-draft.net)} €`}.`, true);
     const done = autoStep(c.id, ['tva'], [per.exercice], /^contr[ôo]le/i, 'contrôle de la TVA validé depuis l\'analyse du FEC');
+    // Montant de la mission TVA de la période, s'il n'est pas encore noté (arrondi à l'euro, comme la CA3).
+    const mt = tvaMissionOf(c.id, per.exercice);
+    const noted = mt && !tvaNetSet(mt);
+    if (noted) Object.assign(mt, { tvaNet: Math.round(draft.net), tvaNetSrc: 'fec', updatedAt: nowIso() });
     persist();
-    toast(done ? `Contrôle validé — ${done}.` : 'Contrôle validé et noté au journal du dossier.');
+    toast(`${done ? `Contrôle validé — ${done}` : 'Contrôle validé et noté au journal du dossier'}${noted ? ` ; montant noté dans la mission « ${mt.titre} »` : ''}.`);
   } else toast('Contrôle validé pour cette session : rattachez un dossier pour le conserver.');
   refresh();
 }

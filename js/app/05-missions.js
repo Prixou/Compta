@@ -53,6 +53,51 @@ function renderMissionList() {
 
 let modalRefresh = null;
 
+// ---------- Montant de la déclaration de TVA : à payer (> 0), crédit (< 0) ou néant (0) ----------
+
+const TVA_TYPES = ['tva', 'ca12', 'acompte_ca12'];
+const hasTvaAmount = (m) => !!m && TVA_TYPES.includes(m.type);
+const tvaNetSet = (m) => !!m && typeof m.tvaNet === 'number' && Number.isFinite(m.tvaNet);
+const eurInt = (n) => Math.round(n).toLocaleString('fr-FR');
+// Mission TVA d'une période (« 09/2026 », « T3 2026 ») d'un dossier.
+const tvaMissionOf = (clientId, exercice) => (clientId ? missionsOf(clientId).find((x) => x.type === 'tva' && x.exercice === exercice) : null);
+
+// « À payer : 1 234,00 € », « Crédit : 560,00 € », « Néant » ; version courte pour la grille (« 1 234 », « Cr. 560 »).
+function tvaNetLabel(m, short) {
+  if (!tvaNetSet(m)) return '';
+  const v = m.tvaNet;
+  if (!v) return 'Néant';
+  if (short) return v > 0 ? eurInt(v) : `Cr. ${eurInt(-v)}`;
+  return v > 0 ? `À payer : ${eur(v)} €` : `Crédit : ${eur(-v)} €`;
+}
+
+function tvaAmountField(m) {
+  if (!hasTvaAmount(m)) return '';
+  const sens = !tvaNetSet(m) || m.tvaNet > 0 ? 'payer' : m.tvaNet < 0 ? 'credit' : 'neant';
+  const amt = tvaNetSet(m) && m.tvaNet ? eur(Math.abs(m.tvaNet)) : '';
+  return `<div class="tva-amt" data-id="${m.id}">
+    <span class="tva-amt-label">Montant déclaré</span>
+    <select data-tva-net="sens" aria-label="TVA à payer, crédit ou néant">${options({ payer: 'TVA à payer', credit: 'Crédit de TVA', neant: 'Néant' }, sens)}</select>
+    <span class="tva-amt-input"><input type="text" inputmode="decimal" data-tva-net="montant" value="${esc(amt)}" placeholder="0,00" aria-label="Montant en euros"${sens === 'neant' ? ' disabled' : ''}><span aria-hidden="true">€</span></span>
+    ${m.tvaNetSrc === 'fec' ? '<span class="muted small">repris du contrôle de TVA du FEC</span>' : ''}
+  </div>`;
+}
+
+// Saisie du montant (« 1 234,56 », « 1234.56 », « -560 » pour un crédit). Vide : montant effacé.
+function setTvaNet(m, sens, raw) {
+  const txt = String(raw || '').replace(/[\s\u00a0\u202f€]/g, '').replace(',', '.');
+  let v = txt === '' ? null : Number(txt);
+  if (v !== null && !Number.isFinite(v)) { toast('Montant invalide : saisissez par exemple 1 234,56.', true); return false; }
+  if (sens === 'neant') v = 0;
+  else if (v !== null) v = Math.round(Math.abs(v) * 100) / 100 * (sens === 'credit' || v < 0 ? -1 : 1);
+  if (v === null) delete m.tvaNet;
+  else m.tvaNet = v;
+  delete m.tvaNetSrc;
+  m.updatedAt = nowIso();
+  persist();
+  return true;
+}
+
 function missionSheet(id) {
   const m = missionById(id);
   if (!m) return;
@@ -71,6 +116,7 @@ function missionSheet(id) {
           <div><div class="muted small">Responsable</div>${esc(m.responsable || '—')}</div>
           <div><div class="muted small">Récurrence</div>${esc(RECURRENCES[m.recurrence] || 'Aucune')}</div>
         </div>
+        ${tvaAmountField(m)}
         ${m.relances && m.relances.length ? `<p class="muted small">Client relancé ${m.relances.length} fois, dernière fois le ${fmtDate(lastRelance(m).slice(0, 10))}.${relanceDue(m) ? ' <strong class="late">Nouvelle relance conseillée.</strong>' : ''}</p>` : m.statut === 'attente_client' && m.attenteDepuis ? `<p class="muted small">En attente du client depuis le ${fmtDate(m.attenteDepuis)}.</p>` : ''}
         <div class="prog big">${bar(p)}<span class="pct">${p} %</span></div>
         ${m.etapes.length ? `<ul class="steps">${m.etapes.map((e) => `

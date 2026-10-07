@@ -499,6 +499,8 @@ function createNextOccurrence(m) {
     echeance: m.echeance ? addMonths(m.echeance, months) : '',
     etapes: m.etapes.map((e) => ({ id: uid(), label: e.label, done: false, doneAt: null })),
   });
+  delete next.tvaNet;
+  delete next.tvaNetSrc;
   if (m.exercice && exercice !== m.exercice && m.titre.includes(m.exercice)) {
     next.titre = m.titre.replace(m.exercice, exercice);
   }
