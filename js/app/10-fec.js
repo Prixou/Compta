@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '35';
+const ASSET_VERSION = '36';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -303,6 +303,7 @@ function viewFec() {
   const head = `<div class="page-head"><h1>Analyse FEC</h1>
     <div class="head-actions">${f && f.status === 'done' ? `<button class="btn" data-action="fec-export">Exporter en Excel</button>` : ''}
       <a class="btn" href="#/portefeuille">${icon('grid')}Plusieurs dossiers</a>
+      <a class="btn" href="#/anonymiser">${icon('eyeOff')}Anonymiser un FEC</a>
       <button class="btn primary" data-action="fec-pick">${f ? 'Analyser un autre FEC' : 'Choisir un FEC'}</button></div></div>`;
   if (!f) {
     return `${head}
@@ -316,6 +317,7 @@ function viewFec() {
       </div>
       <section class="card"><h2>${icon('shield')} Confidentialité</h2>
         <p>Le FEC est analysé <strong>sur cet appareil uniquement</strong>, dans un processus isolé : il n'est ni envoyé, ni conservé. Seule la synthèse (chiffres clés et nombre d'anomalies) peut être enregistrée, chiffrée, dans le dossier si vous le demandez.</p>
+        <p>Pour transmettre un FEC (support, mise au point de l'application), passez d'abord par <a href="#/anonymiser">Anonymiser un FEC</a> : noms des tiers, IBAN et SIREN remplacés, structure conservée.</p>
         <p class="muted small">Les analyses sont indicatives et ne remplacent pas le contrôle du fichier par l'outil officiel Test Compta Demat de la DGFiP. Les fonctions marquées <span class="badge beta">bêta</span> n'ont pas encore été validées sur de vrais dossiers : contrôlez leurs résultats.</p>
       </section>`;
   }

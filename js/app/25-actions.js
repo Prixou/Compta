@@ -195,6 +195,15 @@ const actions = {
   },
   'export-grille': () => exportGrille(),
   'batch-pick': async () => batchRun(await pickFiles('.txt,.csv,.tsv,.zip,text/plain,application/zip')),
+  'anon-pick': async () => anonStart(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true)),
+  'anon-run': () => {
+    const inp = $('input[data-anon=extra]');
+    if (inp) anonState().extra = inp.value;
+    anonRun();
+  },
+  'anon-word': (el) => anonToggle(el.dataset.k, el.dataset.mode),
+  'anon-download': () => anonDownload(),
+  'anon-clear': () => { ui.anon = null; refresh(); },
   'batch-open': (el) => {
     const it = ui.batch && ui.batch.items[Number(el.dataset.i)];
     if (!it || !it.st) return;
@@ -435,6 +444,8 @@ document.addEventListener('change', (e) => {
     onCabChange(t);
   } else if (t.dataset.cal && ui.cal) {
     onCalChange(t);
+  } else if (t.dataset.anon && ui.anon) {
+    onAnonChange(t);
   } else if (t.dataset.msg === 'mission' && ui.msg) {
     t.checked ? ui.msg.selected.add(t.value) : ui.msg.selected.delete(t.value);
     renderMessage();

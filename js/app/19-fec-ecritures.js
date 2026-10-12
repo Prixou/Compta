@@ -509,8 +509,8 @@ document.addEventListener('pointerout', (e) => { const el = e.target.closest && 
 document.addEventListener('focusin', (e) => { if (e.target.dataset && e.target.dataset.tip) showTip(e.target); });
 document.addEventListener('focusout', (e) => { if (e.target.dataset && e.target.dataset.tip) hideTip(e.target); });
 
-// Glisser-déposer d'un FEC sur la page d'analyse (un FEC) ou du portefeuille (plusieurs).
-const dropPage = () => /^#\/(fec|portefeuille)\b/.test(location.hash);
+// Glisser-déposer d'un FEC sur la page d'analyse (un FEC), du portefeuille (plusieurs) ou d'anonymisation.
+const dropPage = () => /^#\/(fec|portefeuille|anonymiser)\b/.test(location.hash);
 document.addEventListener('dragover', (e) => {
   if (data && dropPage()) {
     e.preventDefault();
@@ -524,6 +524,7 @@ document.addEventListener('drop', (e) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files || []);
     if (location.hash.startsWith('#/portefeuille')) { if (files.length && !(ui.batch && ui.batch.running)) batchRun(files); }
+    else if (location.hash.startsWith('#/anonymiser')) { if (files[0]) anonStart(files[0]); }
     else if (files[0]) startFec(files[0]);
   }
 });
