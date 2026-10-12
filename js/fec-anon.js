@@ -1,22 +1,26 @@
 /*
  * Anonymisation d'un Fichier des Écritures Comptables (FEC), pour l'envoyer à un tiers (support, mise au point de
- * l'application) sans donnée du client ni de ses tiers.
+ * l'application sur de vrais fichiers) sans donnée permettant d'identifier le client ni ses propres clients.
  *
  * Exécuté dans un Web Worker : le fichier est lu et transformé sur l'appareil, sans jamais être envoyé ni conservé.
- * Reçoit { buffer, fileName, opts } ; renvoie { type: 'done', text, fileName, report } ou { type: 'error', message }.
+ * Reçoit { buffer, fileName, opts } ; renvoie { type: 'done', bytes, text, fileName, report } ou { type: 'error', message }.
  *
- * Ce qui est conservé : la structure (colonnes, journaux, n° et dates des écritures, comptes généraux, lettrage, n° de
- * pièce et de facture, vocabulaire comptable et bancaire, enseignes nationales). Ce qui est remplacé : tout mot absent du
- * dictionnaire (noms de tiers, de personnes, de lieux, d'activité…), de façon cohérente dans tout le fichier (un même nom
- * devient partout le même pseudonyme, y compris dans les n° de comptes auxiliaires), les IBAN, téléphones, e-mails, sites,
- * SIREN / SIRET et numéros longs, le SIREN du nom de fichier, et, en option, les montants (coefficient aléatoire unique,
- * chaque écriture restant équilibrée). La correspondance n'est jamais enregistrée : l'opération n'est pas réversible.
+ * Deux modes (opts.mode) :
+ *  - « clients » (par défaut) : seuls les noms des clients (factures de vente, encaissements, comptes 41), des personnes
+ *    (salariés, associés, gérant : comptes 42, 455…, salaires, notes de frais) et du dossier lui-même sont remplacés ;
+ *    les fournisseurs et le reste des libellés sont conservés ;
+ *  - « tout » : tout mot absent du dictionnaire comptable est remplacé, fournisseurs compris.
+ * Dans les deux cas : remplacement cohérent dans tout le fichier (un même nom devient partout le même pseudonyme),
+ * IBAN, téléphones, e-mails, sites, SIREN / SIRET et numéros longs masqués, SIREN du nom de fichier remplacé, montants
+ * modifiés en option (coefficient aléatoire unique, chaque écriture restant équilibrée). Structure, encodage, séparateur et
+ * fins de ligne d'origine conservés. La correspondance n'est jamais enregistrée : l'opération n'est pas réversible.
  */
 'use strict';
 
 self.onmessage = (e) => {
   try {
-    self.postMessage(Object.assign({ type: 'done' }, anonymizeFec(e.data.buffer, e.data.fileName || '', e.data.opts || {})));
+    const r = anonymizeFec(e.data.buffer, e.data.fileName || '', e.data.opts || {});
+    self.postMessage(Object.assign({ type: 'done' }, r), [r.bytes.buffer]);
   } catch (err) {
     self.postMessage({ type: 'error', message: err.message || String(err) });
   }
@@ -118,12 +122,25 @@ FNAL CORE
 
 // ---------- Utilitaires ----------
 
+// Texte et encodage d'origine (UTF-8, avec ou sans BOM, ou ISO-8859-15), pour réécrire le fichier dans le même encodage.
 function decode(buffer) {
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
+    return { text: text.replace(/^﻿/, ''), encoding: 'UTF-8', bom: text.charCodeAt(0) === 0xfeff };
   } catch (e) {
-    return new TextDecoder('iso-8859-15').decode(buffer);
+    return { text: new TextDecoder('iso-8859-15').decode(buffer), encoding: 'ISO-8859-15', bom: false };
   }
+}
+// ISO-8859-15 : Latin-1, sauf huit positions (€, Š, š, Ž, ž, Œ, œ, Ÿ).
+const LATIN9 = { 0x20ac: 0xa4, 0x160: 0xa6, 0x161: 0xa8, 0x17d: 0xb4, 0x17e: 0xb8, 0x152: 0xbc, 0x153: 0xbd, 0x178: 0xbe };
+function encode(text, encoding, bom) {
+  if (encoding !== 'ISO-8859-15') return new TextEncoder().encode((bom ? '﻿' : '') + text);
+  const out = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    out[i] = LATIN9[c] || (c < 256 && ![0xa4, 0xa6, 0xa8, 0xb4, 0xb8, 0xbc, 0xbd, 0xbe].includes(c) ? c : 0x3f);
+  }
+  return out;
 }
 const keyOf = (w) => w.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
 
@@ -139,13 +156,20 @@ function prng(seed) {
   };
 }
 
+// Comptes de personnes physiques : personnel (421 à 427), associés et groupe (455 à 458), débiteurs et créditeurs divers (467).
+const RE_PERSON_ACC = /^(42[1-7]|45[5-8]|467)/;
+// Libellés de comptes ou d'écritures qui désignent une personne : gérant, associé, salaire, note de frais, indemnités kilométriques…
+const RE_PERSON_LIB = /\b(GERANT|GERANTE|ASSOCIE|ASSOCIEE|DIRIGEANT|PRESIDENT|PRESIDENTE|SALARIE|SALARIEE|EXPLOITANT|SALAIRE|SALAIRES|PAIE|NDF|NOTES? DE FRAIS|IK|INDEMNITES? KILOMETRIQUES?|REMBOURSEMENT FRAIS)\b/;
+const REASONS = { client: 'client', vente: 'vente', encaissement: 'encaissement', personne: 'personne', dossier: 'dossier', manuel: 'ajouté', autre: 'hors dictionnaire' };
+
 function anonymizeFec(buffer, fileName, opts) {
   const seed = opts.seed !== undefined ? opts.seed : (self.crypto ? self.crypto.getRandomValues(new Uint32Array(1))[0] : Date.now());
   const rnd = prng(seed);
   const pick = (s) => s[Math.floor(rnd() * s.length)];
+  const all = opts.mode === 'all';
   const force = new Set((opts.force || []).map(keyOf));
   const keepUser = new Set((opts.keep || []).map(keyOf));
-  const text = decode(buffer).replace(/^﻿/, '');
+  const { text, encoding, bom } = decode(buffer);
   const eol = /\r\n/.test(text.slice(0, 5000)) ? '\r\n' : '\n';
   const lines = text.split(/\r?\n/);
   while (lines.length && !lines[lines.length - 1]) lines.pop();
@@ -165,6 +189,7 @@ function anonymizeFec(buffer, fileName, opts) {
   // Colonnes de texte libre (noms) et de codes (comptes) ; les autres (dates, n°, lettrage, devise) sont conservées
   const TEXT = ['JournalLib', 'CompteLib', 'CompAuxLib', 'PieceRef', 'EcritureLib', 'ModeRglt', 'NatOp', 'IdClient'].map((k) => C[k]).filter((i) => i >= 0);
   const CODE = ['CompteNum', 'CompAuxNum'].map((k) => C[k]).filter((i) => i >= 0);
+  const RE_WORD = /\p{L}+/gu;
 
   // SIREN du dossier (nom du fichier) : remplacé partout, y compris dans les SIRET cités dans les libellés
   const nm = fileName.match(/(\d{9})FEC(\d{8})/i);
@@ -172,16 +197,110 @@ function anonymizeFec(buffer, fileName, opts) {
   const fakeSiren = '9' + Array.from({ length: 8 }, () => Math.floor(rnd() * 10)).join('');
   const outName = `${fakeSiren}FEC${nm ? nm[2] : '00000000'}.txt`;
 
+  // ---------- Lecture : lignes, montants en centimes, écritures ----------
+  const montantSens = C.Debit < 0 && C.Montant >= 0 && C.Sens >= 0;
+  const parseAmt = (s) => {
+    const v = parseFloat(String(s || '').replace(/\s/g, '').replace(',', '.'));
+    return Number.isFinite(v) ? v : null;
+  };
+  const rows = [];
+  const entries = new Map(); // écriture → { rows: [index], d, c, od, oc, big, bigAmt }
+  const seen = new Set(); // tous les mots du fichier : un pseudonyme n'en reprend jamais un
+  for (let i = 1; i < lines.length; i++) {
+    const f = lines[i].split(sep);
+    rows.push(f);
+    if (!lines[i]) continue;
+    for (const c of TEXT.concat(CODE)) {
+      const ws = f[c] && f[c].match(RE_WORD);
+      if (ws) for (const w of ws) if (w.length >= 3) seen.add(keyOf(w));
+    }
+    let d, c;
+    if (montantSens) {
+      const v = parseAmt(f[C.Montant]) || 0;
+      const isD = /^d/i.test((f[C.Sens] || '').trim()) || (f[C.Sens] || '').trim() === '+1';
+      d = isD ? v : 0; c = isD ? 0 : v;
+    } else { d = parseAmt(f[C.Debit]) || 0; c = parseAmt(f[C.Credit]) || 0; }
+    f._d = Math.round(d * 100);
+    f._c = Math.round(c * 100);
+    const ek = (f[C.JournalCode] || '') + '\u0001' + (f[C.EcritureNum] || '');
+    let e = entries.get(ek);
+    if (!e) entries.set(ek, (e = { rows: [], d: 0, c: 0, od: 0, oc: 0, big: -1, bigAmt: -1 }));
+    e.rows.push(rows.length - 1);
+  }
+
+  // ---------- Mots à protéger (noms des clients, des personnes, du dossier) ----------
+  const protect = new Map(); // clé → motif
+  const addWords = (s, why) => {
+    if (!s) return;
+    const ws = s.match(RE_WORD);
+    if (ws) for (const w of ws) {
+      const k = keyOf(w);
+      if (k.length >= 3 && !KEEP.has(k) && !protect.has(k)) protect.set(k, why);
+    }
+  };
+  const acc = (f) => f[C.CompteNum] || '';
+  // 1. Comptes de clients et de personnes : nom du compte, du compte auxiliaire (et lettres de son n°), libellé des lignes
+  rows.forEach((f) => {
+    const a = acc(f);
+    const why = /^41/.test(a) ? 'client' : RE_PERSON_ACC.test(a) ? 'personne' : '';
+    if (why) [C.CompteLib, C.CompAuxLib, C.CompAuxNum, C.EcritureLib].forEach((i) => { if (i >= 0) addWords(f[i], why); });
+    else if (C.CompAuxLib >= 0 && f[C.CompAuxLib] && /^4/.test(a) && !/^40/.test(a)) addWords(f[C.CompAuxLib], 'client'); // autre compte de tiers avec auxiliaire
+    // Compte ou libellé qui désigne une personne (« IK GERANT - … », « SALAIRE … », « NOTE DE FRAIS … »)
+    // TVA collectée et produits constatés d'avance : libellés des ventes et des règlements clients (Pennylane : virement de
+    // la TVA sur encaissements au libellé du règlement), y compris dans les à-nouveaux
+    if (/^(4457|487)/.test(a)) addWords(f[C.EcritureLib], 'vente');
+    if (C.CompteLib >= 0 && RE_PERSON_LIB.test(keyOf(f[C.CompteLib] || ''))) addWords(f[C.CompteLib], 'personne');
+    if (RE_PERSON_LIB.test(keyOf(f[C.EcritureLib] || ''))) addWords(f[C.EcritureLib], 'personne');
+  });
+  // 2. Écritures de vente (produits), d'encaissement (banque débitée en contrepartie d'un client, d'un compte d'attente, d'un
+  //    produit ou d'une personne) et de personnes : tout le libellé (nom du client ou du payeur, désignation de la vente)
+  //    Encaissement et personne : seules les lignes concernées et celles qui portent le même libellé (la ligne de banque),
+  //    pour ne pas protéger les paiements aux fournisseurs d'un relevé saisi en une seule écriture (ACD).
+  const lib = (f) => f[C.EcritureLib] || '';
+  entries.forEach((e) => {
+    const fs = e.rows.map((i) => rows[i]);
+    const accs = fs.map(acc);
+    if (accs.some((a) => /^70/.test(a)) || (accs.some((a) => /^41/.test(a)) && accs.some((a) => /^7/.test(a)))) {
+      fs.forEach((f) => { addWords(lib(f), 'vente'); if (C.PieceRef >= 0) addWords(f[C.PieceRef], 'vente'); });
+      return;
+    }
+    const bankIn = fs.some((f) => /^5[1-3]/.test(acc(f)) && f._d > 0);
+    const hit = new Map(); // libellé → motif
+    fs.forEach((f) => {
+      const a = acc(f);
+      if (RE_PERSON_ACC.test(a)) hit.set(lib(f), 'personne');
+      else if (bankIn && f._c > 0 && /^(41|47|7)/.test(a)) hit.set(lib(f), 'encaissement');
+    });
+    if (hit.size) fs.forEach((f) => { const w = hit.get(lib(f)); if (w) addWords(lib(f), w); });
+  });
+  // 3. Le dossier lui-même : nom de la fiche (transmis par la page) et, dans les libellés bancaires détaillés (Pennylane),
+  //    le donneur d'ordre ou bénéficiaire le plus fréquent (NBE / NPY), qui est le dossier.
+  (opts.own || []).forEach((s) => addWords(s, 'dossier'));
+  const tags = new Map();
+  let nTags = 0;
+  if (C.EcritureLib >= 0) rows.forEach((f) => {
+    const l = f[C.EcritureLib];
+    if (!l || l.indexOf(' - N') < 0) return;
+    const re = / - N(?:BE|PY): ([^]*?)(?= - [A-Z][A-Z0-9]{2}:|$)/g;
+    let m;
+    while ((m = re.exec(l))) {
+      const v = keyOf(m[1]).replace(/[^A-Z0-9 ]+/g, ' ').replace(/\b(SARL|SAS|SASU|EURL|SA|STE|SOCIETE)\b/g, ' ').replace(/\s+/g, ' ').trim();
+      if (v) { tags.set(v, (tags.get(v) || 0) + 1); nTags++; }
+    }
+  });
+  const topTag = Array.from(tags.entries()).sort((a, b) => b[1] - a[1])[0];
+  if (topTag && topTag[1] >= 5 && topTag[1] >= nTags * 0.15) addWords(topTag[0], 'dossier');
+  force.forEach((k) => { if (!protect.has(k)) protect.set(k, 'manuel'); });
+
   // ---------- Pseudonymes ----------
   const CONS = 'BCDFGJKLMNPRSTVZ', VOW = 'AEIOU';
   const pseudo = new Map(); // mot (clé) → pseudonyme
   const used = new Set();
   const replaced = new Map(); // clé → occurrences
-  const kept = new Map(); // mot conservé par le dictionnaire → occurrences
+  const keptOther = new Map(); // mots hors dictionnaire conservés (fournisseurs, lieux… en mode « clients »)
+  const keptDict = new Map(); // vocabulaire du dictionnaire conservé
   const shape = (src, p) => (src === src.toUpperCase() ? p : src === src.toLowerCase() ? p.toLowerCase()
     : src[0] === src[0].toUpperCase() && src.slice(1) === src.slice(1).toLowerCase() ? p[0] + p.slice(1).toLowerCase() : p);
-  // Un pseudonyme n'est jamais un mot présent dans le fichier (pas de confusion à la relecture avec un vrai nom).
-  const seen = new Set();
   const newPseudo = (len) => {
     for (let tries = 0; tries < 50; tries++) {
       let s = '';
@@ -193,12 +312,14 @@ function anonymizeFec(buffer, fileName, opts) {
     for (let i = 0; i < len; i++) s += pick(CONS);
     return s;
   };
+  const why = (k) => protect.get(k) || 'autre';
   const wordOut = (w) => {
     const k = keyOf(w);
     if (k.length < 3) return w;
-    // Mot exact du dictionnaire seulement : un début de mot (« MARCHAND » pour « MARCHANDISE ») peut être un nom.
-    if (!force.has(k) && (keepUser.has(k) || KEEP.has(k))) {
-      kept.set(k, (kept.get(k) || 0) + 1);
+    const hide = force.has(k) || (!keepUser.has(k) && (protect.has(k) || (all && !KEEP.has(k))));
+    if (!hide) {
+      const m = KEEP.has(k) ? keptDict : keptOther;
+      m.set(k, (m.get(k) || 0) + 1);
       return w;
     }
     let p = pseudo.get(k);
@@ -229,7 +350,6 @@ function anonymizeFec(buffer, fileName, opts) {
   const RE_PHONE = /(?:\+33 ?[1-9]|\b0[1-9])(?:\d{8}|([ .-])\d{2}(?:\1\d{2}){3})(?!\d)/g;
   const RE_LONGNUM = /\d{11,}/g;
   const RE_SIRET = /\b(SIRE[NT])(\s*:?\s*)(\d[\d ]{7,16}\d)/gi;
-  const RE_WORD = /\p{L}+/gu;
 
   // E-mails et sites : remplacés par une adresse fictive, mise à l'abri le temps de traiter les mots (\u0001 / \u0002)
   const SAFE = ['contact@exemple.fr', 'www.exemple.fr'];
@@ -253,11 +373,6 @@ function anonymizeFec(buffer, fileName, opts) {
   // Coefficient unique (0,6 à 1,4) ; chaque écriture reste équilibrée : l'arrondi est reporté sur sa plus grosse ligne.
   const scale = !!opts.scale;
   const factor = scale ? Math.round((0.6 + rnd() * 0.8) * 10000) / 10000 : 1;
-  const montantSens = C.Debit < 0 && C.Montant >= 0 && C.Sens >= 0;
-  const parseAmt = (s) => {
-    const v = parseFloat(String(s || '').replace(/\s/g, '').replace(',', '.'));
-    return Number.isFinite(v) ? v : null;
-  };
   const fmtAmt = (cents, like) => {
     const comma = /,/.test(like) || !/\./.test(like);
     const dec = (like.split(/[.,]/)[1] || '').length;
@@ -267,33 +382,15 @@ function anonymizeFec(buffer, fileName, opts) {
     if (dec === 0 && s.endsWith('.00')) s = s.slice(0, -3);
     return (neg ? '-' : '') + (comma ? s.replace('.', ',') : s);
   };
-  const rows = [];
-  const entries = new Map(); // écriture → { d, c, od, oc, big: index de la plus grosse ligne }
-  for (let i = 1; i < lines.length; i++) {
-    const f = lines[i].split(sep);
-    rows.push(f);
-    for (const c of TEXT.concat(CODE)) {
-      const ws = f[c] && f[c].match(RE_WORD);
-      if (ws) for (const w of ws) if (w.length >= 3) seen.add(keyOf(w));
-    }
-    if (!scale || !lines[i]) continue;
-    const ek = (f[C.JournalCode] || '') + '\u0001' + (f[C.EcritureNum] || '');
-    let e = entries.get(ek);
-    if (!e) entries.set(ek, (e = { d: 0, c: 0, od: 0, oc: 0, big: -1, bigAmt: -1 }));
-    let d, c;
-    if (montantSens) {
-      const v = parseAmt(f[C.Montant]) || 0;
-      const isD = /^d/i.test((f[C.Sens] || '').trim()) || (f[C.Sens] || '').trim() === '+1';
-      d = isD ? v : 0; c = isD ? 0 : v;
-    } else { d = parseAmt(f[C.Debit]) || 0; c = parseAmt(f[C.Credit]) || 0; }
-    const od = Math.round(d * 100), oc = Math.round(c * 100);
-    const nd = Math.round(od * factor), nc = Math.round(oc * factor);
-    f._amt = [od, oc, nd, nc];
-    e.d += nd; e.c += nc; e.od += od; e.oc += oc;
-    if (Math.abs(od) + Math.abs(oc) > e.bigAmt) { e.bigAmt = Math.abs(od) + Math.abs(oc); e.big = rows.length - 1; }
-  }
   if (scale) {
     entries.forEach((e) => {
+      e.rows.forEach((i) => {
+        const f = rows[i];
+        const nd = Math.round(f._d * factor), nc = Math.round(f._c * factor);
+        f._amt = [f._d, f._c, nd, nc];
+        e.d += nd; e.c += nc; e.od += f._d; e.oc += f._c;
+        if (Math.abs(f._d) + Math.abs(f._c) > e.bigAmt) { e.bigAmt = Math.abs(f._d) + Math.abs(f._c); e.big = i; }
+      });
       const want = Math.round((e.od - e.oc) * factor); // déséquilibre d'origine éventuel, à la même échelle
       const diff = e.d - e.c - want;
       if (!diff || e.big < 0) return;
@@ -340,15 +437,20 @@ function anonymizeFec(buffer, fileName, opts) {
     else if (C.CompAuxLib >= 0 && f[C.CompAuxLib] && aux < 8) { pv.add(i); aux++; }
   }
   const preview = { cols: SHOW, rows: Array.from(pv).sort((a, b) => a - b).map((i) => { const f = out[i].split(sep); return SHOW.map((k) => f[col(k)] || ''); }) };
+  const byWhy = {};
+  replaced.forEach((n, k) => { const w = why(k); byWhy[w] = (byWhy[w] || 0) + 1; });
+  const outText = out.join(eol) + eol;
   return {
-    text: out.join(eol) + eol,
+    text: outText,
+    bytes: encode(outText, encoding, bom),
     fileName: outName,
     report: {
-      lines: rows.length, columns: header.length, sep: sep === '\t' ? 'tabulation' : sep, eol: eol === '\r\n' ? 'CRLF' : 'LF',
-      siren: !!siren, fakeSiren, scale, factor: scale ? factor : 1, entries: entries.size,
-      replacedCount: Array.from(replaced.values()).reduce((t, n) => t + n, 0), replacedDistinct: replaced.size,
-      replaced: top(replaced, 400).map(([k, n]) => [k, pseudo.get(k), n]),
-      kept: top(kept, 400), stats, seed, preview,
+      mode: all ? 'all' : 'clients', lines: rows.length, columns: header.length, sep: sep === '\t' ? 'tabulation' : sep, eol: eol === '\r\n' ? 'CRLF' : 'LF',
+      encoding: encoding + (bom ? ' avec BOM' : ''), siren: !!siren, fakeSiren, scale, factor: scale ? factor : 1, entries: entries.size,
+      replacedCount: Array.from(replaced.values()).reduce((t, n) => t + n, 0), replacedDistinct: replaced.size, byWhy,
+      replaced: top(replaced, 500).map(([k, n]) => [k, pseudo.get(k), n, REASONS[why(k)] || why(k)]),
+      keptOther: top(keptOther, 500), keptOtherDistinct: keptOther.size, kept: top(keptDict, 400), stats, seed, preview,
+      dossier: topTag && topTag[1] >= 5 && topTag[1] >= nTags * 0.15 ? topTag[0] : '',
     },
   };
 }

@@ -4,12 +4,13 @@ const vm = require('vm');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
-// Anonymisation d'un FEC : aucun nom de tiers ni identifiant dans le fichier produit, écritures équilibrées, et structure
-// intacte (même analyse : numérotation des factures, suggestions d'affectation, conformité).
+// Anonymisation d'un FEC : aucun nom de client, de personne ni du dossier, aucun identifiant dans le fichier produit ;
+// fournisseurs conservés (mode « clients ») ou remplacés (mode « tout ») ; écritures équilibrées, encodage conservé, et
+// structure intacte (même analyse : numérotation des factures, suggestions d'affectation, conformité).
 let ko = 0;
 const expect = (cond, label, info) => { if (cond) console.log(`OK ${label}`); else { ko++; console.log(`KO ${label}${info ? ' : ' + info : ''}`); } };
 const load = (file) => {
-  const ctx = { self: { postMessage() {} }, postMessage() {}, console, TextDecoder, Intl };
+  const ctx = { self: { postMessage() {} }, postMessage() {}, console, TextDecoder, TextEncoder, Intl };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../../js/', file), 'utf8'), ctx);
   return ctx;
@@ -38,10 +39,14 @@ const balanced = (text) => {
   const orig = src.toString('utf8');
   const r = anonymize(src.buffer.slice(src.byteOffset, src.byteOffset + src.length), '900000009FEC20270831.txt', { seed: 7, scale: true });
   const out = r.text;
+  expect(Buffer.from(r.bytes).toString('utf8') === out, 'fichier produit en UTF-8, comme l\'original');
+  console.log('dossier reconnu :', r.report.dossier, '· motifs :', JSON.stringify(r.report.byWhy));
+  expect(r.report.mode === 'clients' && /EXEMPLE/.test(r.report.dossier), 'mode « clients » par défaut, dossier reconnu dans les virements');
+  expect(/401FRESTAU/.test(out) && /\bCarburant\b/.test(out), 'mode « clients » : fournisseurs conservés');
   console.log('fichier :', r.fileName, '· coefficient', r.report.factor, '·', JSON.stringify(r.report.stats));
   expect(/^9\d{8}FEC20270831\.txt$/.test(r.fileName) && !r.fileName.startsWith('900000009'), 'SIREN du nom de fichier remplacé, date de clôture conservée', r.fileName);
   const left = NAMES.filter((w) => new RegExp(`\\b${w}\\b`).test(out));
-  expect(!left.length, 'aucun nom de tiers ni du dossier dans le fichier', left.join(', '));
+  expect(!left.length, 'aucun nom de client ni du dossier dans le fichier', left.join(', '));
   expect(!out.includes('FR7699999000010000000000099') && r.report.stats.iban > 0, 'IBAN remplacés');
   const oL = orig.split('\n').filter(Boolean), aL = out.split('\n').filter(Boolean);
   expect(oL[0] === aL[0] && oL.length === aL.length, 'en-tête et nombre de lignes identiques', `${oL.length} / ${aL.length}`);
@@ -60,18 +65,34 @@ const balanced = (text) => {
   expect(sug(A) === sug(B), 'mêmes suggestions d\'affectation (facture citée, libellé déjà affecté)', sug(B));
   const lvl = (x) => x.checks.map((c) => c.id + ':' + c.level).join(' ');
   expect(lvl(A) === lvl(B), 'mêmes contrôles de conformité');
+  // Mode « tout » : fournisseurs remplacés aussi
+  const rAll = anonymize(src.buffer.slice(src.byteOffset, src.byteOffset + src.length), '900000009FEC20270831.txt', { seed: 7, mode: 'all' });
+  expect(!/FRESTAU/.test(rAll.text) && !NAMES.some((w) => new RegExp(`\\b${w}\\b`).test(rAll.text)), 'mode « tout » : fournisseurs remplacés');
   // Sans l'option montants : montants strictement identiques
   const r2 = anonymize(src.buffer.slice(src.byteOffset, src.byteOffset + src.length), '900000009FEC20270831.txt', { seed: 7, scale: false });
   const amt = (t) => t.split('\n').filter(Boolean).map((l) => l.split('\t').slice(11, 13).join('|') + '|' + l.split('\t')[16]).join('\n');
   expect(amt(r2.text) === amt(orig), 'option montants désactivée : montants inchangés');
   // Mots choisis par l'utilisateur : remplacés (force) ou conservés (keep)
-  const r3 = anonymize(src.buffer.slice(src.byteOffset, src.byteOffset + src.length), '900000009FEC20270831.txt', { seed: 7, scale: false, force: ['boulangerie'], keep: ['tilleuls'] });
+  const r3 = anonymize(src.buffer.slice(src.byteOffset, src.byteOffset + src.length), '900000009FEC20270831.txt', { seed: 7, scale: false, force: ['boulangerie'], keep: ['tilleuls'], own: ['Station Exemple'] });
   expect(!/BOULANGERIE/.test(r3.text) && /TILLEULS/.test(r3.text), 'mots à remplacer et à conserver choisis par l\'utilisateur');
+  expect(!/STATION EXEMPLE/i.test(r3.text), 'nom du dossier (fiche) remplacé');
+  // Encodage ISO-8859-15 et BOM UTF-8 conservés ; salaires et associés anonymisés
+  const H0 = oL[0];
+  const iso = `${H0}\r\nAN\tÀ nouveaux\t1\t20250101\t106100\tRéserve légale\t\t\tA1\t20250101\tÀ nouveau 5 € Œuvre\t0,00\t100,00\t\t\t20250101\t\t\r\nAN\tÀ nouveaux\t1\t20250101\t455100\tCompte courant Hélène Garçon\t\t\tA1\t20250101\tApport Hélène Garçon\t100,00\t0,00\t\t\t20250101\t\t\r\nBQ\tBanque\t2\t20250131\t421000\tRémunérations dues\t\t\tB1\t20250131\tVIR SALAIRE JANVIER BÉRANGÈRE TOURNESOL\t1200,00\t0,00\t\t\t20250131\t\t\r\nBQ\tBanque\t2\t20250131\t512000\tBanque\t\t\tB1\t20250131\tVIR SALAIRE JANVIER BÉRANGÈRE TOURNESOL\t0,00\t1200,00\t\t\t20250131\t\t\r\n`;
+  const latin9 = Buffer.from(Array.from(iso).map((ch) => ({ '€': 0xa4, 'Œ': 0xbc }[ch] || ch.charCodeAt(0))));
+  const r5 = anonymize(latin9.buffer.slice(latin9.byteOffset, latin9.byteOffset + latin9.length), '123456789FEC20251231.txt', { seed: 5 });
+  const back = new TextDecoder('iso-8859-15').decode(Buffer.from(r5.bytes));
+  console.log('ISO-8859-15 :', JSON.stringify(back.split('\r\n').slice(1, 4).map((l) => l.split('\t')[5] + ' | ' + l.split('\t')[10])));
+  expect(r5.report.encoding === 'ISO-8859-15' && back === r5.text && /Réserve légale/.test(back) && /5 € Œuvre/.test(back) && back.includes('\r\n'), 'encodage ISO-8859-15, accents, € et fins de ligne CRLF conservés');
+  expect(!/Hélène|Garçon|BÉRANGÈRE|TOURNESOL/i.test(back) && /SALAIRE JANVIER/.test(back), 'associé et salarié anonymisés, vocabulaire de paie conservé');
+  const bomBuf = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(iso, 'utf8')]);
+  const r6 = anonymize(bomBuf.buffer.slice(bomBuf.byteOffset, bomBuf.byteOffset + bomBuf.length), '123456789FEC20251231.txt', { seed: 5 });
+  expect(r6.bytes[0] === 0xef && r6.bytes[1] === 0xbb && r6.bytes[2] === 0xbf && r6.report.encoding === 'UTF-8 avec BOM', 'BOM UTF-8 conservé');
   // Identifiants dans les libellés : téléphone, e-mail, SIRET du dossier
   const H = oL[0];
   const extra = `${H}\nBQ\tBanque\t1\t20250105\t512000\tBanque\t\t\tP1\t20250105\tVIR DUPONTEL TEL 06 12 34 56 78 contact@dupontel.fr SIRET 12345678900017 www.dupontel.fr\t0,00\t100,00\t\t\t20250105\t\t\nBQ\tBanque\t1\t20250105\t706000\tVentes\t\t\tP1\t20250105\tVIR DUPONTEL\t100,00\t0,00\t\t\t20250105\t\t\n`;
   const b4 = Buffer.from(extra, 'utf8');
-  const r4 = anonymize(b4.buffer.slice(b4.byteOffset, b4.byteOffset + b4.length), '123456789FEC20251231.txt', { seed: 3, scale: false });
+  const r4 = anonymize(b4.buffer.slice(b4.byteOffset, b4.byteOffset + b4.length), '123456789FEC20251231.txt', { seed: 3, scale: false, mode: 'all' });
   console.log('libellé :', r4.text.split('\n')[1].split('\t')[10]);
   expect(!/DUPONTEL|dupontel|06 12 34 56 78|12345678900017/.test(r4.text) && /contact@exemple\.fr/.test(r4.text), 'téléphone, e-mail, site et SIRET masqués');
   // Autres FEC de test (ACD, pharmacie) : aucune erreur, écritures équilibrées
@@ -96,13 +117,14 @@ const balanced = (text) => {
   const pv = await p.textContent('.anon-preview');
   expect(!NAMES.some((w) => pv.includes(w)), 'aperçu sans nom de tiers');
   expect(await p.isDisabled('button[data-action=anon-download]'), 'téléchargement bloqué tant que la relecture n\'est pas confirmée');
+  expect(await p.isChecked('input[data-anon=mode][value=clients]') && !(await p.isChecked('input[data-anon=scale]')), 'par défaut : mode « clients », montants inchangés');
   // Un mot conservé à remplacer (clic), un mot ajouté à la main
-  await p.click('.anon-chip[data-k="BOULANGERIE"][data-mode=force]');
+  await p.click('.anon-chip[data-k="FRESTAU"][data-mode=force]');
   await p.fill('input[data-anon=extra]', 'port');
   await p.click('.anon-extra button[data-action=anon-run]');
-  await p.waitForSelector('.anon-chip[data-k="BOULANGERIE"][data-mode=keep]');
+  await p.waitForSelector('.anon-chip[data-k="FRESTAU"][data-mode=keep]');
   expect(await p.$('.anon-chip[data-k="PORT"][data-mode=keep]'), 'mot ajouté à la main : remplacé');
-  expect(!(await p.textContent('.anon-preview')).includes('BOULANGERIE'), 'mot conservé cliqué : remplacé');
+  expect(!(await p.textContent('.anon-preview')).includes('FRESTAU'), 'mot conservé cliqué : remplacé');
   await p.check('input[data-anon=ok]');
   await p.click('button[data-action=anon-download]'); await p.waitForSelector('#ask[open]');
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#ask button[type=submit]')]);
@@ -110,7 +132,7 @@ const balanced = (text) => {
   await dl.saveAs(O + name);
   const got = fs.readFileSync(O + name, 'utf8');
   expect(/^9\d{8}FEC20270831\.txt$/.test(name), 'nom du fichier téléchargé : SIREN fictif', name);
-  expect(!NAMES.some((w) => new RegExp(`\\b${w}\\b`).test(got)) && !/BOULANGERIE|\bPORT\b/.test(got), 'fichier téléchargé : ni nom de tiers, ni mots choisis');
+  expect(!NAMES.some((w) => new RegExp(`\\b${w}\\b`).test(got)) && !/FRESTAU|\bPORT\b/.test(got) && /\bCarburant\b/.test(got), 'fichier téléchargé : ni nom de client, ni mots choisis ; fournisseurs conservés');
   expect(balanced(got) === 0, 'fichier téléchargé : écritures équilibrées');
   await p.screenshot({ path: O + 'anonymiser.png', fullPage: true });
   // Effacer : plus rien en mémoire

@@ -809,3 +809,5 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .anon-extra label { flex: 1 1 260px; }
 .anon-preview td { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
 .anon-preview tbody tr { cursor: default; }
+.anon-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .5rem 1rem; margin: .25rem 0 .75rem; }
+.anon-modes .check input { width: 18px; height: 18px; }
