@@ -202,6 +202,7 @@ const actions = {
     anonRun();
   },
   'anon-word': (el) => anonToggle(el.dataset.k, el.dataset.mode),
+  'anon-name': (el) => anonForceName(el.dataset.name),
   'anon-download': () => anonDownload(),
   'anon-clear': () => { ui.anon = null; refresh(); },
   'batch-open': (el) => {

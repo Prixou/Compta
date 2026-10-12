@@ -55,6 +55,16 @@ function anonRun() {
   }, (err) => fail(err.message));
 }
 
+// Nom de client fait de mots courants (« CAFE DU PORT ») : tous ses mots sont à remplacer.
+function anonForceName(name) {
+  const st = anonState();
+  (name.match(/\p{L}+/gu) || []).filter((w) => w.length >= 2 && !/^(DE|DU|DES|LA|LE|LES|AU|AUX|ET|D|L)$/i.test(w))
+    .forEach((w) => { const k = w.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase(); st.force.add(k); st.keep.delete(k); });
+  st.dirty = true;
+  st.ok = false;
+  refresh();
+}
+
 // Un clic sur un mot : conservé → à remplacer, remplacé → à conserver (appliqué avec « Appliquer les modifications »).
 function anonToggle(k, mode) {
   const st = anonState();
@@ -84,8 +94,8 @@ function viewAnon() {
   const about = `<section class="card"><h2>${icon('shield')} Ce que fait l'anonymisation</h2>
       <p>Pour envoyer un FEC (support, mise au point de l'application sur de vrais fichiers) sans donnée permettant d'identifier le client ni ses propres clients. Le fichier est transformé <strong>sur cet appareil uniquement</strong> : il n'est ni envoyé ni conservé, et la correspondance entre les noms et les pseudonymes n'est jamais enregistrée (l'opération n'est pas réversible).</p>
       <ul>
-        <li><strong>Remplacé</strong> : les noms des clients (comptes 41, factures de vente, encaissements, TVA collectée), des salariés, associés et dirigeants (comptes 42 et 455, salaires, notes de frais), et du dossier lui-même (nom de sa fiche, et donneur d'ordre des virements Pennylane) ; toujours par le même pseudonyme, dans les libellés comme dans les n° de comptes auxiliaires.</li>
-        <li><strong>Toujours masqué</strong> : IBAN, téléphones, e-mails, sites, SIREN / SIRET et numéros longs, SIREN du nom de fichier.</li>
+        <li><strong>Remplacé</strong> : les noms des clients (comptes 41, factures de vente, encaissements, TVA collectée), des salariés, associés, dirigeants et exploitant (comptes 108, 42, 455, salaires, notes de frais), de toute personne repérée par un prénom ou une civilité (« M. », « Mme », « chantier », « SCI »…), et du dossier lui-même (nom de sa fiche, donneur d'ordre des virements Pennylane) ; toujours par le même pseudonyme, dans les libellés comme dans les n° de comptes. Une colonne ajoutée par le logiciel ou une ligne décalée est traitée strictement (tout mot hors vocabulaire comptable).</li>
+        <li><strong>Toujours masqué</strong> : IBAN, n° de carte, de sécurité sociale, plaques d'immatriculation, téléphones, e-mails, sites, SIREN / SIRET / RCS / n° de TVA intracommunautaire et numéros longs, SIREN du nom de fichier.</li>
         <li><strong>Conservé</strong> : la structure (colonnes, journaux, n° et dates des écritures, comptes, lettrage, n° de pièces et de factures), l'encodage, le séparateur et les fins de ligne, les noms des fournisseurs, et les montants (modifiables en option par un coefficient aléatoire, chaque écriture restant équilibrée).</li>
       </ul>
       <p class="muted small">Les libellés de paiement par carte citent souvent la ville du commerçant : avec l'activité, elle peut situer le dossier. Relisez la liste des mots conservés avant de télécharger et cliquez sur ceux à remplacer.</p>
@@ -121,6 +131,7 @@ function viewAnon() {
         ${kpiTile('Numéros masqués', n(masked))}
       </div>
       <p class="muted small">${whyTxt ? `Mots remplacés : ${esc(whyTxt)}. ` : ''}IBAN : ${R.stats.iban} · téléphones : ${R.stats.phone} · e-mails : ${R.stats.email} · sites : ${R.stats.url} · SIREN / SIRET : ${R.stats.siren} · numéros longs : ${R.stats.longnum}. ${R.siren ? `SIREN du nom de fichier remplacé par ${esc(R.fakeSiren)}.` : 'Nom de fichier sans SIREN : un SIREN fictif est utilisé.'} ${R.scale ? 'Montants multipliés par un coefficient aléatoire (non enregistré).' : 'Montants inchangés.'} Encodage ${esc(R.encoding)}, séparateur ${esc(R.sep)}, fins de ligne ${esc(R.eol)} (conservés).</p>
+      ${R.misaligned || R.strictCols.length ? `<p class="small">${R.misaligned ? `${n(R.misaligned)} ligne(s) au nombre de zones différent de l'en-tête` : ''}${R.misaligned && R.strictCols.length ? ' et ' : ''}${R.strictCols.length ? `colonne(s) hors norme (${esc(R.strictCols.join(', '))})` : ''} : traitées strictement, tout mot hors vocabulaire comptable remplacé.</p>` : ''}
       <p class="small">${st.dossier ? `Nom du dossier masqué d'après sa fiche : <strong>${esc(st.dossier)}</strong>. ` : 'Aucune fiche de dossier pour ce SIREN : ajoutez son nom (et son nom commercial) dans « Autres mots à remplacer ». '}${R.dossier ? `Donneur d'ordre des virements reconnu comme le dossier : <strong>${esc(R.dossier)}</strong>.` : ''}</p>
     </section>
     <section class="card">
@@ -131,6 +142,8 @@ function viewAnon() {
     <section class="card">
       <h2>Mots conservés à vérifier <span class="count">${R.keptOtherDistinct}</span></h2>
       <p class="muted small">Mots hors vocabulaire comptable laissés tels quels : fournisseurs, villes, références… <strong>Cliquez sur tout mot qui désigne un client, une personne de l'entreprise, le dossier ou sa ville</strong> pour le remplacer.${R.keptOther.length < R.keptOtherDistinct ? ` Les ${R.keptOther.length} plus fréquents sont affichés.` : ''}</p>
+      ${R.generic.length ? `<div class="banner warn anon-generic"><span><strong>${R.generic.length} client(s) ou personne(s) au nom fait de mots courants</strong>, laissé tel quel : cliquez sur un nom pour en remplacer tous les mots.</span></div>
+        <div class="anon-chips">${R.generic.map((g) => `<button class="anon-chip" data-action="anon-name" data-name="${esc(g)}">${esc(g)}</button>`).join('')}</div>` : ''}
       <div class="anon-chips">${otherChips.join('') || '<span class="muted">Aucun.</span>'}</div>
       <div class="anon-extra"><label>Autres mots à remplacer (séparés par des virgules)
         <input type="text" data-anon="extra" value="${esc(st.extra)}" placeholder="ex. : nom commercial, ville du dossier" spellcheck="false" autocomplete="off"></label>

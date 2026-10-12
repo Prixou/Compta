@@ -103,6 +103,77 @@ const balanced = (text) => {
     expect(balanced(x.text) === balanced(o) && x.report.lines === o.split(/\r?\n/).filter(Boolean).length - 1, `${f} : anonymisé, équilibre des écritures inchangé`, `${balanced(o)} → ${balanced(x.text)}`);
   });
 
+  // 1 bis. FEC « pire cas » (données inventées) : ACD, séparateur |, ISO-8859-15, CRLF, sans saut de ligne final, colonne ajoutée,
+  //        ligne décalée, ligne vide, comptes clients nominatifs, nom de deux lettres, salarié, associé, exploitant, indépendant,
+  //        chantier, identifiants de toute sorte.
+  const WH = 'JournalCode|JournalLib|EcritureNum|EcritureDate|CompteNum|CompteLib|CompAuxNum|CompAuxLib|PieceRef|PieceDate|EcritureLib|Debit|Credit|EcritureLet|DateLet|ValidDate|Montantdevise|Idevise|Commentaire';
+  const WL = (j, n, d, cpt, clib, aux, auxl, piece, lib, deb, cre, extra = '') => [j, { VE: 'Ventes', BQ: 'Banque CIC', AC: 'Achats', OD: 'Opérations diverses' }[j], n, d, cpt, clib, aux, auxl, piece, d, lib, deb, cre, '', '', d, '', '', extra].join('|');
+  const IBAN_S = 'FR76 3000 4000 0500 0012 3456 789';
+  const wrows = [
+    WL('VE', 1, '20250105', '411DUPON', 'Client DUPONT Jean-Marc', '', '', 'FA0001', 'Facture DUPONT Jean-Marc', '120,00', '0,00', 'Remarque : client fidèle M. Dupont'),
+    WL('VE', 1, '20250105', '706000', 'Prestations de services', '', '', 'FA0001', 'Facture DUPONT Jean-Marc', '0,00', '100,00'),
+    WL('VE', 1, '20250105', '445710', 'TVA collectée', '', '', 'FA0001', 'Facture DUPONT Jean-Marc', '0,00', '20,00'),
+    WL('VE', 2, '20250106', '411000', 'Clients', 'C0002', 'LI WEI', 'FA0002', 'Facture LI WEI', '60,00', '0,00'),
+    WL('VE', 2, '20250106', '706000', 'Prestations de services', '', '', 'FA0002', 'Facture LI WEI', '0,00', '60,00'),
+    WL('BQ', 3, '20250120', '512000', 'Banque CIC', '', '', 'R1', `VIR SEPA RECU /DE M OU MME DUPONT JEAN-MARC /MOTIF FA0001 /IBAN ${IBAN_S}`, '120,00', '0,00'),
+    WL('BQ', 3, '20250120', '411DUPON', 'Client DUPONT Jean-Marc', '', '', 'R1', `VIR SEPA RECU /DE M OU MME DUPONT JEAN-MARC /MOTIF FA0001 /IBAN ${IBAN_S}`, '0,00', '120,00'),
+    WL('BQ', 4, '20250121', '512000', 'Banque CIC', '', '', 'R2', 'VIR INST MME ROUSSEAU HÉLÈNE', '50,00', '0,00'),
+    WL('BQ', 4, '20250121', '471000', "Compte d'attente", '', '', 'R2', 'VIR INST MME ROUSSEAU HÉLÈNE', '0,00', '50,00'),
+    WL('AC', 5, '20250110', '401000', 'Fournisseurs', 'F0003', 'PLOMBERIE MARCEL BIDOCHON', 'P12', 'Facture plomberie M. BIDOCHON chantier VALMONT', '0,00', '240,00'),
+    WL('AC', 5, '20250110', '615000', 'Entretien et réparations', '', '', 'P12', 'Facture plomberie M. BIDOCHON chantier VALMONT', '240,00', '0,00'),
+    '',
+    WL('BQ', 6, '20250131', '421000', 'Rémunérations dues', '', '', 'S1', 'VIR SALAIRE JANVIER KEVIN TARTEMPION', '1500,00', '0,00'),
+    WL('BQ', 6, '20250131', '512000', 'Banque CIC', '', '', 'S1', 'VIR SALAIRE JANVIER KEVIN TARTEMPION', '0,00', '1500,00'),
+    WL('BQ', 7, '20250201', '512000', 'Banque CIC', '', '', 'A1', 'Apport en compte courant GRANDJEAN', '5000,00', '0,00'),
+    WL('BQ', 7, '20250201', '455100', 'Compte courant M. GRANDJEAN', '', '', 'A1', 'Apport en compte courant GRANDJEAN', '0,00', '5000,00'),
+    WL('BQ', 8, '20250203', '108000', "Compte de l'exploitant", '', '', 'E1', 'Prélèvement personnel ZEBULON', '300,00', '0,00'),
+    WL('BQ', 8, '20250203', '512000', 'Banque CIC', '', '', 'E1', 'Prélèvement personnel ZEBULON', '0,00', '300,00'),
+    WL('BQ', 9, '20250206', '626000', 'Télécommunications', '', '', 'T1', 'PRLV ORANGE TEL 06.12.34.56.78 REF 0612345678 jean.dupont@gmail.com dupont-btp.fr', '45,00', '0,00'),
+    WL('BQ', 9, '20250206', '512000', 'Banque CIC', '', '', 'T1', 'SIRET 812 345 678 00012 RCS NIMES 812 345 678 TVA INTRA FR32812345678', '0,00', '45,00'),
+    WL('BQ', 10, '20250207', '625100', 'IK GERANT - GRANDJEAN PAUL', '', '', 'H1', 'CARTE 4970 1234 5678 9012 NIR 1 85 05 78 006 084 36 PEAGE AB-123-CD +32 470 12 34 56', '100,00', '0,00'),
+    WL('BQ', 10, '20250207', '512000', 'Banque CIC', '', '', 'H1', 'iban fr76 3000 4000 0500 0012 3456 789 et FR7630004000050000123456789', '0,00', '100,00'),
+    WL('BQ', 11, '20250208', '627000', 'Services bancaires', '', '', 'B1', 'Frais | DURANDAL rectif', '5,00', '0,00'),
+  ];
+  const wtext = WH + '\r\n' + wrows.join('\r\n');
+  const wbuf = Buffer.from(Array.from(wtext).map((ch) => ch.charCodeAt(0)));
+  const rw = anonymize(wbuf.buffer.slice(wbuf.byteOffset, wbuf.byteOffset + wbuf.length), '812345678FEC20251231.txt', { seed: 9, own: ['SARL BOULANGERIE GRANDJEAN'] });
+  const wout = new TextDecoder('iso-8859-15').decode(Buffer.from(rw.bytes));
+  const SECRETS = ['DUPONT', 'DUPON', 'Dupont', 'dupont', 'WEI', 'ROUSSEAU', 'HÉLÈNE', 'BIDOCHON', 'MARCEL', 'KEVIN', 'TARTEMPION', 'GRANDJEAN', 'ZEBULON', 'VALMONT',
+    'DURANDAL', 'fidèle', 'gmail', '06.12.34.56.78', '0612345678', '812 345 678', '81234567800012', 'FR32812345678', '4970 1234 5678 9012', '1 85 05 78 006 084 36',
+    'AB-123-CD', '+32 470 12 34 56', '3000 4000 0500 0012 3456 789', 'FR7630004000050000123456789'];
+  const leaks = SECRETS.filter((x) => wout.includes(x)).concat(/(^|[^A-Za-z])LI([^A-Za-z]|$)/.test(wout) ? ['LI'] : []);
+  console.log('pire cas :', wout.split('\r\n').slice(1, 8).map((l) => l.split('|')[10]).join(' ¦ '));
+  expect(!leaks.length, 'pire cas : aucune donnée sensible (noms, nom de 2 lettres, chantier, IBAN, carte, NIR, plaque, téléphones, SIRET, e-mail)', leaks.join(', '));
+  const wa = wtext.split('\r\n'), wb = wout.split('\r\n');
+  expect(wa.length === wb.length && wa.every((l, i) => l.split('|').length === wb[i].split('|').length), 'pire cas : mêmes lignes (ligne vide comprise) et même nombre de zones par ligne');
+  expect(wa.every((l, i) => l.split('|').length !== 19 || l.split('|').slice(11, 13).join() === wb[i].split('|').slice(11, 13).join()), 'pire cas : montants inchangés');
+  expect(rw.report.encoding === 'ISO-8859-15' && !wout.endsWith('\r\n') && /Rémunérations dues/.test(wout), 'pire cas : ISO-8859-15, CRLF, pas de saut de ligne final, accents conservés');
+  expect(rw.report.misaligned === 1 && rw.report.strictCols.join() === 'Commentaire', 'pire cas : ligne décalée et colonne hors norme traitées strictement');
+  expect(/\/MOTIF FA0001 \/IBAN/.test(wout) && /Apport en compte courant/.test(wout) && /PRLV ORANGE TEL/.test(wout), 'pire cas : vocabulaire bancaire et fournisseur national conservés');
+  // Officine : organismes conservés (détection du profil), patient remplacé ; client au nom générique signalé
+  const ph = fs.readFileSync(D + '222222222FEC20251231.txt');
+  const rph = anonymize(ph.buffer.slice(ph.byteOffset, ph.byteOffset + ph.length), '222222222FEC20251231.txt', { seed: 2 });
+  expect(/CPAM DU /.test(rph.text) && /HARMONIE MUTUELLE/.test(rph.text) && /\bMGEN\b/.test(rph.text) && !/DUPONT JEAN/.test(rph.text), 'officine : CPAM, mutuelles conservées, patient remplacé');
+  const g4 = fs.readFileSync(D + '444444444FEC20251231.txt');
+  const rg = anonymize(g4.buffer.slice(g4.byteOffset, g4.byteOffset + g4.length), '444444444FEC20251231.txt', { seed: 2 });
+  expect(rg.report.generic.includes('CAFE DU PORT'), 'client au nom fait de mots courants signalé', JSON.stringify(rg.report.generic));
+  // Analyse identique avant et après anonymisation, sur tous les FEC de test
+  const RE_AMO = /cpam|msa|caisse prim|securite sociale/, RE_AMC = /mutuel|harmonie|mgen|almerys|viamedis|axa|allianz|malakoff/;
+  const summary = (x) => JSON.stringify({ checks: x.checks.map((c) => c.id + c.level + c.count), e: x.meta.entries, l: x.meta.lines, a: x.meta.accounts,
+    num: x.cycles ? x.cycles.clients.numbering.map((g) => g.count + ':' + g.missing) : 0, att: x.pieces.attente.map((l) => !!l.sug), inv: Object.keys(x.invIdx || {}).length,
+    aging: x.aging.map((t) => { const z = (t.lib + ' ' + (t.clib || '')).toLowerCase(); return RE_AMO.test(z) ? 'o' : RE_AMC.test(z) ? 'c' : 'p'; }).sort().join(''),
+    mis: x.misposted ? [x.misposted['401'].length, x.misposted['411'].length] : 0, kpi: x.kpi, alerts: (x.alerts || []).map((y) => y.label + (y.examples || []).length),
+    perso: x.cycles ? [x.cycles.charges.perso.n, x.cycles.charges.amendes.n, x.cycles.treso.cash.n] : 0 });
+  const diffs = [];
+  ['123456789FEC20251231.txt', '222222222FEC20251231.txt', '444444444FEC20251231-imput.txt', '555555555FEC20251231.txt', '666666666FEC20251231.txt', '777777777FEC20251231.txt',
+    '888888888FEC20261231.txt', '900000009FEC20270831.txt', 'situ/444444444FEC20261231.txt'].forEach((f) => {
+    const b = fs.readFileSync(D + f);
+    const x = anonymize(b.buffer.slice(b.byteOffset, b.byteOffset + b.length), path.basename(f), { seed: 4242 });
+    const dec = (t) => (x.report.encoding.startsWith('ISO') ? Buffer.from(t).toString('latin1') : Buffer.from(t).toString('utf8'));
+    if (summary(analyse(dec(b), path.basename(f))) !== summary(analyse(dec(x.bytes), path.basename(f)))) diffs.push(f);
+  });
+  expect(!diffs.length, 'analyse identique avant et après anonymisation sur 9 FEC de test (ACD, Pennylane, officines, imputations, situation)', diffs.join(', '));
+
   // 2. Page « Anonymiser un FEC »
   const br = await chromium.launch();
   const p = await (await br.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', acceptDownloads: true })).newPage();

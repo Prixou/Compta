@@ -117,7 +117,14 @@ CERP OCP ALLIANCE HEALTHCARE PHOENIX ASTERA GIPHAR GIROPHARM LEADER BIOGARAN SAN
 ZENTIVA BOIRON AMENDE CONTRAVENTION ANTAI VERBAL PROCES MAJORATION RETARD HEBERGEMENT NUITEE NUITEES VOITURE VOITURES LEASING
 LLD LOA FIOUL GPL STOCKABLE STOCKABLES ETC INV INVOICE CREDIT NOTE TRANSFER PAYMENT FEES SIRET SIREN TEL FAX PORTABLE EMAIL MAIL
 COURRIEL CONTACT WWW HTTP HTTPS VIE IARD DECES INCENDIE ACCIDENT ACCIDENTS RESPONSABILITE CIVILE DECENNALE FLOTTE RCUR FRST OOFF
-FNAL CORE
+FNAL CORE MOTIF IBAN BIC EMETTEUR BENEFICIAIRE DONNEUR ORDRE OBJET LIBELLE COMMUNICATION APPORT APPORTS REMARQUE REMARQUES COMMENTAIRE
+COMMENTAIRES OBSERVATION RECTIF RECTIFICATIF BRUT CONSULTATION CONSULTATIONS ACTE SOINS SOIN SEANCE SEANCES CHANTIER CHANTIERS
+PLOMBERIE MENUISERIE MACONNERIE PEINTURE CHAUFFAGE CARRELAGE TOITURE TOITURES COUVERTURE ZINGUERIE CHARPENTE SERRURERIE VITRERIE
+JARDINAGE PAYSAGE BOUCHERIE CHARCUTERIE PATISSERIE FLEURISTE IMPRIMERIE CONSEIL AUDIT ARCHITECTE NOTAIRE AVOCAT HUISSIER
+GEOMETRE DIAGNOSTIC AMBULANCE ECOLE ELECTRICIEN PLOMBIER MENUISIER MACON PEINTRE COUVREUR COIFFEUR TRANSPORTS DEMENAGEMENT
+LOCATAIRE PROPRIETAIRE FAMILLE SUCCESSION INDIVISION EPOUX CONSORTS VEUVE
+PRIMAIRE MUTUALITE REGIME OBLIGATOIRE SECU CNMSS CAMIEG ENIM CAVIMAC CNAM NATIONALE MALADIE COMPLEMENTAIRE VIAMEDIS ALMERYS
+SANTECLAIR ISANTE MGEN APICIL SWISS MNH CETIP ACTIL SEVEANE KALIVIA ITELIS UNEO MNT MFP PARTICULIER PARTICULIERS ARDOISE COMPTOIR
 `.split(/\s+/).filter(Boolean));
 
 // ---------- Utilitaires ----------
@@ -133,16 +140,30 @@ function decode(buffer) {
 }
 // ISO-8859-15 : Latin-1, sauf huit positions (€, Š, š, Ž, ž, Œ, œ, Ÿ).
 const LATIN9 = { 0x20ac: 0xa4, 0x160: 0xa6, 0x161: 0xa8, 0x17d: 0xb4, 0x17e: 0xb8, 0x152: 0xbc, 0x153: 0xbd, 0x178: 0xbe };
+const LATIN9_OUT = (() => {
+  const t = new Int16Array(65536).fill(0x3f);
+  for (let c = 0; c < 256; c++) t[c] = c;
+  [0xa4, 0xa6, 0xa8, 0xb4, 0xb8, 0xbc, 0xbd, 0xbe].forEach((c) => { t[c] = 0x3f; });
+  Object.entries(LATIN9).forEach(([u, b]) => { t[Number(u)] = b; });
+  return t;
+})();
 function encode(text, encoding, bom) {
-  if (encoding !== 'ISO-8859-15') return new TextEncoder().encode((bom ? '﻿' : '') + text);
+  if (encoding !== 'ISO-8859-15') return new TextEncoder().encode((bom ? '\ufeff' : '') + text);
   const out = new Uint8Array(text.length);
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i);
-    out[i] = LATIN9[c] || (c < 256 && ![0xa4, 0xa6, 0xa8, 0xb4, 0xb8, 0xbc, 0xbd, 0xbe].includes(c) ? c : 0x3f);
-  }
+  for (let i = 0; i < text.length; i++) out[i] = LATIN9_OUT[text.charCodeAt(i)];
   return out;
 }
-const keyOf = (w) => w.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+// Clé d'un mot (majuscules, sans accents) ; les mots reviennent des milliers de fois : résultat mis en cache.
+const KEY_CACHE = new Map();
+function keyOf(w) {
+  let k = KEY_CACHE.get(w);
+  if (k === undefined) {
+    k = /^[\x00-\x7f]*$/.test(w) ? w.toUpperCase() : w.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+    if (KEY_CACHE.size > 300000) KEY_CACHE.clear();
+    KEY_CACHE.set(w, k);
+  }
+  return k;
+}
 
 // Générateur pseudo-aléatoire initialisé par une graine (mulberry32) : mêmes pseudonymes pour une même graine.
 function prng(seed) {
@@ -156,21 +177,58 @@ function prng(seed) {
   };
 }
 
-// Comptes de personnes physiques : personnel (421 à 427), associés et groupe (455 à 458), débiteurs et créditeurs divers (467).
-const RE_PERSON_ACC = /^(42[1-7]|45[5-8]|467)/;
+// Comptes de personnes physiques : compte de l'exploitant (108), personnel (421 à 427), associés et groupe (455 à 458),
+// débiteurs et créditeurs divers (467).
+const RE_PERSON_ACC = /^(108|42[1-7]|45[5-8]|467)/;
 // Libellés de comptes ou d'écritures qui désignent une personne : gérant, associé, salaire, note de frais, indemnités kilométriques…
-const RE_PERSON_LIB = /\b(GERANT|GERANTE|ASSOCIE|ASSOCIEE|DIRIGEANT|PRESIDENT|PRESIDENTE|SALARIE|SALARIEE|EXPLOITANT|SALAIRE|SALAIRES|PAIE|NDF|NOTES? DE FRAIS|IK|INDEMNITES? KILOMETRIQUES?|REMBOURSEMENT FRAIS)\b/;
-const REASONS = { client: 'client', vente: 'vente', encaissement: 'encaissement', personne: 'personne', dossier: 'dossier', manuel: 'ajouté', autre: 'hors dictionnaire' };
+const RE_PERSON_LIB = /\b(GERANT|GERANTE|ASSOCIE|ASSOCIEE|DIRIGEANT|PRESIDENT|PRESIDENTE|SALARIE|SALARIEE|EXPLOITANT|SALAIRE|SALAIRES|PAIE|NDF|NOTES? DE FRAIS|IK|INDEMNITES? KILOMETRIQUES?|REMBOURSEMENT FRAIS|REMUNERATIONS?|STAGIAIRE|GRATIFICATION)\b/;
+// Comptes nommés d'après un salarié (« MUTUELLE - DUPONT JEAN »)
+const RE_PERSON_CLIB = /\bMUTUELLE\b/;
+const REASONS = { client: 'client', vente: 'vente', encaissement: 'encaissement', personne: 'personne', prenom: 'personne (prénom ou civilité)', dossier: 'dossier', manuel: 'ajouté', autre: 'hors dictionnaire', strict: 'colonne ou ligne non standard' };
+// Mots de deux lettres toujours conservés ; les autres (« LI », « NG »…) sont protégés dans un nom de client ou de personne.
+const SHORT_KEEP = new Set('DE DU LA LE LES EN ET AU UN SA SC SE SL SN ST OU ON NO NR MR ME MM DR CB HT TT BD AV RD CH CE CI IL CA CR DB EI AN IK SS VS PC PJ RE TP TV VO VP VU AR BP BQ CP CV EP FA FC FV GE KM LD MS NB PB PV PS RC RT SG SP TC TR VT VE OD AC HA'.split(' '));
+// Prénoms courants : un prénom désigne une personne ; il est remplacé avec les mots voisins qui ne sont pas du vocabulaire
+// (« VIR INST DE M STEPHANE DURAND » : STEPHANE et DURAND).
+const FIRST_NAMES = new Set(`
+JEAN PIERRE MICHEL ANDRE PHILIPPE RENE LOUIS ALAIN JACQUES BERNARD MARCEL DANIEL ROGER ROBERT PAUL CLAUDE CHRISTIAN HENRI
+GEORGES NICOLAS FRANCOIS PATRICK GERARD CHRISTOPHE JOSEPH JULIEN MAURICE LAURENT FREDERIC ERIC DAVID STEPHANE PASCAL SEBASTIEN
+ALEXANDRE THIERRY OLIVIER THOMAS ANTOINE RAYMOND GUY DOMINIQUE YVES VINCENT MARC CHARLES FRANCK GUILLAUME JEROME DIDIER BRUNO
+SERGE MAXIME LUCAS HUGO ROMAIN GILLES ANTHONY CEDRIC LUC FABRICE EMMANUEL FABIEN QUENTIN KEVIN MATHIEU MATTHIEU BENJAMIN
+JONATHAN CYRIL LUDOVIC ARNAUD ALBERT LEON EMILE LUCIEN GABRIEL RAPHAEL ARTHUR JULES ADAM ETHAN NATHAN NOAH LEO TOM THEO MAEL
+SACHA ENZO MATHIS TIMEO NOLAN EVAN AXEL ALEXIS CLEMENT CORENTIN DYLAN FLORIAN GAETAN JORDAN LOIC MICKAEL MIKAEL MICHAEL REMI
+SIMON VICTOR VALENTIN XAVIER YANN YANNICK HERVE GREGORY JEREMY JOHAN KARIM MEHDI MOHAMED MOHAMMED AHMED ALI YOUSSEF RACHID
+SAMIR KAMEL NABIL OMAR HAMID FARID SOFIANE BILAL AYOUB ABDEL ABDELKADER MUSTAPHA GILBERT ROLAND BAPTISTE TRISTAN BASTIEN
+DAMIEN ADRIEN AURELIEN BENOIT BORIS CHRISTOPHER ERWAN GAEL JEREMIE JOEL JOHNNY LIONEL MANUEL MARTIAL NOEL OLIVER PATRICE
+RODOLPHE STEVEN SYLVAIN TONY WILLIAM GABIN MARIUS AUGUSTIN LOUKA ROBIN ANDY ARMAND EDOUARD EMILIEN ETIENNE FERNAND GASTON
+MARIE NATHALIE ISABELLE SYLVIE CATHERINE FRANCOISE MARTINE CHRISTINE MONIQUE NICOLE VALERIE SANDRINE STEPHANIE SOPHIE CELINE
+VERONIQUE CHANTAL NADINE PATRICIA AURELIE JULIE CAROLINE CORINNE LAURENCE EMILIE ELODIE CLAIRE ANNE SUZANNE JEANNE JACQUELINE
+DENISE MICHELE COLETTE BRIGITTE DANIELLE GHISLAINE JOSIANE EVELYNE ANNIE ODILE PASCALE AGNES BEATRICE FLORENCE HELENE LAETITIA
+AUDREY MELANIE SEVERINE VIRGINIE KARINE MAGALI CHARLOTTE CAMILLE MANON LEA CHLOE EMMA INES JADE LOUISE ALICE LINA ANNA MIA
+AMBRE JULIA ZOE LOLA MAEVA OCEANE MARGAUX CLARA LUCIE PAULINE MATHILDE MORGANE ANAIS LAURA SARAH ELISE ELISA ELENA ADELE
+AGATHE ALINE AMELIE ANGELIQUE ARIANE BERNADETTE CAROLE CECILE CLAUDINE DELPHINE ESTELLE FANNY GAELLE GENEVIEVE GERALDINE
+HELOISE JOELLE JOSETTE JUSTINE LILIANE LYDIE MADELEINE MARCELLE MARIANNE MARION MARYSE MAUD MICHELINE MIREILLE MURIEL MYRIAM
+NOEMIE ODETTE PAULETTE PERRINE RAYMONDE REGINE SABINE SANDRA SIMONE SOLENE SYLVIANE THERESE VANESSA YVETTE YVONNE FATIMA AICHA
+KHADIJA NADIA SAMIA LEILA YASMINE SONIA KARIMA MALIKA CLAUDETTE GISELE HUGUETTE LUCIENNE GERMAINE ANDREE RENEE ELISABETH
+ELIZABETH ANNABEL ANNABELLE CARMEN FRANCETTE FRANCINE BEATRIX LOUISETTE ALEXANDRA ANGELE AUDE CINDY CORALIE ELSA EMELINE EVA
+FLAVIE GABRIELLE IRENE JESSICA JOCELYNE KATIA LAURE LOUNA LUNA MAELYS NOLWENN OPHELIE ROSALIE SALOME SEGOLENE TIPHAINE VIOLETTE
+`.split(/\s+/).filter((w) => w && !KEEP.has(w)));
+const isAlpha = (t) => /^\p{L}+$/u.test(t);
+// Mots qui annoncent une personne ou un client : civilité, chantier, client, patient… Les mots suivants hors vocabulaire
+// (jusqu'à trois) sont protégés (« M. DUPONT », « MME ROUSSEAU HELENE », « chantier VALMONT », « SCI DUPONT »).
+const ARTICLES = new Set('D L DE DU DES LA LE LES AU AUX ET'.split(' '));
+const TITLES = new Set('M MR MME MLLE MM MONSIEUR MADAME MADEMOISELLE DR DOCTEUR ME MAITRE PR EI SCI CHANTIER CHANTIERS CLIENT CLIENTE PATIENT PATIENTE LOCATAIRE PROPRIETAIRE FAMILLE SUCCESSION INDIVISION EPOUX CONSORTS VEUVE VVE'.split(' '));
 
 function anonymizeFec(buffer, fileName, opts) {
   const seed = opts.seed !== undefined ? opts.seed : (self.crypto ? self.crypto.getRandomValues(new Uint32Array(1))[0] : Date.now());
   const rnd = prng(seed);
   const pick = (s) => s[Math.floor(rnd() * s.length)];
   const all = opts.mode === 'all';
+  const persons = opts.persons !== false;
   const force = new Set((opts.force || []).map(keyOf));
   const keepUser = new Set((opts.keep || []).map(keyOf));
   const { text, encoding, bom } = decode(buffer);
   const eol = /\r\n/.test(text.slice(0, 5000)) ? '\r\n' : '\n';
+  const finalEol = /\n$/.test(text);
   const lines = text.split(/\r?\n/);
   while (lines.length && !lines[lines.length - 1]) lines.pop();
   if (!lines.length) throw new Error('Fichier vide.');
@@ -180,15 +238,23 @@ function anonymizeFec(buffer, fileName, opts) {
   const counts = { '\t': headerLine.split('\t').length - 1, '|': headerLine.split('|').length - 1, ';': headerLine.split(';').length - 1 };
   const sep = counts['\t'] ? '\t' : counts['|'] ? '|' : counts[';'] ? ';' : null;
   if (!sep) throw new Error("Impossible de lire l'en-tête : le fichier ne semble pas être un FEC (séparateur tabulation ou « | » attendu).");
-  const header = headerLine.split(sep).map((h) => h.trim());
+  const header = headerLine.split(sep).map((h) => h.trim().replace(/^"(.*)"$/, '$1'));
   const col = (name) => header.findIndex((h) => h.toLowerCase() === name.toLowerCase());
   const C = {};
   ['JournalCode', 'JournalLib', 'EcritureNum', 'CompteNum', 'CompteLib', 'CompAuxNum', 'CompAuxLib', 'PieceRef', 'EcritureLib', 'Debit', 'Credit',
     'Montant', 'Sens', 'Montantdevise', 'Idevise', 'ModeRglt', 'NatOp', 'IdClient'].forEach((k) => { C[k] = col(k); });
   if (C.CompteNum < 0 || C.EcritureLib < 0) throw new Error("Colonnes CompteNum ou EcritureLib absentes : ce fichier n'est pas un FEC.");
-  // Colonnes de texte libre (noms) et de codes (comptes) ; les autres (dates, n°, lettrage, devise) sont conservées
-  const TEXT = ['JournalLib', 'CompteLib', 'CompAuxLib', 'PieceRef', 'EcritureLib', 'ModeRglt', 'NatOp', 'IdClient'].map((k) => C[k]).filter((i) => i >= 0);
-  const CODE = ['CompteNum', 'CompAuxNum'].map((k) => C[k]).filter((i) => i >= 0);
+  // Colonnes : codes (journal, comptes), données sans texte libre (dates, n°, montants, lettrage, devise) conservées telles
+  // quelles, texte réglementaire (libellés) ; toute autre colonne (ajoutée par le logiciel) est traitée strictement.
+  const NUMERIC = new Set(['ecriturenum', 'ecrituredate', 'piecedate', 'debit', 'credit', 'montant', 'sens', 'ecriturelet', 'datelet', 'validdate', 'montantdevise', 'idevise', 'daterglt']);
+  const KNOWN_TEXT = new Set(['journallib', 'comptelib', 'compauxlib', 'pieceref', 'ecriturelib', 'modereglt', 'natop', 'idclient']);
+  const CODE = ['JournalCode', 'CompteNum', 'CompAuxNum'].map((k) => C[k]).filter((i) => i >= 0);
+  const TEXT = [], STRICT = [];
+  header.forEach((h, i) => {
+    const k = h.toLowerCase();
+    if (CODE.includes(i) || NUMERIC.has(k)) return;
+    (KNOWN_TEXT.has(k) ? TEXT : STRICT).push(i);
+  });
   const RE_WORD = /\p{L}+/gu;
 
   // SIREN du dossier (nom du fichier) : remplacé partout, y compris dans les SIRET cités dans les libellés
@@ -206,14 +272,22 @@ function anonymizeFec(buffer, fileName, opts) {
   const rows = [];
   const entries = new Map(); // écriture → { rows: [index], d, c, od, oc, big, bigAmt }
   const seen = new Set(); // tous les mots du fichier : un pseudonyme n'en reprend jamais un
+  let misaligned = 0;
+  const seenStr = new Set();
+  const gather = (t) => {
+    if (!t || seenStr.has(t)) return;
+    seenStr.add(t);
+    const ws = t.match(RE_WORD);
+    if (ws) for (const w of ws) if (w.length >= 2) seen.add(keyOf(w));
+  };
+  const WORDCOLS = TEXT.concat(CODE, STRICT);
   for (let i = 1; i < lines.length; i++) {
     const f = lines[i].split(sep);
     rows.push(f);
     if (!lines[i]) continue;
-    for (const c of TEXT.concat(CODE)) {
-      const ws = f[c] && f[c].match(RE_WORD);
-      if (ws) for (const w of ws) if (w.length >= 3) seen.add(keyOf(w));
-    }
+    // Ligne au nombre de zones différent de l'en-tête (séparateur dans un libellé…) : traitée strictement, zone par zone
+    if (f.length !== header.length) { f._strict = true; misaligned++; f.forEach(gather); continue; }
+    for (const c of WORDCOLS) gather(f[c]);
     let d, c;
     if (montantSens) {
       const v = parseAmt(f[C.Montant]) || 0;
@@ -230,38 +304,52 @@ function anonymizeFec(buffer, fileName, opts) {
 
   // ---------- Mots à protéger (noms des clients, des personnes, du dossier) ----------
   const protect = new Map(); // clé → motif
-  const addWords = (s, why) => {
+  // `short` : mots de deux lettres protégés aussi (nom de client ou de personne) ; `alpha` : seulement les mots entiers
+  // (n° de pièce : « FACT DUPONT » oui, référence aléatoire « 7NLQCMCRNE » non).
+  const added = new Set(); // (motif, options, texte) déjà traités : les libellés reviennent sur plusieurs lignes
+  const addWords = (s, why, o) => {
     if (!s) return;
-    const ws = s.match(RE_WORD);
-    if (ws) for (const w of ws) {
+    const ak = why + (o ? (o.short ? 's' : '') + (o.alpha ? 'a' : '') : '') + '\u0001' + s;
+    if (added.has(ak)) return;
+    added.add(ak);
+    const toks = o && o.alpha ? s.split(/[\s\-_/.,;:()'"]+/).filter(isAlpha) : s.match(RE_WORD);
+    if (toks) for (const w of toks) {
       const k = keyOf(w);
-      if (k.length >= 3 && !KEEP.has(k) && !protect.has(k)) protect.set(k, why);
+      if ((k.length >= 3 || (o && o.short && k.length === 2 && !SHORT_KEEP.has(k))) && !KEEP.has(k) && !protect.has(k)) protect.set(k, why);
     }
   };
   const acc = (f) => f[C.CompteNum] || '';
-  // 1. Comptes de clients et de personnes : nom du compte, du compte auxiliaire (et lettres de son n°), libellé des lignes
-  rows.forEach((f) => {
+  const lib = (f) => f[C.EcritureLib] || '';
+  const valid = rows.filter((f) => !f._strict && !(f.length === 1 && !f[0]));
+  const plCache = new Map();
+  const personLib = (l) => { let v = plCache.get(l); if (v === undefined) { v = RE_PERSON_LIB.test(keyOf(l)); plCache.set(l, v); } return v; };
+  // 1. Comptes de clients et de personnes : n° et nom du compte, du compte auxiliaire, libellé des lignes ; client BNC (IdClient)
+  valid.forEach((f) => {
     const a = acc(f);
     const why = /^41/.test(a) ? 'client' : RE_PERSON_ACC.test(a) ? 'personne' : '';
-    if (why) [C.CompteLib, C.CompAuxLib, C.CompAuxNum, C.EcritureLib].forEach((i) => { if (i >= 0) addWords(f[i], why); });
-    else if (C.CompAuxLib >= 0 && f[C.CompAuxLib] && /^4/.test(a) && !/^40/.test(a)) addWords(f[C.CompAuxLib], 'client'); // autre compte de tiers avec auxiliaire
-    // Compte ou libellé qui désigne une personne (« IK GERANT - … », « SALAIRE … », « NOTE DE FRAIS … »)
+    if (why) {
+      [C.CompteNum, C.CompAuxNum, C.EcritureLib].forEach((i) => { if (i >= 0) addWords(f[i], why); });
+      [C.CompteLib, C.CompAuxLib].forEach((i) => { if (i >= 0) addWords(f[i], why, { short: true }); });
+    } else if (C.CompAuxLib >= 0 && f[C.CompAuxLib] && /^4/.test(a) && !/^40/.test(a)) addWords(f[C.CompAuxLib], 'client', { short: true }); // autre compte de tiers avec auxiliaire
+    if (C.IdClient >= 0) addWords(f[C.IdClient], 'client', { short: true });
+    // Comptes de produits nommés d'après un client (« 706DUPONT », « Ventes mairie de … »)
+    if (/^70/.test(a)) { addWords(a, 'vente'); addWords(f[C.CompteLib], 'vente'); }
     // TVA collectée et produits constatés d'avance : libellés des ventes et des règlements clients (Pennylane : virement de
-    // la TVA sur encaissements au libellé du règlement), y compris dans les à-nouveaux
-    if (/^(4457|487)/.test(a)) addWords(f[C.EcritureLib], 'vente');
-    if (C.CompteLib >= 0 && RE_PERSON_LIB.test(keyOf(f[C.CompteLib] || ''))) addWords(f[C.CompteLib], 'personne');
-    if (RE_PERSON_LIB.test(keyOf(f[C.EcritureLib] || ''))) addWords(f[C.EcritureLib], 'personne');
+    // la TVA sur encaissements au libellé du règlement), y compris dans les à-nouveaux ; encaissements en attente (crédit 47)
+    if (/^(4457|487)/.test(a) || (/^47/.test(a) && f._c > 0)) addWords(lib(f), /^47/.test(a) ? 'encaissement' : 'vente');
+    // Compte ou libellé qui désigne une personne (« IK GERANT - … », « SALAIRE … », « NOTE DE FRAIS … », « MUTUELLE - … »)
+    const cl = keyOf(f[C.CompteLib] || '');
+    if (C.CompteLib >= 0 && (RE_PERSON_LIB.test(cl) || RE_PERSON_CLIB.test(cl))) addWords(f[C.CompteLib], 'personne', { short: true });
+    if (personLib(lib(f))) addWords(lib(f), 'personne');
   });
-  // 2. Écritures de vente (produits), d'encaissement (banque débitée en contrepartie d'un client, d'un compte d'attente, d'un
-  //    produit ou d'une personne) et de personnes : tout le libellé (nom du client ou du payeur, désignation de la vente)
-  //    Encaissement et personne : seules les lignes concernées et celles qui portent le même libellé (la ligne de banque),
-  //    pour ne pas protéger les paiements aux fournisseurs d'un relevé saisi en une seule écriture (ACD).
-  const lib = (f) => f[C.EcritureLib] || '';
+  // 2. Écritures de vente (produits) : tous les libellés et n° de pièce. Encaissement (banque débitée en contrepartie d'un
+  //    client, d'un compte d'attente, d'un produit) et personne : seules les lignes concernées et celles qui portent le même
+  //    libellé (la ligne de banque), pour ne pas protéger les paiements aux fournisseurs d'un relevé saisi en une écriture (ACD).
   entries.forEach((e) => {
     const fs = e.rows.map((i) => rows[i]);
     const accs = fs.map(acc);
     if (accs.some((a) => /^70/.test(a)) || (accs.some((a) => /^41/.test(a)) && accs.some((a) => /^7/.test(a)))) {
-      fs.forEach((f) => { addWords(lib(f), 'vente'); if (C.PieceRef >= 0) addWords(f[C.PieceRef], 'vente'); });
+      fs.forEach((f) => { addWords(lib(f), 'vente'); if (C.PieceRef >= 0) addWords(f[C.PieceRef], 'vente', { alpha: true }); });
       return;
     }
     const bankIn = fs.some((f) => /^5[1-3]/.test(acc(f)) && f._d > 0);
@@ -273,13 +361,51 @@ function anonymizeFec(buffer, fileName, opts) {
     });
     if (hit.size) fs.forEach((f) => { const w = hit.get(lib(f)); if (w) addWords(lib(f), w); });
   });
-  // 3. Le dossier lui-même : nom de la fiche (transmis par la page) et, dans les libellés bancaires détaillés (Pennylane),
+  // 3. Personnes repérées par un prénom, n'importe où (fournisseurs indépendants, chantiers, virements…) : le prénom et
+  //    les mots voisins hors vocabulaire (le nom de famille).
+  const firstNames = new Map(); // prénom → [occurrences, exemple]
+  if (persons) {
+    const scanned = new Set();
+    const scan = (s) => {
+      if (!s || scanned.has(s)) return;
+      scanned.add(s);
+      const toks = s.split(/[^\p{L}]+/u).filter(Boolean);
+      toks.forEach((t, i) => {
+        const k = keyOf(t);
+        if (!FIRST_NAMES.has(k)) return;
+        const x = firstNames.get(k) || [0, s.slice(0, 90)];
+        x[0]++;
+        firstNames.set(k, x);
+        if (!protect.has(k)) protect.set(k, 'prenom');
+        [toks[i - 1], toks[i + 1]].forEach((n) => {
+          if (!n) return;
+          const nk = keyOf(n);
+          if (nk.length >= 2 && !KEEP.has(nk) && !SHORT_KEEP.has(nk) && !TITLES.has(nk) && !protect.has(nk)) protect.set(nk, 'prenom');
+        });
+      });
+      // Après une civilité ou un mot qui annonce une personne : les mots hors vocabulaire qui suivent (jusqu'à trois)
+      const words = s.split(/[\s,;:()'"/]+/).filter(Boolean);
+      words.forEach((t, i) => {
+        if (!TITLES.has(keyOf(t.replace(/\.$/, '')))) return;
+        for (let j = i + 1, n = 0; j < words.length && n < 3; j++) {
+          const w = words[j].replace(/\.$/, '');
+          const k = keyOf(w);
+          if (TITLES.has(k) || SHORT_KEEP.has(k) || ARTICLES.has(k)) continue;
+          if (!/^\p{L}+(?:-\p{L}+)*$/u.test(w) || KEEP.has(k)) break;
+          w.split('-').forEach((x) => { const xk = keyOf(x); if (xk.length >= 2 && !KEEP.has(xk) && !protect.has(xk)) protect.set(xk, 'prenom'); });
+          n++;
+        }
+      });
+    };
+    valid.forEach((f) => { TEXT.forEach((i) => scan(f[i])); });
+  }
+  // 4. Le dossier lui-même : nom de la fiche (transmis par la page) et, dans les libellés bancaires détaillés (Pennylane),
   //    le donneur d'ordre ou bénéficiaire le plus fréquent (NBE / NPY), qui est le dossier.
-  (opts.own || []).forEach((s) => addWords(s, 'dossier'));
+  (opts.own || []).forEach((s) => addWords(s, 'dossier', { short: true }));
   const tags = new Map();
   let nTags = 0;
-  if (C.EcritureLib >= 0) rows.forEach((f) => {
-    const l = f[C.EcritureLib];
+  valid.forEach((f) => {
+    const l = lib(f);
     if (!l || l.indexOf(' - N') < 0) return;
     const re = / - N(?:BE|PY): ([^]*?)(?= - [A-Z][A-Z0-9]{2}:|$)/g;
     let m;
@@ -289,8 +415,19 @@ function anonymizeFec(buffer, fileName, opts) {
     }
   });
   const topTag = Array.from(tags.entries()).sort((a, b) => b[1] - a[1])[0];
-  if (topTag && topTag[1] >= 5 && topTag[1] >= nTags * 0.15) addWords(topTag[0], 'dossier');
+  const dossierTag = topTag && topTag[1] >= 5 && topTag[1] >= nTags * 0.15 ? topTag[0] : '';
+  if (dossierTag) addWords(dossierTag, 'dossier');
   force.forEach((k) => { if (!protect.has(k)) protect.set(k, 'manuel'); });
+  // Clients et personnes dont le nom n'est fait que de mots courants (« CAFE DU PORT ») : rien n'y est remplacé, à signaler
+  const generic = new Map(); // nom → occurrences
+  valid.forEach((f) => {
+    const a = acc(f);
+    if (!/^41/.test(a) && !RE_PERSON_ACC.test(a)) return;
+    const name = (C.CompAuxLib >= 0 && f[C.CompAuxLib]) || '';
+    if (!name) return;
+    const ks = (name.match(RE_WORD) || []).map(keyOf).filter((k) => k.length >= 2);
+    if (ks.length && !ks.some((k) => protect.has(k) || force.has(k))) generic.set(name, (generic.get(name) || 0) + 1);
+  });
 
   // ---------- Pseudonymes ----------
   const CONS = 'BCDFGJKLMNPRSTVZ', VOW = 'AEIOU';
@@ -299,6 +436,7 @@ function anonymizeFec(buffer, fileName, opts) {
   const replaced = new Map(); // clé → occurrences
   const keptOther = new Map(); // mots hors dictionnaire conservés (fournisseurs, lieux… en mode « clients »)
   const keptDict = new Map(); // vocabulaire du dictionnaire conservé
+  const strictWords = new Set(); // mots remplacés parce que leur colonne ou leur ligne n'est pas standard
   const shape = (src, p) => (src === src.toUpperCase() ? p : src === src.toLowerCase() ? p.toLowerCase()
     : src[0] === src[0].toUpperCase() && src.slice(1) === src.slice(1).toLowerCase() ? p[0] + p.slice(1).toLowerCase() : p);
   const newPseudo = (len) => {
@@ -306,29 +444,50 @@ function anonymizeFec(buffer, fileName, opts) {
       let s = '';
       const startVowel = rnd() < 0.3;
       for (let i = 0; i < len; i++) s += (i % 2 === (startVowel ? 0 : 1)) ? pick(VOW) : pick(CONS);
-      if (!used.has(s) && !KEEP.has(s) && !seen.has(s)) return s;
+      if (!used.has(s) && !KEEP.has(s) && !seen.has(s) && !FIRST_NAMES.has(s) && !SHORT_KEEP.has(s) && !TITLES.has(s)) return s;
     }
     let s = '';
     for (let i = 0; i < len; i++) s += pick(CONS);
     return s;
   };
-  const why = (k) => protect.get(k) || 'autre';
+  const why = (k) => protect.get(k) || (strictWords.has(k) ? 'strict' : 'autre');
+  let strict = false; // zone ou ligne non standard en cours : tout mot hors dictionnaire est remplacé
+  // Un même texte revient sur des milliers de lignes : il est traité une fois, et ses compteurs sont rejoués ensuite.
+  let rec = null;
+  const bump = (m, k) => { m.set(k, (m.get(k) || 0) + 1); if (rec) rec.push(m, k); };
+  const memo = new Map();
+  const cached = (kind, fn, t) => {
+    const mk = kind + (strict ? '!' : ':') + t;
+    let hit = memo.get(mk);
+    if (hit) {
+      for (let i = 0; i < hit.ev.length; i += 2) { const m = hit.ev[i], k = hit.ev[i + 1]; if (m === stats) stats[k]++; else m.set(k, (m.get(k) || 0) + 1); }
+      return hit.out;
+    }
+    const prev = rec;
+    rec = [];
+    const out = fn(t);
+    hit = { out, ev: rec };
+    rec = prev;
+    if (memo.size > 200000) memo.clear();
+    memo.set(mk, hit);
+    return out;
+  };
   const wordOut = (w) => {
     const k = keyOf(w);
-    if (k.length < 3) return w;
-    const hide = force.has(k) || (!keepUser.has(k) && (protect.has(k) || (all && !KEEP.has(k))));
+    if (k.length < 2 || (k.length === 2 && !protect.has(k) && !force.has(k))) return w;
+    const hide = force.has(k) || (!keepUser.has(k) && (protect.has(k) || ((all || strict) && !KEEP.has(k) && k.length >= 3)));
     if (!hide) {
-      const m = KEEP.has(k) ? keptDict : keptOther;
-      m.set(k, (m.get(k) || 0) + 1);
+      if (k.length >= 3) bump(KEEP.has(k) ? keptDict : keptOther, k);
       return w;
     }
+    if (strict && !protect.has(k) && !force.has(k)) strictWords.add(k);
     let p = pseudo.get(k);
     if (!p) {
       p = newPseudo(k.length);
       pseudo.set(k, p);
       used.add(p);
     }
-    replaced.set(k, (replaced.get(k) || 0) + 1);
+    bump(replaced, k);
     return shape(w, p);
   };
   // Chiffres et lettres remplacés au hasard, de façon cohérente (même valeur → même remplacement) : IBAN, n° longs…
@@ -336,38 +495,61 @@ function anonymizeFec(buffer, fileName, opts) {
   const mask = (s, keepPrefix) => {
     let m = masks.get(s);
     if (!m) {
-      m = s.slice(0, keepPrefix || 0) + s.slice(keepPrefix || 0).replace(/[0-9]/g, () => String(Math.floor(rnd() * 10))).replace(/[A-Z]/g, () => pick(CONS));
+      m = s.slice(0, keepPrefix || 0) + s.slice(keepPrefix || 0).replace(/[0-9]/g, () => String(Math.floor(rnd() * 10))).replace(/[A-Z]/g, () => pick(CONS)).replace(/[a-z]/g, () => pick(CONS).toLowerCase());
       masks.set(s, m);
     }
     return m;
   };
-  const stats = { iban: 0, phone: 0, email: 0, url: 0, siren: 0, longnum: 0 };
+  const stats = { iban: 0, phone: 0, email: 0, url: 0, siren: 0, longnum: 0, card: 0, nir: 0, plate: 0 };
   const RE_EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
   const RE_URL = /\b(?:https?:\/\/|www\.)[^\s|]+/gi;
-  // IBAN compact (« FR7613506… ») ou par groupes de quatre (« FR76 1350 6100 … »)
-  const RE_IBAN = /\b[A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?)\b/g;
-  // Téléphone : 10 chiffres d'un bloc, ou 5 paires séparées par le même caractère (« 06 12 34 56 78 »)
-  const RE_PHONE = /(?:\+33 ?[1-9]|\b0[1-9])(?:\d{8}|([ .-])\d{2}(?:\1\d{2}){3})(?!\d)/g;
+  // IBAN compact (« FR7613506… ») ou par groupes de quatre (« FR76 1350 6100 … »), majuscules ou minuscules
+  const RE_IBAN = /\b[A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?)\b/gi;
+  // N° de carte par groupes de quatre ; n° de sécurité sociale (avec ou sans espaces) ; plaque d'immatriculation
+  const RE_CARD = /\b\d{4}(?:[ -]\d{4}){3}\b/g;
+  const RE_NIR = /\b[12] ?\d{2} ?(?:0[1-9]|1[0-2]|[2-9]\d) ?(?:\d{2}|2[AB]) ?\d{3} ?\d{3}(?: ?\d{2})?\b/g;
+  const RE_PLATE = /\b[A-Z]{2}-\d{3}-[A-Z]{2}\b|\b[A-Z]{2}\d{3}[A-Z]{2}\b/g;
+  // Téléphone : 10 chiffres d'un bloc ou 5 paires séparées (« 06 12 34 56 78 », « 06.12.34.56.78 ») ; international (+32…)
+  const RE_PHONE = /(?:\+33 ?[1-9]|\b0[1-9])(?:\d{8}|(?:[ .-]\d{2}){4})(?!\d)|\+\d{2,3}(?:[ .-]?\d){8,11}(?!\d)/g;
   const RE_LONGNUM = /\d{11,}/g;
-  const RE_SIRET = /\b(SIRE[NT])(\s*:?\s*)(\d[\d ]{7,16}\d)/gi;
+  // SIREN, SIRET, RCS, n° de TVA intracommunautaire cités dans un libellé (avec ou sans espaces)
+  const RE_SIRET = /\b(SIRE[NT]|RCS(?: [A-Z][A-Z-]+)?|N° ?TVA|TVA INTRA(?:COM(?:MUNAUTAIRE)?)?)(\s*:?\s*)((?:[A-Z]{2} ?)?\d[\d ]{7,16}\d)/gi;
 
   // E-mails et sites : remplacés par une adresse fictive, mise à l'abri le temps de traiter les mots (\u0001 / \u0002)
   const SAFE = ['contact@exemple.fr', 'www.exemple.fr'];
-  function anonText(s) {
-    if (!s) return s;
+  const stat = (k) => { stats[k]++; if (rec) rec.push(stats, k); };
+  const anonTextRaw = (s) => {
     let t = s;
-    if (siren && t.includes(siren)) { t = t.split(siren).join(fakeSiren); stats.siren++; }
-    t = t.replace(RE_EMAIL, () => { stats.email++; return '\u00010\u0002'; });
-    t = t.replace(RE_URL, () => { stats.url++; return '\u00011\u0002'; });
-    t = t.replace(RE_SIRET, (m, a, b, n) => { stats.siren++; return a + b + mask(n.replace(/ /g, '')); });
-    t = t.replace(RE_IBAN, (m) => { stats.iban++; return mask(m.replace(/ /g, ''), 2); });
-    t = t.replace(RE_PHONE, (m) => { stats.phone++; return mask(m.replace(/[ .-]/g, ''), 2); });
-    t = t.replace(RE_LONGNUM, (m) => { stats.longnum++; return mask(m); });
+    if (siren && t.includes(siren)) { t = t.split(siren).join(fakeSiren); stat('siren'); }
+    if (t.includes('@')) t = t.replace(RE_EMAIL, () => { stat('email'); return '\u00010\u0002'; });
+    if (/www\.|https?:/i.test(t)) t = t.replace(RE_URL, () => { stat('url'); return '\u00011\u0002'; });
+    // Expressions des numéros : seulement si le texte contient assez de chiffres
+    let nd = 0;
+    for (let i = 0; i < t.length; i++) { const c = t.charCodeAt(i); if (c >= 48 && c <= 57) nd++; }
+    if (nd >= 7 && /SIRE|RCS|TVA/i.test(t)) t = t.replace(RE_SIRET, (m, a, b, n) => { stat('siren'); const x = n.replace(/ /g, ''); return a + b + mask(x, /^[A-Z]{2}/i.test(x) ? 2 : 0); });
+    if (nd >= 8) t = t.replace(RE_IBAN, (m) => { stat('iban'); return mask(m.replace(/ /g, ''), 2); });
+    if (nd >= 16) t = t.replace(RE_CARD, (m) => { stat('card'); return mask(m); });
+    if (nd >= 13) t = t.replace(RE_NIR, (m) => { stat('nir'); return mask(m); });
+    if (nd >= 3) t = t.replace(RE_PLATE, (m) => { stat('plate'); return mask(m); });
+    if (nd >= 9) t = t.replace(RE_PHONE, (m) => { stat('phone'); return mask(m.replace(/[ .-]/g, ''), m[0] === '+' ? 3 : 2); });
+    if (nd >= 11) t = t.replace(RE_LONGNUM, (m) => { stat('longnum'); return mask(m); });
     t = t.replace(RE_WORD, wordOut);
     return t.includes('\u0001') ? t.replace(/\u0001(\d)\u0002/g, (m, i) => SAFE[i]) : t;
-  }
-  // N° de compte : chiffres conservés (sauf n° longs), lettres traitées comme des mots (« 411DUPONT » → « 411BAKERI »).
-  const anonCode = (s) => (s ? s.replace(RE_LONGNUM, (m) => mask(m)).replace(RE_WORD, wordOut) : s);
+  };
+  const anonText = (s) => (s ? cached('t', anonTextRaw, s) : s);
+  // N° de compte et code journal : chiffres conservés (sauf n° longs et SIREN), lettres traitées comme des mots
+  // (« 411DUPONT » → « 411BAKERI » si DUPONT est un client).
+  // Un nom protégé collé à un préfixe d'une ou deux lettres (« 401FDUPONT », « 411CDUPONT ») est remplacé aussi.
+  const hidden = (k) => force.has(k) || (protect.has(k) && !keepUser.has(k));
+  const codeOut = (w) => {
+    const k = keyOf(w);
+    if (!hidden(k)) for (const n of [1, 2]) if (k.length - n >= 3 && hidden(k.slice(n))) return w.slice(0, n) + wordOut(w.slice(n));
+    return wordOut(w);
+  };
+  const anonCode = (s) => (s ? cached('c', (x) => {
+    const t = siren && x.includes(siren) ? x.split(siren).join(fakeSiren) : x;
+    return t.replace(RE_LONGNUM, (m) => mask(m)).replace(RE_WORD, codeOut);
+  }, s) : s);
 
   // ---------- Montants ----------
   // Coefficient unique (0,6 à 1,4) ; chaque écriture reste équilibrée : l'arrondi est reporté sur sa plus grosse ligne.
@@ -403,8 +585,19 @@ function anonymizeFec(buffer, fileName, opts) {
   const out = [headerLine];
   for (const f of rows) {
     if (f.length === 1 && !f[0]) { out.push(''); continue; }
+    if (f._strict) {
+      // Ligne non standard : chaque zone traitée comme du texte, en remplaçant tout mot hors dictionnaire
+      strict = true;
+      for (let i = 0; i < f.length; i++) f[i] = anonText(f[i]);
+      strict = false;
+      out.push(f.join(sep));
+      continue;
+    }
     TEXT.forEach((i) => { if (f[i]) f[i] = anonText(f[i]); });
     CODE.forEach((i) => { if (f[i]) f[i] = anonCode(f[i]); });
+    strict = true;
+    STRICT.forEach((i) => { if (f[i]) f[i] = anonText(f[i]); });
+    strict = false;
     if (scale && f._amt) {
       const [od, oc, nd, nc] = f._amt;
       if (montantSens) f[C.Montant] = fmtAmt(od ? nd : nc, f[C.Montant] || '0,00');
@@ -418,7 +611,6 @@ function anonymizeFec(buffer, fileName, opts) {
         if (v !== null) f[C.Montantdevise] = fmtAmt(Math.round(v * 100) === od - oc ? nd - nc : Math.round(v * 100 * factor), f[C.Montantdevise]);
       }
     }
-    for (let i = header.length; i < f.length; i++) f[i] = anonText(f[i]); // zones en trop : traitées comme du texte
     out.push(f.join(sep));
   }
 
@@ -439,18 +631,21 @@ function anonymizeFec(buffer, fileName, opts) {
   const preview = { cols: SHOW, rows: Array.from(pv).sort((a, b) => a - b).map((i) => { const f = out[i].split(sep); return SHOW.map((k) => f[col(k)] || ''); }) };
   const byWhy = {};
   replaced.forEach((n, k) => { const w = why(k); byWhy[w] = (byWhy[w] || 0) + 1; });
-  const outText = out.join(eol) + eol;
+  const outText = out.join(eol) + (finalEol ? eol : '');
   return {
     text: outText,
     bytes: encode(outText, encoding, bom),
     fileName: outName,
     report: {
-      mode: all ? 'all' : 'clients', lines: rows.length, columns: header.length, sep: sep === '\t' ? 'tabulation' : sep, eol: eol === '\r\n' ? 'CRLF' : 'LF',
+      mode: all ? 'all' : 'clients', persons, lines: rows.length, columns: header.length, sep: sep === '\t' ? 'tabulation' : sep, eol: eol === '\r\n' ? 'CRLF' : 'LF',
       encoding: encoding + (bom ? ' avec BOM' : ''), siren: !!siren, fakeSiren, scale, factor: scale ? factor : 1, entries: entries.size,
       replacedCount: Array.from(replaced.values()).reduce((t, n) => t + n, 0), replacedDistinct: replaced.size, byWhy,
-      replaced: top(replaced, 500).map(([k, n]) => [k, pseudo.get(k), n, REASONS[why(k)] || why(k)]),
-      keptOther: top(keptOther, 500), keptOtherDistinct: keptOther.size, kept: top(keptDict, 400), stats, seed, preview,
-      dossier: topTag && topTag[1] >= 5 && topTag[1] >= nTags * 0.15 ? topTag[0] : '',
+      replaced: top(replaced, 3000).map(([k, n]) => [k, pseudo.get(k), n, REASONS[why(k)] || why(k)]),
+      keptOther: top(keptOther, 3000), keptOtherDistinct: keptOther.size, kept: top(keptDict, 1000), stats, seed, preview,
+      firstNames: top(new Map(Array.from(firstNames.entries()).map(([k, x]) => [k, x[0]])), 300).map(([k, n]) => [k, pseudo.get(k) || '', n, firstNames.get(k)[1]]),
+      misaligned, strictCols: STRICT.map((i) => header[i]),
+      generic: Array.from(generic.keys()).filter((n) => !(n.match(RE_WORD) || []).some((w) => { const k = keyOf(w); return protect.has(k) || force.has(k); })).slice(0, 200),
+      dossier: dossierTag,
     },
   };
 }
