@@ -11,7 +11,12 @@
 function viewAide() {
   const item = (title, html, open) => `<details class="card help"${open ? ' open' : ''}><summary><h2>${title}</h2></summary><div class="help-body">${html}</div></details>`;
   return `
-    <div class="page-head"><h1>Aide</h1></div>
+    <div class="page-head"><h1>Aide</h1><span class="badge">Version ${ASSET_VERSION}</span></div>
+    ${item(`Nouveautés des versions 29 à ${ASSET_VERSION}`, `<ul>
+      <li><strong>Numérotation des factures de vente du mois</strong> (Analyse FEC → espace Mois → Contrôles de saisie) : toutes les écritures de produits 70, 75 et 77, factures et avoirs, par série ; numéros manquants, doublons, ordre chronologique.</li>
+      <li><strong>Affectations suggérées</strong> : une opération en compte d'attente (Contrôles de saisie) ou du relevé non comptabilisée (Révision → Rapprochement) reçoit le compte déjà utilisé pour le même libellé, lettré pour un compte de tiers ; l'écriture de reclassement est proposée dans Révision → Écritures.</li>
+      <li><strong>Contrôle de la TVA refait</strong> sur les comptes (espace Mois → TVA).</li>
+    </ul>`, true)}
     ${item('Premiers pas', `<ol>
       <li><strong>Paramètres</strong> : renseignez le nom du cabinet, votre prénom, vos collaborateurs et votre signature.</li>
       <li><strong>Dossiers → Importer</strong> : importez votre tableau Excel de suivi (ou créez les dossiers un par un).</li>

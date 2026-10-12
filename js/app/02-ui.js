@@ -136,7 +136,7 @@ function renderShell() {
       <aside class="sidebar">
         <div class="brand">
           ${icon('shield')}
-          <div><strong>Suivi Dossiers</strong><small>${esc(data.settings.cabinet || 'Cabinet')}</small></div>
+          <div><strong>Suivi Dossiers</strong><small>${esc(data.settings.cabinet || 'Cabinet')} · v${ASSET_VERSION}</small></div>
         </div>
         <nav class="nav">
           <a href="#/tableau" data-nav="tableau">${icon('home')}<span>Tableau de bord</span></a>
