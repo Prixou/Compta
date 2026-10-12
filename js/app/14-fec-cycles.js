@@ -159,6 +159,20 @@ function chkCharges(r, ref, prev) {
   return out;
 }
 
+// Numéros de facture de vente manquants, un par ligne, avec les factures qui encadrent chaque trou.
+function missingInvoices(g, keep, tag = '', max = 1000) {
+  const ref = (n) => g.prefix + String(n).padStart(g.w, '0');
+  const list = [];
+  let n = 0;
+  (g.gaps || []).filter(keep || (() => true)).forEach(([a, b, da, db]) => {
+    for (let k = a + 1; k < b; k++) {
+      n++;
+      if (list.length < max) list.push(`${ref(k)} : entre ${ref(a)} du ${fmtDate(da)} et ${ref(b)} du ${fmtDate(db)}${tag}`);
+    }
+  });
+  return { list, n };
+}
+
 function chkClients(r, ref, prev, terme) {
   const cl = r.cycles.clients;
   const out = checksList();
@@ -170,7 +184,8 @@ function chkClients(r, ref, prev, terme) {
   else if (cl.numbering.length && !nb.length) out.add('info', 'Numérotation des factures non exploitable', `Les n° de pièce (${cl.numbering[0].first}…) ${cl.numbering.some((g) => g.ecriture) ? 'sont les n° d\'écriture' : 'ne forment pas une suite'} : le n° de facture n'est pas repris dans le FEC.`);
   nb.forEach((g) => {
     const name = `${g.first} à ${g.last}${nb.length > 1 || !g.prefix ? `, ${g.label}` : ''}`;
-    if (g.missing) out.add('warn', `Factures de vente manquantes dans la numérotation (${name})`, `${g.missing} numéro(s) absent(s) : factures annulées (à justifier), non saisies ou émises par un autre outil ? La numérotation doit être continue (art. 242 nonies A de l'annexe II du CGI).`, g.ranges);
+    const mi = missingInvoices(g);
+    if (g.missing) out.add('warn', `Factures de vente manquantes dans la numérotation (${name})`, `${g.missing} numéro(s) absent(s) : factures annulées (à justifier), non saisies ou émises par un autre outil ? La numérotation doit être continue (art. 242 nonies A de l'annexe II du CGI).`, mi.list, { full: mi.list.length >= g.missing });
     else out.add('ok', 'Numérotation continue des factures de vente', `${g.count} factures, de ${name}.`);
     if (g.dups.length) out.add('warn', 'Numéros de facture utilisés plusieurs fois', `${g.dups.length} numéro(s) en double : facture saisie deux fois ou n° réattribué ?`, g.dups);
     if (g.inversions) out.add('info', 'Numérotation non chronologique', `${g.inversions} facture(s) portant un numéro supérieur à une facture datée plus tard.`, g.invEx);

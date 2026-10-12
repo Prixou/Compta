@@ -116,15 +116,15 @@ function numberingChecks(r, ym, o) {
     if (!inM.length) return;
     const tag = series.length > 1 ? ` (série ${g.label})` : '';
     // Un trou est rattaché au mois des factures qui l'encadrent
-    (g.gaps || []).filter(([, , da, db]) => inMonth(da, ym) || inMonth(db, ym)).forEach(([a, b, da, db]) => {
-      nMissing += b - a - 1;
-      missing.push(`${b - a === 2 ? ref(a + 1) : `${ref(a + 1)} à ${ref(b - 1)}`} : entre ${ref(a)} du ${fmtDate(da)} et ${ref(b)} du ${fmtDate(db)}${tag}`);
-    });
+    // (chaque numéro manquant sur sa propre ligne, pour en suivre la justification un par un)
+    const mi = missingInvoices(g, ([, , da, db]) => inMonth(da, ym) || inMonth(db, ym), tag);
+    nMissing += mi.n;
+    missing.push(...mi.list);
     (g.dupL || []).filter(([, list]) => list.some(([d]) => inMonth(d, ym))).forEach(([p, list]) => dups.push(`${p} : ${list.map(([d, v]) => `${fmtDate(d)} (${eur(v)} € HT)`).join(' et ')}${tag}`));
     (g.invL || []).filter(([, da, , db]) => inMonth(da, ym) || inMonth(db, ym)).forEach(([pa, da, pb, db]) => inv.push(`${pa} du ${fmtDate(da)} puis ${pb} du ${fmtDate(db)}`));
     ok.push(`${g.label} : ${inM.length} pièce(s) du mois, de ${ref(Math.min(...inM))} à ${ref(Math.max(...inM))}`);
   });
-  if (missing.length) o.add('warn', 'Factures de vente manquantes dans la numérotation', `${nMissing} numéro(s) absent(s) autour de ${mois} : facture annulée (garder l'original), non saisie, ou saisie sur un autre mois ou un autre compte ? La numérotation doit être continue (art. 242 nonies A de l'annexe II du CGI).`, missing, { full: true });
+  if (missing.length) o.add('warn', 'Factures de vente manquantes dans la numérotation', `${nMissing} numéro(s) absent(s) autour de ${mois} : facture annulée (garder l'original), non saisie, ou saisie sur un autre mois ou un autre compte ? La numérotation doit être continue (art. 242 nonies A de l'annexe II du CGI).`, missing, { full: missing.length >= nMissing });
   if (dups.length) o.add('warn', 'Numéros de facture de vente utilisés plusieurs fois', `${dups.length} numéro(s) : facture saisie deux fois, ou même n° donné à deux factures ?`, dups, { full: true });
   if (inv.length) o.add('info', 'Factures de vente hors ordre chronologique', 'Un numéro plus élevé porte une date antérieure : erreur de date ou de numéro, ou facture antidatée ?', inv, { full: true });
   if (ok.length && !missing.length && !dups.length) o.add('ok', 'Numérotation des factures de vente continue', ok.join(' ; ') + '.');

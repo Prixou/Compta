@@ -56,6 +56,8 @@ const { fecTab, fecMonth } = require('./lib');
   const pl = (await p.textContent('main')).replace(/\s+/g, ' ');
   expect(/F-260007 : entre F-260006/.test(pl), 'Pennylane : F-260007 manquante (février)');
   expect(/F-260012 : entre F-260011/.test(pl), 'Pennylane : F-260012 manquante (février)');
+  expect(/F-260013 : entre F-260011 du \d\d\/02\/2026 et F-260015 du \d\d\/03\/2026/.test(pl) && /F-260014 : entre F-260011/.test(pl), 'trou de 3 factures : F-260013 et F-260014 sur leur propre ligne');
+  expect(!/ à F-26/.test(pl), 'factures manquantes listées une par une, sans plage');
   await p.screenshot({ path: O + 'affect.png', fullPage: true });
   console.log(ko ? `${ko} écart(s)` : 'toutes les suggestions sont correctes');
   console.log('erreurs', errors);

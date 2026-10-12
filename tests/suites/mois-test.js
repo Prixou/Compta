@@ -35,7 +35,7 @@ const { fecTab, fecMonth } = require('./lib');
   const expectNum = (list, re, label) => console.log(list.some((t) => re.test(t)) ? `OK ${label}` : `KO ${label} : ${JSON.stringify(list)}`);
   const mai = await numChecks('2025-05');
   console.log('\nnumérotation mai :\n  ' + mai.join('\n  '));
-  expectNum(mai, /manquantes dans la numérotation.*FA-2025-0045 à FA-2025-0046 : entre FA-2025-0044 du 23\/05\/2025 et FA-2025-0047 du 26\/05\/2025/, 'mai : FA-2025-0045 à 0046 manquantes');
+  expectNum(mai, /manquantes dans la numérotation.*FA-2025-0045 : entre FA-2025-0044 du 23\/05\/2025 et FA-2025-0047 du 26\/05\/2025 \/ FA-2025-0046 : entre FA-2025-0044/, 'mai : FA-2025-0045 et FA-2025-0046 manquantes, une ligne chacune');
   expectNum(mai, /hors ordre chronologique.*FA-2025-0111 du 05\/05\/2025/, 'mai : facture hors ordre chronologique');
   const juil = await numChecks('2025-07');
   console.log('numérotation juillet :\n  ' + juil.join('\n  '));

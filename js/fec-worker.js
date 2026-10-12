@@ -1153,7 +1153,7 @@ function buildCycles(x) {
         const gap = nums[i] - nums[i - 1] - 1;
         if (gap > 0) {
           missing += gap;
-          if (ranges.length < 25) ranges.push(gap === 1 ? ref(nums[i - 1] + 1) : `${ref(nums[i - 1] + 1)} à ${ref(nums[i] - 1)}`);
+          for (let k = nums[i - 1] + 1; k < nums[i] && ranges.length < 300; k++) ranges.push(ref(k));
           if (gaps.length < 2000) gaps.push([nums[i - 1], nums[i], x.date, y.date]);
         }
         if (y.date < x.date) {
