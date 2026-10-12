@@ -40,6 +40,14 @@ const { fecTab, fecMonth } = require('./lib');
   expect(rows.some((t) => /SCI DU PORT LOYER.*613200 Loyers/.test(t)), 'relevé : loyer → 613200');
   expect(rows.some((t) => /ORANGE SA.*401000 F07 ORANGE BUSINESS/.test(t)), 'relevé : Orange → 401 F07');
   expect(rows.some((t) => /CB INCONNUE.*—$/.test(t)), 'relevé : opération inconnue sans suggestion');
+  // 4. Onglet Factures de vente : n° lu dans le libellé (pièce = n° d'écriture), FV-0207 manquante en juillet
+  await fecTab(p, 'mois-ventes', 0); await fecMonth(p, '2025-03');
+  const v = (await p.textContent('main')).replace(/\s+/g, ' ');
+  console.log('onglet :', await p.textContent('.fec-tabs button[data-tab=mois-ventes]'));
+  expect(/FV-0207 : entre FV-0206/.test(v), 'mars : FV-0207 manquante (n° lu dans le libellé)');
+  expect(/FV-, n° lu dans le libellé/.test(v), 'série FV- lue dans le libellé');
+  expect(/Voir les \d+ écriture\(s\) de vente du mois/.test(v), 'liste des ventes du mois');
+  await p.screenshot({ path: O + 'ventes-mois.png', fullPage: true });
   await p.screenshot({ path: O + 'affect.png', fullPage: true });
   console.log(ko ? `${ko} écart(s)` : 'toutes les suggestions sont correctes');
   console.log('erreurs', errors);

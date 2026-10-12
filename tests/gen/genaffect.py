@@ -6,7 +6,7 @@ OUTDIR = sys.argv[1] if len(sys.argv) > 1 else '.'
 OUT = os.path.join(OUTDIR, '666666666FEC20251231.txt')
 CSV = os.path.join(OUTDIR, 'releve-666-2025.csv')
 H = ['JournalCode','JournalLib','EcritureNum','EcritureDate','CompteNum','CompteLib','CompAuxNum','CompAuxLib','PieceRef','PieceDate','EcritureLib','Debit','Credit','EcritureLet','DateLet','ValidDate','Montantdevise','Idevise']
-J = {'AN':'A nouveaux','AC':'Achats','VT':'Ventes','BQ':'Banque','OD':'Opérations diverses'}
+J = {'AN':'A nouveaux','AC':'Achats','VT':'Ventes','VL':'Ventes boutique','BQ':'Banque','OD':'Opérations diverses'}
 L = {'101000':'Capital','401000':'Fournisseurs','411000':'Clients','445660':'TVA déductible','445710':'TVA collectée','471000':"Compte d'attente",
      '512000':'Banque','613200':'Loyers','626000':'Télécommunications','706000':'Prestations de services'}
 rows = []; num = [0]; bank = []
@@ -30,6 +30,11 @@ for m in range(1, 13):
     if m <= 10:
         ent('VT', D(2025, m, 5), [('411000', CLI, 600, 0, f'C{m}'), ('706000', None, 0, 500), ('445710', None, 0, 100)], f'Facture prestations {m:02d}/2025', piece=f'FA{m:04d}')
         ent('BQ', D(2025, m, 20), [('512000', None, 600, 0), ('411000', CLI, 0, 600, f'C{m}')], 'VIR CABINET MEDICAL DU PARC')
+    # Ventes boutique : n° de pièce = n° d'écriture, n° de facture dans le libellé ; FV-0207 jamais saisie (mars)
+    for k in range(3):
+        fv = (m - 1) * 3 + k + 200
+        if fv == 207: continue
+        ent('VL', D(2025, m, 8 + k), [('411000', CLI, 120, 0), ('706000', None, 0, 100), ('445710', None, 0, 20)], f'Facture FV-{fv:04d} client comptoir')
     # Loyer : charge (compte non lettrable)
     if m <= 10:
         ent('BQ', D(2025, m, 5), [('613200', None, 800, 0), ('512000', None, 0, 800)], 'PRLV SCI DU PORT LOYER')

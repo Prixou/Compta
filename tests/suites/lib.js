@@ -1,6 +1,6 @@
 // Aides communes aux suites : navigation dans l'analyse FEC (espaces Mois / Révision / Consultation).
 'use strict';
-const SPACE_OF = { 'mois-pieces': 'mois', 'mois-saisie': 'mois', tva: 'mois', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
+const SPACE_OF = { 'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', tva: 'mois', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
 
 // Ouvre un onglet de l'analyse, en passant d'abord dans son espace s'il n'est pas affiché.
 async function fecTab(p, tab, wait = 150) {

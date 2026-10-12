@@ -149,6 +149,43 @@ function viewSaisie() {
   </section>`;
 }
 
+// Onglet « Factures de vente » : contrôles de numérotation du mois (mêmes statuts que les contrôles de saisie) et liste des ventes.
+const RE_NUM_CHECK = /numérotation|n° de facture|numéros de facture|hors ordre chronologique|sans n° de facture/i;
+const ventesChecks = (r, ym) => saisieChecks(r, ym).filter((x) => RE_NUM_CHECK.test(x.label));
+const ventesLeft = (r, ym) => wpProgress(`saisie-${ym}`, ventesChecks(r, ym)).left;
+function viewVentes() {
+  const r = ui.fec.result;
+  const ym = fecMonth();
+  const list = ventesChecks(r, ym);
+  return `<section class="card"><h2>Numérotation des factures de vente — ${esc(moisNom(`${ym}-01`))}</h2>
+    <p class="muted small">La numérotation des factures doit être continue et chronologique (art. 242 nonies A de l'annexe II du CGI). Un trou est rattaché au mois des factures qui l'encadrent.</p>
+    ${list.length ? wpCheckList(list, `saisie-${ym}`) : '<p class="muted">Aucune écriture de vente ce mois-ci.</p>'}
+  </section>
+  ${salesCard(r, ym)}`;
+}
+
+// Factures de vente du mois : séries de numérotation et liste de toutes les écritures de produits examinées.
+function salesCard(r, ym) {
+  const cl = r.cycles && r.cycles.clients;
+  if (!cl || !cl.numbering) return '';
+  const docs = (cl.docs7L || []).filter(([d]) => inMonth(d, ym));
+  const rows = cl.numbering.map((g) => {
+    const ref = (n) => g.prefix + String(n).padStart(g.w, '0');
+    const inM = (g.seq || []).filter(([, d]) => inMonth(d, ym)).map(([n]) => n);
+    if (!inM.length) return null;
+    const miss = g.sparse ? null : (g.gaps || []).filter(([, , da, db]) => inMonth(da, ym) || inMonth(db, ym)).reduce((t, [a, b]) => t + b - a - 1, 0);
+    const dups = (g.dupL || []).filter(([, l]) => l.some(([d]) => inMonth(d, ym))).length;
+    return `<tr><td>${esc(g.label)}</td><td>${inM.length}</td><td>${esc(ref(Math.min(...inM)))}</td><td>${esc(ref(Math.max(...inM)))}</td><td class="${miss ? 'cred' : ''}">${g.sparse ? `<span class="muted small">${g.ecriture ? "n° d'écriture" : 'pas une suite'}</span>` : miss}</td><td class="${dups ? 'cred' : ''}">${g.sparse ? '' : dups || 0}</td></tr>`;
+  }).filter(Boolean);
+  return `<section class="card"><h2>Factures de vente du mois <span class="count">${docs.length}</span></h2>
+    <p class="muted small">Toutes les écritures du mois sur les comptes de produits 70, 75 et 77 (factures et avoirs, hors OD de TVA et régularisations). Le n° de facture est lu dans le n° de pièce, ou dans le libellé quand la pièce porte le n° d'écriture ; les séries sont formées par journal et préfixe.</p>
+    ${rows.length ? `<div class="grid-wrap"><table class="dtable num l3"><thead><tr><th>Série</th><th>Pièces du mois</th><th>Du n°</th><th>Au n°</th><th>Manquants</th><th>Doublons</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<p class="muted">Aucune série de numéros exploitable ce mois-ci (moins de trois numéros, ou pièces sans numéro).</p>'}
+    ${docs.length ? `<details class="viz-table"><summary>Voir les ${docs.length} écriture(s) de vente du mois</summary>
+      <div class="grid-wrap"><table class="dtable num l3 l4"><thead><tr><th>Date</th><th>Écriture</th><th>Pièce</th><th>Libellé</th><th>Montant HT</th></tr></thead>
+      <tbody>${docs.slice(0, 1000).map(([d, jc, num, piece, amt, lib]) => `<tr><td>${fmtDate(d)}</td><td>${esc(jc)} ${esc(num)}</td><td>${esc(piece)}</td><td>${esc(lib)}</td><td class="${amt < 0 ? 'cred' : ''}">${eur(amt)}</td></tr>`).join('')}</tbody></table></div></details>` : ''}
+  </section>`;
+}
+
 // En-tête de l'espace « Mois » : choix du mois (commun aux pièces, aux contrôles de saisie et à la TVA) et chiffres du mois.
 function moisHeader(r, t) {
   const ym = fecMonth();

@@ -1108,58 +1108,89 @@ function buildCycles(x) {
   }
 
   // Numérotation des factures de vente (art. 242 nonies A, annexe II du CGI) : toutes les écritures de produits (70, 75, 77),
-  // factures et avoirs, regroupées en séries par journal et préfixe du n° de pièce (« FA-2025-0012 » → série « FA-2025- »).
-  const groups = new Map();
+  // factures et avoirs, regroupées en séries par journal et préfixe du n° (« FA-2025-0012 » → série « FA-2025- »).
+  // Le n° est lu dans le n° de pièce, ou à défaut dans le libellé (« Facture FA0012 Dupont ») : pour chaque journal, la source
+  // qui donne la meilleure suite est retenue.
+  const pieceNum = (piece) => {
+    const m = piece.match(/^(.*?)(\d+)$/);
+    if (!m || m[2].length > 9 || (/^20\d{6}$/.test(m[2]) && !m[1])) return null;
+    return [m[1], m[2]];
+  };
+  const RE_LIBNUM = /(?:^|[\s:(])(?:factures?|fact|fac|fa|fc|fv|avoirs?|av|n°|no|num|ref)\.?\s*(?:n°|no)?\s*[:#]?\s*([a-z]{0,6}[-/]?(?:20\d\d[-/])?\d{2,9})(?![\d/,.])/i;
+  const RE_LIBTOK = /(?:^|\s)([a-z]{1,5}[-/]?(?:20\d\d[-/])?\d{3,9})(?![\d/,.])/i;
+  const libNum = (lib) => {
+    const t = String(lib || '');
+    const m = t.match(RE_LIBNUM) || t.match(RE_LIBTOK);
+    if (!m) return null;
+    const x = m[1].toUpperCase().match(/^(.*?)(\d+)$/);
+    return x ? [x[1], x[2]] : null;
+  };
+  const buildSeries = (getNum, src) => {
+    const groups = new Map();
+    docs7.forEach(([date, piece, jc, num, amt, ek, lib]) => {
+      const pn = getNum(piece, lib);
+      if (!pn) return;
+      const key = jc + '\u0001' + pn[0];
+      let g = groups.get(key);
+      if (!g) groups.set(key, (g = { jc, prefix: pn[0], w: pn[1].length, map: new Map(), n: 0, same: 0 }));
+      const n = +pn[1];
+      g.n++;
+      if (num && n === +num.replace(/\D+/g, '')) g.same++; // n° = n° d'écriture : ce n'est pas un n° de facture
+      (g.map.get(n) || g.map.set(n, []).get(n)).push({ date, ttc: amt, piece: pn[0] + pn[1], ek });
+    });
+    const list = [];
+    groups.forEach((g) => {
+      if (g.map.size < 3) return;
+      const nums = Array.from(g.map.keys()).sort((x, y) => x - y);
+      const prefix = g.prefix;
+      const ref = (n) => prefix + String(n).padStart(g.w, '0');
+      const ranges = [], gaps = [];
+      let missing = 0, inversions = 0;
+      const invEx = [], invL = [];
+      for (let i = 1; i < nums.length; i++) {
+        const x = g.map.get(nums[i - 1])[0], y = g.map.get(nums[i])[0];
+        const gap = nums[i] - nums[i - 1] - 1;
+        if (gap > 0) {
+          missing += gap;
+          if (ranges.length < 25) ranges.push(gap === 1 ? ref(nums[i - 1] + 1) : `${ref(nums[i - 1] + 1)} à ${ref(nums[i] - 1)}`);
+          if (gaps.length < 2000) gaps.push([nums[i - 1], nums[i], x.date, y.date]);
+        }
+        if (y.date < x.date) {
+          inversions++;
+          if (invEx.length < 8) invEx.push(`${x.piece} du ${dmy(x.date)} puis ${y.piece} du ${dmy(y.date)}`);
+          if (invL.length < 500) invL.push([x.piece, x.date, y.piece, y.date]);
+        }
+      }
+      const dups = [], dupL = [];
+      g.map.forEach((l) => {
+        if (new Set(l.map((x) => x.ek)).size < 2) return;
+        if (dups.length < 20) dups.push(`${l[0].piece} : ${l.map((x) => `${dmy(x.date)} (${fmt(x.ttc)} €)`).join(' et ')}`);
+        if (dupL.length < 500) dupL.push([l[0].piece, l.map((x) => [x.date, x.ttc])]);
+      });
+      const ecriture = g.same >= g.n * 0.8;
+      list.push({ prefix, jc: g.jc, src, w: g.w, seq: g.map.size <= 6000 ? nums.map((n) => [n, g.map.get(n)[0].date, g.map.get(n)[0].ttc]) : null, count: g.map.size,
+        first: ref(nums[0]), last: ref(nums[nums.length - 1]), missing, ranges, gaps, inversions, invEx, invL, dups, dupL, ecriture, sparse: ecriture || missing > g.map.size });
+    });
+    return list;
+  };
+  const byPiece = buildSeries((piece) => pieceNum(piece), 'piece');
+  const byLib = buildSeries((piece, lib) => libNum(lib), 'libelle');
+  const quality = (list, jc) => list.filter((g) => g.jc === jc && !g.sparse).reduce((t, g) => t + g.count, 0);
+  const journals7 = new Set(docs7.map((d) => d[2]));
+  let numbering = [];
+  journals7.forEach((jc) => {
+    const qp = quality(byPiece, jc), ql = quality(byLib, jc);
+    numbering = numbering.concat((ql > qp ? byLib : byPiece).filter((g) => g.jc === jc));
+  });
+  const multiJ = new Set();
+  numbering.forEach((g) => { if (numbering.some((h) => h !== g && h.prefix === g.prefix)) multiJ.add(g.prefix); });
+  numbering.forEach((g) => { g.label = `${g.prefix || 'sans préfixe'}${multiJ.has(g.prefix) || !g.prefix ? ` (journal ${g.jc})` : ''}${g.src === 'libelle' ? ', n° lu dans le libellé' : ''}`; });
   const noNum = [];
   docs7.forEach(([date, piece, jc, num, amt, ek, lib]) => {
-    const m = piece.match(/^(.*?)(\d+)$/);
-    // Sans n° exploitable : pièce vide, sans chiffre final, trop longue ou qui est une date (20251012)
-    if (!m || m[2].length > 9 || (/^20\d{6}$/.test(m[2]) && !m[1])) { if (noNum.length < 3000) noNum.push([date, jc, num, piece, amt, lib]); return; }
-    const key = jc + '\u0001' + m[1];
-    let g = groups.get(key);
-    if (!g) groups.set(key, (g = { jc, prefix: m[1], w: m[2].length, map: new Map(), n: 0, same: 0 }));
-    const n = +m[2];
-    g.n++;
-    if (num && n === +num.replace(/\D+/g, '')) g.same++; // n° de pièce = n° d'écriture : ce n'est pas un n° de facture
-    (g.map.get(n) || g.map.set(n, []).get(n)).push({ date, ttc: amt, piece, ek });
+    if (noNum.length < 3000 && !pieceNum(piece) && !libNum(lib)) noNum.push([date, jc, num, piece, amt, lib]);
   });
-  const numbering = [];
-  const multiJ = new Set();
-  groups.forEach((g) => { groups.forEach((h) => { if (h !== g && h.prefix === g.prefix) multiJ.add(g.prefix); }); });
-  groups.forEach((g) => {
-    if (g.map.size < 3) return;
-    const nums = Array.from(g.map.keys()).sort((a, b) => a - b);
-    const prefix = g.prefix;
-    const ref = (n) => prefix + String(n).padStart(g.w, '0');
-    const ranges = [], gaps = [];
-    let missing = 0, inversions = 0;
-    const invEx = [], invL = [];
-    for (let i = 1; i < nums.length; i++) {
-      const a = g.map.get(nums[i - 1])[0], b = g.map.get(nums[i])[0];
-      const gap = nums[i] - nums[i - 1] - 1;
-      if (gap > 0) {
-        missing += gap;
-        if (ranges.length < 25) ranges.push(gap === 1 ? ref(nums[i - 1] + 1) : `${ref(nums[i - 1] + 1)} à ${ref(nums[i] - 1)}`);
-        if (gaps.length < 2000) gaps.push([nums[i - 1], nums[i], a.date, b.date]);
-      }
-      if (b.date < a.date) {
-        inversions++;
-        if (invEx.length < 8) invEx.push(`${a.piece} du ${dmy(a.date)} puis ${b.piece} du ${dmy(b.date)}`);
-        if (invL.length < 500) invL.push([a.piece, a.date, b.piece, b.date]);
-      }
-    }
-    const dups = [], dupL = [];
-    g.map.forEach((list) => {
-      const distinct = new Set(list.map((x) => x.ek));
-      if (distinct.size < 2) return;
-      if (dups.length < 20) dups.push(`${list[0].piece} : ${list.map((x) => `${dmy(x.date)} (${fmt(x.ttc)} €)`).join(' et ')}`);
-      if (dupL.length < 500) dupL.push([list[0].piece, list.map((x) => [x.date, x.ttc])]);
-    });
-    const ecriture = g.same >= g.n * 0.8;
-    const label = `${prefix || 'sans préfixe'}${multiJ.has(prefix) || !prefix ? ` (journal ${g.jc})` : ''}`;
-    numbering.push({ prefix, jc: g.jc, label, w: g.w, seq: g.map.size <= 6000 ? nums.map((n) => [n, g.map.get(n)[0].date, g.map.get(n)[0].ttc]) : null, count: g.map.size,
-      first: ref(nums[0]), last: ref(nums[nums.length - 1]), missing, ranges, gaps, inversions, invEx, invL, dups, dupL, ecriture, sparse: ecriture || missing > g.map.size });
-  });
+  // Pièces de vente du mois, pour la liste détaillée
+  const docs7L = docs7.slice(0, 30000).map(([date, piece, jc, num, amt, , lib]) => [date, jc, num, piece, amt, lib]);
   numbering.sort((a, b) => b.count - a.count);
 
   // Charges constatées d'avance probables : paiements annuels ou trimestriels qui couvrent l'exercice suivant
@@ -1229,7 +1260,7 @@ function buildCycles(x) {
     },
     clients: {
       invoices: sales.length, ttc: ttcS, avoirs: round2(avoirsS), customers: cliF.list, nbCustomers: cliF.count, delay: cliF.delay, directSales,
-      numbering, noNum, docs7N: docs7.length, noVat: noVatS, overVat: overVatS, cut: cut.ventes, lastWeek: round2(lastWeek), avgWeek: round2((ttcS / spanDays) * 7),
+      numbering, noNum, docs7N: docs7.length, docs7L, noVat: noVatS, overVat: overVatS, cut: cut.ventes, lastWeek: round2(lastWeek), avgWeek: round2((ttcS / spanDays) * 7),
     },
     treso: {
       accounts: tresorerie, cash,
