@@ -12,6 +12,10 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
 
 - `fixtures/` : fichiers d'entrée. Le gros FEC de 300 000 lignes (`FEC-gros-volume.txt`) est généré au premier lancement (Python 3).
 - `gen/` : générateurs des FEC et du tableau de suivi (`gen_suivi.py` demande `openpyxl`), pour les recréer ou en faire varier.
+  `genpennylane_ref.py` produit le **FEC de référence Pennylane** (`900000009FEC20270831.txt` et les montants attendus
+  `900000009-attendu.json`) : même structure qu'un export Pennylane réel (journaux AN, BQ, HA, VT, RT, OD, comptes suffixés
+  par taux, TVA sur les encaissements, opérations en attente 4716 / 4717, ValidDate vide), données inventées. Toute
+  fonction destinée aux dossiers Pennylane se teste sur ce fichier (`suites/pennylane-test.js`).
 - `suites/` : une suite par fonction (analyse FEC, cycles, TVA, pièces, portefeuille, suivi mensuel, sécurité…) ; `suites/lib.js` regroupe les aides de navigation (onglets et espaces Mois / Révision / Consultation de l'analyse FEC, choix du mois).
 - `out/` : captures d'écran, fichiers exportés et journal de chaque suite (non versionné).
 

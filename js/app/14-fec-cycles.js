@@ -149,9 +149,11 @@ function chkCharges(r, ref, prev) {
   else if (ch.gifts.n) out.add('info', `Cadeaux de plus de 73 € : ${eur(ch.gifts.total, 0)} €`, 'TVA non récupérable au-delà de 73 € TTC par bénéficiaire et par an ; relevé des frais généraux (2067) si le total dépasse 3 000 €.', ch.gifts.ex, { full: ch.gifts.ex.length >= ch.gifts.n });
   if (ch.notesFrais.n) out.add('info', "Dépenses avancées par l'associé", `${ch.notesFrais.n} écriture(s), ${eur(ch.notesFrais.total, 0)} € portées au crédit du compte courant : notes de frais et justificatifs à obtenir.`, ch.notesFrais.ex, { full: ch.notesFrais.ex.length >= ch.notesFrais.n });
   cutCheck(out, ch.cut, 'Charges externes');
+  // Débits des comptes 61 et 62 (les extournes d'à-nouveaux, au crédit, ne réduisent pas la base)
   const ext = mv(['61', '62']);
+  const extD = r.balance.filter((b) => /^6[12]/.test(b.compte)).reduce((t, b) => t + b.dm, 0) || ext;
   const direct = ch.accounts.reduce((s, a) => s + Math.max(0, a.direct), 0);
-  if (direct > 2000 && direct > ext * 0.3) out.add('info', 'Charges externes payées sans facture fournisseur', `${eur(direct, 0)} € (${pctFr(direct / ext, 0)}) comptabilisés directement depuis la banque : les factures correspondantes doivent être au dossier.`);
+  if (direct > 2000 && direct > extD * 0.3) out.add('info', 'Charges externes payées sans facture fournisseur', `${eur(direct, 0)} € (${pctFr(direct / extD, 0)}) comptabilisés directement depuis la banque : les factures correspondantes doivent être au dossier.`);
   if (prev && r.kpi.ca > 0 && prev.kpi.ca > 0) {
     const n = ext / r.kpi.ca, p = sums(prev).mv(['61', '62']) / prev.kpi.ca;
     if (Math.abs(n - p) >= 0.05) out.add('info', `Charges externes : ${pctFr(p)} → ${pctFr(n)} du chiffre d'affaires`, 'Variation significative du poids des charges externes : voir les comptes en hausse ci-dessous.');
@@ -524,9 +526,8 @@ function cyclePieces(r, mode, arrete, push) {
   const d = fmtDate;
   const bilan = mode === 'bilan';
   if (ui.fecProfile !== 'pharmacie') cy.clients.numbering.filter((g) => !g.sparse && g.missing).forEach((g) => {
-    push('ventes', 'num:' + g.prefix, g.missing <= 30
-      ? `Factures de vente n° ${g.ranges.join(', ')} : copies, ou confirmation de leur annulation (absentes de la comptabilité)`
-      : `Liste des factures de vente de la série ${g.prefix} (${g.missing} numéros absents de la comptabilité entre ${g.first} et ${g.last})`);
+    if (g.missing <= 30) g.ranges.forEach((n) => push('ventes', `num:${g.prefix}:${n}`, `Facture de vente n° ${n} : copie, ou confirmation de son annulation (absente de la comptabilité)`));
+    else push('ventes', 'num:' + g.prefix, `Liste des factures de vente de la série ${g.prefix} (${g.missing} numéros absents de la comptabilité entre ${g.first} et ${g.last})`);
   });
   const item = (x) => `« ${x.lib} » du ${d(x.date)} (${eur(Math.abs(x.amt))} €)`;
   const OPS = 'Opérations en espèces de 1 000 € ou plus', PERSO = 'Dépenses à caractère personnel possibles';

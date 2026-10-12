@@ -85,6 +85,28 @@ function dayKind(iso) {
 const normTxt = (s) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const STOP = new Set(['prlv', 'prelevement', 'prel', 'sepa', 'cb', 'carte', 'vir', 'virement', 'recu', 'emis', 'du', 'de', 'des', 'le', 'la', 'les', 'ref',
   'fact', 'facture', 'echeance', 'ech', 'paiement', 'pmt', 'achat', 'sa', 'sas', 'sarl', 'fr', 'france', 'europe', 'et', 'pour', 'mois', 'avis']);
+// Libellé bancaire détaillé (Pennylane) : « VIR X (ref: …) - LCC: communication - LC2: suite - LIB: BIC - NBE: … - IBE: … -
+// RUM: … - CPY: IBAN - MMO: montant ». On garde la tête et la communication (n° de facture, échéance…), sans les références
+// techniques (BIC, IBAN, mandat, identifiant créancier, montant d'origine) qui rendent chaque libellé unique et illisible.
+const BANK_TAGS = 'LCC|LC2|LIB|NBE|NPY|NBU|IBE|RUM|CPY|CBE|MMO';
+const RE_BANK_TAG = new RegExp(` - (?:${BANK_TAGS}): ?`);
+const RE_BANK_SPLIT = new RegExp(` - (?=(?:${BANK_TAGS}): ?)`);
+function bankLib(s) {
+  if (!s || s.length < 50 || !RE_BANK_TAG.test(s)) return s;
+  const parts = s.split(RE_BANK_SPLIT);
+  const head = parts[0].replace(/\s*\(ref:[^)]*\)?\s*$/, '').trim();
+  let lcc = '';
+  parts.slice(1).forEach((p) => {
+    const m = /^([A-Z][A-Z0-9]{2}): ?(.*)$/.exec(p);
+    if (m && m[1] === 'LCC') lcc += m[2].trim();
+    else if (m && m[1] === 'LC2') lcc += m[2].replace(/\s+$/, '');
+  });
+  lcc = lcc.replace(/\s+/g, ' ').trim();
+  const nh = normTxt(head);
+  if (!lcc || nh.includes(normTxt(lcc))) return head || s.slice(0, 80);
+  return `${head ? head + ' · ' : ''}${lcc.slice(0, 80)}`;
+}
+
 // Clé de regroupement d'un libellé bancaire (« PRLV SEPA ORANGE 0425 » → « orange »).
 function labelKey(s) {
   const words = normTxt(s).replace(/[^a-z ]+/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !STOP.has(w));
@@ -181,7 +203,7 @@ function analyse(buffer, fileName, until, docs) {
   const caisse = [];
   const dupSeen = new Map();
   const benford = new Array(10).fill(0);
-  let totalD = 0, totalC = 0, lines = 0, minDate = '9999', maxDate = '0000', hasAN = false, minOp = '9999', maxOp = '0000';
+  let totalD = 0, totalC = 0, lines = 0, minDate = '9999', maxDate = '0000', hasAN = false, minOp = '9999', maxOp = '0000', validPending = 0;
   // Données pour la demande de pièces
   const bankMonths = new Map();
   const supInv = new Map();
@@ -220,7 +242,7 @@ function analyse(buffer, fileName, until, docs) {
     const g = (k) => (I[k] >= 0 && f[I[k]] !== undefined ? f[I[k]].trim() : '');
 
     const jc = g('JournalCode'), jl = g('JournalLib'), num = g('EcritureNum'), compte = g('CompteNum'), clib = g('CompteLib');
-    const auxNum = g('CompAuxNum'), auxLib = g('CompAuxLib'), piece = g('PieceRef'), elib = g('EcritureLib');
+    const auxNum = g('CompAuxNum'), auxLib = g('CompAuxLib'), piece = g('PieceRef'), elib = bankLib(g('EcritureLib'));
     let d, c;
     if (montantSens) {
       const m = parseAmount(g('Montant'));
@@ -243,7 +265,9 @@ function analyse(buffer, fileName, until, docs) {
     if (d === 0 && c === 0) bump('zero', short());
 
     REQUIRED.forEach((k) => { if (I[k] >= 0 && !g(k)) reqEmpty[k]++; });
-    if (REQUIRED.some((k) => I[k] >= 0 && !g(k))) bump('oblig', short());
+    const miss = REQUIRED.filter((k) => I[k] >= 0 && !g(k));
+    if (miss.length) bump('oblig', short());
+    if (miss.length === 1 && miss[0] === 'ValidDate') validPending++;
 
     const ed = parseDate(g('EcritureDate'));
     const pd = parseDate(g('PieceDate'));
@@ -342,7 +366,10 @@ function analyse(buffer, fileName, until, docs) {
         v[compte] = (v[compte] || 0) + d - c;
         if (compte.startsWith('445')) oe.t445 = 1;
         else if (compte.startsWith('70')) oe.t70 = 1;
-      } else if (/^4[0-3]/.test(compte)) oe.fT = 1;
+      } else if (/^4[0-3]/.test(compte)) {
+        oe.fT = 1;
+        if (/^(408|418|4190|4198)/.test(compte)) oe.rg = 1; // régularisation (factures à établir ou non parvenues, avoirs à établir)
+      } else if (/^48[67]/.test(compte)) oe.rg = 1; // charges ou produits constatés d'avance
       else if (compte[0] === '6' && !compte.startsWith('658')) oe.f6 = 1;
       else if (compte[0] === '2') oe.f2 = 1;
       else if (compte[0] === '5') oe.p5 = (oe.p5 || 0) + d - c;
@@ -533,7 +560,11 @@ function analyse(buffer, fileName, until, docs) {
   add('equil', 'Chaque écriture est équilibrée (débit = crédit)', unbalanced ? 'error' : 'ok', unbalanced, unbalanced ? `${unbalanced} écriture(s) déséquilibrée(s)` : `${entries.size} écritures équilibrées`, unbalancedEx);
   add('balance', 'Balance générale équilibrée', Math.abs(diffTotal) >= 0.01 ? 'error' : 'ok', Math.abs(diffTotal) >= 0.01 ? 1 : 0, `Débit ${fmt(totalD)} € · Crédit ${fmt(totalC)} €${Math.abs(diffTotal) >= 0.01 ? ` · écart ${fmt(diffTotal)} €` : ''}`);
   add('nbcol', 'Nombre de zones identique sur chaque ligne', cnt.nbcol ? 'error' : 'ok', cnt.nbcol || 0, '', ex.nbcol);
-  add('oblig', 'Zones obligatoires renseignées', cnt.oblig ? 'error' : 'ok', cnt.oblig || 0, reqDetail || 'Toutes renseignées', ex.oblig);
+  // Export en cours d'exercice (Pennylane notamment) : écritures pas encore validées, seule la date de validation manque.
+  const interim = cnt.oblig && validPending === cnt.oblig && closing && maxOp < closing;
+  add('oblig', 'Zones obligatoires renseignées', interim ? 'info' : cnt.oblig ? 'error' : 'ok', cnt.oblig || 0, interim
+    ? `ValidDate vide sur ${validPending} ligne(s) : écritures non encore validées (export en cours d'exercice, par exemple depuis Pennylane avant la clôture des périodes). Sans incidence sur l'analyse ; obligatoire dans le FEC de l'exercice clos remis à l'administration.`
+    : reqDetail || 'Toutes renseignées', ex.oblig);
   add('date', 'Dates valides', cnt.date ? 'error' : 'ok', cnt.date || 0, '', ex.date);
   add('datefmt', 'Dates au format AAAAMMJJ', cnt.datefmt ? 'warn' : 'ok', cnt.datefmt || 0, '', ex.datefmt);
   add('montant', 'Montants numériques', cnt.montant ? 'error' : 'ok', cnt.montant || 0, '', ex.montant);
@@ -711,31 +742,34 @@ function analyse(buffer, fileName, until, docs) {
   aux.forEach((t) => {
     if (!['411', '401'].includes(t.racine) || Math.abs(t.d - t.c) < 0.01) return;
     const sign = t.racine === '401' ? -1 : 1;
-    const items = t.lines.map(([date, d, c, let_, lib, an]) => ({ date, amt: round2(sign * (d - c)), let: let_, lib, an: !!an })).filter((x) => x.amt !== 0);
+    // À-nouveaux détaillés (Pennylane) : la date d'origine de la pièce est en tête du libellé
+    // (« 2025-09-01 – 2024-09-01 – 2024-07-05 – DUPONT F-240101 – … », dernière date de la chaîne).
+    const items = t.lines.map(([date, d, c, let_, lib, an]) => {
+      const od = an ? anOrigDate(lib) : '';
+      return { date: od || date, amt: round2(sign * (d - c)), let: let_, lib, an: !!an, known: !!od };
+    }).filter((x) => x.amt !== 0);
     const lettered = items.some((x) => x.let);
-    let open;
-    if (lettered) {
-      open = items.filter((x) => !x.let);
-    } else {
-      const invoices = items.filter((x) => x.amt > 0).sort((a, b) => a.date.localeCompare(b.date));
-      const payments = items.filter((x) => x.amt < 0);
-      let credit = -payments.reduce((s, x) => s + x.amt, 0);
-      open = [];
-      invoices.forEach((x) => {
-        if (credit >= x.amt - 0.005) { credit -= x.amt; return; }
-        open.push({ ...x, amt: round2(x.amt - credit) });
-        credit = 0;
-      });
-      if (credit > 0.005) {
-        const last = payments.sort((a, b) => b.date.localeCompare(a.date))[0];
-        open.push({ date: last ? last.date : '', amt: round2(-credit), lib: 'Règlements non imputés (trop-perçu)', an: false });
-      }
+    // Lignes non lettrées (ou toutes, sans lettrage) : règlements imputés sur les factures les plus anciennes (FIFO),
+    // ce qui neutralise aussi une facture et son règlement repris non lettrés en à-nouveau.
+    const rest = lettered ? items.filter((x) => !x.let) : items;
+    const invoices = rest.filter((x) => x.amt > 0).sort((a, b) => a.date.localeCompare(b.date));
+    const payments = rest.filter((x) => x.amt < 0);
+    let credit = -payments.reduce((s, x) => s + x.amt, 0);
+    const open = [];
+    invoices.forEach((x) => {
+      if (credit >= x.amt - 0.005) { credit -= x.amt; return; }
+      open.push({ ...x, amt: round2(x.amt - credit) });
+      credit = 0;
+    });
+    if (credit > 0.005) {
+      const last = payments.sort((a, b) => b.date.localeCompare(a.date))[0];
+      open.push({ date: last ? last.date : '', amt: round2(-credit), lib: 'Règlements non imputés (trop-perçu)', an: false });
     }
     open.sort((a, b) => a.date.localeCompare(b.date));
     aging.push({
       racine: t.racine, compte: t.compte, num: t.num, lib: t.lib, clib: t.clib, s: round2(t.d - t.c), method: lettered ? 'lettrage' : 'fifo',
       billed: round2(items.filter((x) => x.amt > 0 && !x.an).reduce((s, x) => s + x.amt, 0)), openCount: open.length,
-      open: open.slice(0, 200).map(({ date, amt, lib, an }) => ({ date, amt, lib, an })),
+      open: open.slice(0, 200).map(({ date, amt, lib, an, known }) => ({ date, amt, lib, an: an && !known })),
     });
   });
   const misposted = { 401: misposting(aux, '401', opEntries, remap), 411: misposting(aux, '411', opEntries, remap) };
@@ -792,6 +826,7 @@ function analyse(buffer, fileName, until, docs) {
   });
   const soldeOf = (compte) => { const x = accounts.get(compte); return x ? round2(x.d - x.c) : 0; };
   const labelIdx = buildLabelIndex(opEntries, accounts, auxNames);
+  const invIdx = buildInvIndex(opEntries, auxNames, aux);
   const pieces = {
     minOp: minOp === '9999' ? null : minOp,
     maxOp: maxOp === '0000' ? null : maxOp,
@@ -799,7 +834,7 @@ function analyse(buffer, fileName, until, docs) {
     suppliers: Array.from(supInv.values()).filter((x) => Object.keys(x.months).length >= 3)
       .map((x) => ({ num: x.num, lib: x.lib, months: Object.fromEntries(Object.entries(x.months).map(([k, v]) => [k, round2(v)])) })),
     payroll,
-    attente: attenteLines.map((l) => ({ ...l, soldeCompte: soldeOf(l.compte), sug: labelIdx[labelKey(l.lib)] || null })),
+    attente: attenteLines.map((l) => ({ ...l, soldeCompte: soldeOf(l.compte), sug: invSug(invIdx, l.lib, l.c > 0) || labelIdx[labelKey(l.lib)] || null })),
     immo: immoLines,
     cca: ccaLines,
     direct: Array.from(direct.values()).filter((x) => x.total >= 30).sort((a, b) => b.total - a.total).slice(0, 120)
@@ -847,6 +882,7 @@ function analyse(buffer, fileName, until, docs) {
     aging,
     misposted,
     labelIdx: { stop: Array.from(STOP), map: labelIdx },
+    invIdx,
     cycles,
     kpi: {
       ca: P(['70']), marge, va, ebe, rex, resultat,
@@ -923,6 +959,16 @@ function payDelays(t) {
     });
   }
   return { paidN, paidAmt: round2(paidAmt), delay: paidAmt > 0 ? Math.round(wsum / paidAmt) : null, lateN, lateAmt: round2(lateAmt) };
+}
+
+// Date d'origine d'une pièce reprise en à-nouveau, quand le libellé commence par la chaîne des dates de report
+// (format Pennylane : « 2025-09-01 – 2024-09-01 – 2024-07-05 – libellé »).
+function anOrigDate(lib) {
+  const m = /^((?:\d{4}-\d{2}-\d{2}\s*[–-]\s*)+)/.exec(lib || '');
+  if (!m) return '';
+  const all = m[1].match(/\d{4}-\d{2}-\d{2}/g);
+  const d = all[all.length - 1];
+  return Number.isNaN(Date.parse(d)) ? '' : d;
 }
 
 function buildCycles(x) {
@@ -1175,7 +1221,7 @@ function buildCycles(x) {
     return list;
   };
   const byPiece = buildSeries((piece) => pieceNum(piece), 'piece');
-  // Libellé de la ligne client d'abord (Pennylane : « Avoir X - F-260466 »), puis libellé de l'écriture
+  // Libellé de la ligne client d'abord (Pennylane : « Avoir X - F-260011 »), puis libellé de l'écriture
   const byLib = buildSeries((piece, lib, lib41) => libNum(lib41) || libNum(lib), 'libelle');
   const quality = (list, jc) => list.filter((g) => g.jc === jc && !g.sparse).reduce((t, g) => t + g.count, 0);
   const journals7 = new Set(docs7.map((d) => d[2]));
@@ -1196,8 +1242,9 @@ function buildCycles(x) {
   numbering.sort((a, b) => b.count - a.count);
 
   // Charges constatées d'avance probables : paiements annuels ou trimestriels qui couvrent l'exercice suivant
+  // (périodicité déduite des mois mouvementés : il faut au moins 9 mois d'écritures, pas sur une situation de début d'exercice).
   const cca = [];
-  if (closing) {
+  if (closing && months.size >= 9) {
     chAcc.forEach((ca) => {
       if (!/^(612|613|614|615|616|618|6231|6233|6236|626|6281|6226)/.test(ca.compte)) return;
       const nMonths = Object.values(ca.months).filter((v) => Math.abs(v) >= 0.01).length;
@@ -1324,7 +1371,8 @@ function buildTva({ groups, accounts, opEntries }) {
     else if (compte[0] === '7') ca[compte] = { lib: a.lib };
   });
   // Écritures qui mouvementent la TVA (avec leurs comptes 445 et 7), ventes sans TVA, produits par mois
-  const g = [], nv = [], ca7 = {}, months = {};
+  // ca7r : produits des régularisations sans TVA (PCA, factures et avoirs à établir, leurs extournes), hors rapprochement
+  const g = [], nv = [], ca7 = {}, ca7r = {}, months = {};
   let nvN = 0;
   for (const it of groups) {
     for (const oe of it) {
@@ -1332,17 +1380,18 @@ function buildTva({ groups, accounts, opEntries }) {
       const ym = oe.date.slice(0, 7);
       months[ym] = 1;
       const m = {};
+      const reg = oe.rg && !oe.t445;
       for (const k in oe.v) {
-        if (k[0] === '7') { const x = (ca7[ym] = ca7[ym] || {}); x[k] = (x[k] || 0) - oe.v[k]; }
+        if (k[0] === '7') { const t = reg ? ca7r : ca7; const x = (t[ym] = t[ym] || {}); x[k] = (x[k] || 0) - oe.v[k]; }
         const v = round2(oe.v[k]);
         if (v) m[k] = v;
       }
       const ref = `${oe.jc} ${oe.num}`.trim(), lib = (oe.lib || '').slice(0, 60);
       if (oe.t445) g.push([oe.date, ref, oe.piece || '', lib, m, round2(oe.p5 || 0), (oe.fT ? 1 : 0) | (oe.f6 ? 2 : 0) | (oe.f2 ? 4 : 0)]);
-      else if (oe.t70) { nvN++; if (nv.length < 6000) nv.push([oe.date, ref, oe.piece || '', lib, m]); }
+      else if (oe.t70 && !reg) { nvN++; if (nv.length < 6000) nv.push([oe.date, ref, oe.piece || '', lib, m]); }
     }
   }
-  Object.values(ca7).forEach((x) => Object.keys(x).forEach((k) => { x[k] = round2(x[k]); }));
+  [ca7, ca7r].forEach((t) => Object.values(t).forEach((x) => Object.keys(x).forEach((k) => { x[k] = round2(x[k]); })));
   g.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
 
   // Points de révision de la TVA déductible, par mois (indépendants du calcul)
@@ -1387,7 +1436,7 @@ function buildTva({ groups, accounts, opEntries }) {
     if (v52 > 0.01 && v6 < v52 - 1) addLazy(B(ym, 'autoliqND'), v52 - v6, () => `${ref} · TVA autoliquidée ${fmt(round2(v52))} €, déduite ${fmt(round2(Math.max(0, v6)))} €`, 15);
   });
   Object.values(chk).forEach((c) => Object.values(c).forEach((b) => { b.total = round2(b.total); delete b.items; }));
-  return { accs, ca, g, nv, nvN, ca7, months, chk };
+  return { accs, ca, g, nv, nvN, ca7, ca7r, months, chk };
 }
 
 // ---------- Affectations déjà faites, par libellé ----------
@@ -1432,6 +1481,61 @@ function buildLabelIndex(opEntries, accounts, auxNames) {
     k++;
   });
   return out;
+}
+
+// ---------- Factures de vente citées dans un libellé ----------
+// N° de facture → clé : lettres du préfixe et chiffres sans zéros de tête (« F-260012 », « F 260012 », « F260012 » → « F260012 »).
+// Renvoie les n° trouvés : [clé, n° tel qu'écrit].
+function invRefs(s) {
+  const out = [];
+  const re = /(?:^|[^A-Z0-9])(([A-Z]{1,4})[\s\-_/.]{0,2}0*(\d{4,9}))(?!\d)/g;
+  const t = String(s || '').toUpperCase();
+  let m;
+  while ((m = re.exec(t))) out.push([m[2] + m[3], m[1]]);
+  return out;
+}
+const invKeys = (s) => invRefs(s).map((x) => x[0]);
+// Factures et avoirs clients (écriture avec une ligne 41 et une ligne de produit) : n° lu dans le libellé de la ligne client
+// (Pennylane : « Facture X - F-260012 »), à défaut dans la pièce. Sert à reconnaître un encaissement qui cite le n° de facture.
+function buildInvIndex(opEntries, auxNames, aux) {
+  const out = {};
+  let n = 0;
+  // Factures clients reprises en à-nouveau (Pennylane : une ligne par facture non soldée, n° dans le libellé)
+  aux.forEach((t) => {
+    if (t.racine !== '411') return;
+    t.lines.forEach(([date, d, c, let_, lib, an]) => {
+      if (!an || d - c < 0.01 || n >= 30000) return;
+      const hit = invRefs(lib).pop();
+      if (!hit || out[hit[0]]) return;
+      out[hit[0]] = [t.compte, t.num !== t.compte ? t.num : '', t.lib, hit[1], anOrigDate(lib) || date, round2(d - c), let_ ? 1 : 0];
+      n++;
+    });
+  });
+  opEntries.forEach((en) => {
+    if (n >= 30000 || en.an || !en.l || !en.date) return;
+    let cl = null, has7 = false;
+    for (let i = 0; i < en.l.length; i += 4) {
+      const compte = en.l[i];
+      if (compte[0] === '7') has7 = true;
+      else if (/^41[01]/.test(compte) && !cl) cl = [compte, en.l[i + 1] || '', en.l[i + 2] - en.l[i + 3]];
+    }
+    if (!cl || !has7) return;
+    const hit = invRefs(en.lib41).pop() || invRefs(en.piece).pop();
+    if (!hit || out[hit[0]]) return;
+    out[hit[0]] = [cl[0], cl[1], auxNames.get(cl[1]) || cl[1] || '', hit[1], en.date, round2(cl[2]), (en.lt || []).includes(cl[0] + '|' + cl[1]) ? 1 : 0];
+    n++;
+  });
+  return out;
+}
+// Suggestion d'affectation d'un encaissement qui cite une facture client : même forme que celles de l'index des libellés,
+// complétée de la facture (8e élément).
+function invSug(invIdx, lib, credit) {
+  if (!credit) return null;
+  for (const k of invKeys(lib)) {
+    const x = invIdx[k];
+    if (x) return [x[0], x[1], x[2], 0, 0, 0, x[4], `${x[3]} du ${dmy(x[4])}, ${fmt(x[5])} € TTC${x[6] ? ', déjà lettrée' : ''}`];
+  }
+  return null;
 }
 
 // ---------- Factures et règlements imputés sur un autre compte de tiers ----------

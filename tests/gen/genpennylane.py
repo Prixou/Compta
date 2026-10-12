@@ -1,5 +1,5 @@
 # FEC de test au format Pennylane : n° de pièce aléatoire, n° de facture dans le libellé de la ligne client 411
-# (« Facture X - F-260458 », « Avoir X - F-260466 »), libellé de la ligne de produit sans n° pour les avoirs.
+# (« Facture X - F-260010 », « Avoir X - F-260011 »), libellé de la ligne de produit sans n° pour les avoirs.
 #   python3 genpennylane.py [dossier de sortie]   → 888888888FEC20261231.txt (F-260007 en février, F-260012 à F-260014 entre février et mars, jamais saisies)
 import sys, os, random, string, datetime
 random.seed(5)

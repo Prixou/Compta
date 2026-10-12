@@ -175,7 +175,8 @@ function monthPieces(r, arrete) {
   // Acquisitions d'immobilisations du mois
   p.immo.filter((l) => inM(l.date)).forEach((l, i) => push('immo', `m${ym}:${i}`, `Facture d'acquisition « ${l.lib} » du ${d(l.date)} (${eur(l.montant)} €, ${l.clib})`));
   // Opérations en attente du mois
-  p.attente.filter((l) => inM(l.date) && !l.lettre).forEach((l, i) => push('attente', `m${ym}:${i}`, `Justificatif de l'opération « ${l.lib} » du ${d(l.date)} : ${l.c > 0 ? 'encaissement' : 'paiement'} de ${eur(l.c || l.d)} €`));
+  // (sauf les encaissements qui citent une facture client : identifiés, à lettrer)
+  p.attente.filter((l) => inM(l.date) && !l.lettre && !(l.sug && l.sug[7])).forEach((l, i) => push('attente', `m${ym}:${i}`, `Justificatif de l'opération « ${l.lib} » du ${d(l.date)} : ${l.c > 0 ? 'encaissement' : 'paiement'} de ${eur(l.c || l.d)} €`));
 
   if (!pharma && cy) {
     // Ventes : clients facturés chaque mois sans facture ce mois-ci
@@ -194,9 +195,9 @@ function monthPieces(r, arrete) {
       }
       if (!miss.length) return;
       const ref = (n) => g.prefix + String(n).padStart(g.w || 0, '0');
-      const ranges = [];
-      miss.forEach((n) => { const last = ranges[ranges.length - 1]; if (last && n === last[1] + 1) last[1] = n; else ranges.push([n, n]); });
-      push('ventes', `num:${g.prefix}:${ym}`, `Factures de vente n° ${ranges.slice(0, 10).map(([a, b]) => (a === b ? ref(a) : `${ref(a)} à ${ref(b)}`)).join(', ')} (${mois}) : copies, ou confirmation de leur annulation`);
+      // Une pièce par facture manquante (pas de plage de numéros), pour suivre chacune
+      miss.slice(0, 50).forEach((n) => push('ventes', `num:${g.prefix}:${n}`, `Facture de vente n° ${ref(n)} (${mois}) : copie, ou confirmation de son annulation`));
+      if (miss.length > 50) push('ventes', `num:${g.prefix}:${ym}:+`, `Factures de vente n° ${miss.slice(50).map(ref).join(', ')} (${mois}) : copies, ou confirmation de leur annulation`);
     });
     // Ventes sans TVA dont la nature n'est pas identifiable (contrôle de la TVA du mois)
     // Ventes sans TVA sur des comptes taxables ou non qualifiés (contrôle de la TVA)
@@ -282,7 +283,7 @@ function computePiecesRaw(r, mode, arrete) {
   });
 
   // Opérations en compte d'attente
-  p.attente.filter((l) => l.date <= arrete && !l.lettre && Math.abs(l.soldeCompte) >= 0.01).forEach((l, i) => {
+  p.attente.filter((l) => l.date <= arrete && !l.lettre && Math.abs(l.soldeCompte) >= 0.01 && !(l.sug && l.sug[7])).forEach((l, i) => {
     push('attente', `${l.compte}:${i}`, `Justificatif de l'opération « ${l.lib} » du ${d(l.date)} : ${l.c > 0 ? 'encaissement' : 'paiement'} de ${eur(l.c || l.d)} €`);
   });
 

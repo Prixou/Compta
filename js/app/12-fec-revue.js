@@ -538,7 +538,7 @@ function viewRappro() {
     <div class="grid2">
       <section class="card"><h2>Opérations bancaires non comptabilisées <span class="count">${res.bankOnly.length}</span></h2>
         ${res.bankOnly.length ? `<label class="check"><input type="checkbox" data-rappro="include"${st.include ? ' checked' : ''}><span>Les ajouter aux pièces à demander au client</span></label>
-        <div class="grid-wrap"><table class="dtable num l4"><thead><tr><th>Date</th><th>Libellé</th><th>Montant</th><th>Affectation suggérée</th></tr></thead><tbody>${res.bankOnly.map((o) => { const sg = labelSug(f.result, o.label); return `<tr><td>${fmtDate(o.date)}</td><td>${esc(o.label)}</td><td class="${o.amount < 0 ? 'cred' : ''}">${eur(o.amount)}</td><td class="small">${sg ? esc(sugTxt(sg)) : '<span class="muted">—</span>'}</td></tr>`; }).join('')}</tbody></table></div>
+        <div class="grid-wrap"><table class="dtable num l4"><thead><tr><th>Date</th><th>Libellé</th><th>Montant</th><th>Affectation suggérée</th></tr></thead><tbody>${res.bankOnly.map((o) => { const sg = labelSug(f.result, o.label, o.amount > 0); return `<tr><td>${fmtDate(o.date)}</td><td>${esc(o.label)}</td><td class="${o.amount < 0 ? 'cred' : ''}">${eur(o.amount)}</td><td class="small">${sg ? esc(sugTxt(sg)) : '<span class="muted">—</span>'}</td></tr>`; }).join('')}</tbody></table></div>
         <p class="muted small">Affectation suggérée : compte retenu pour les opérations au même libellé déjà comptabilisées dans le FEC (compte de tiers seulement s'il a été lettré).</p>` : '<p class="muted">Toutes les opérations du relevé sont comptabilisées. 👍</p>'}
       </section>
       <section class="card"><h2>Écritures absentes du relevé <span class="count">${res.bookOnly.length}</span></h2>
@@ -567,7 +567,7 @@ function exportRappro() {
     ...(stmt ? [[t(`Solde du relevé au ${fmtDate(stmt.date)}`, 1), n(stmt.amount, 9)], [t('Écart inexpliqué', 1), n(stmt.amount - (book + nonCompta - nonReleve), 9)]] : [])];
   const blob = XlsxWriter.build({ sheets: [
     { name: 'État de rapprochement', rows, widths: [50, 18], filter: false },
-    { name: 'Non comptabilisées', rows: [[t('Date', 1), t('Libellé', 1), t('Montant', 1), t('Affectation suggérée', 1)]].concat(res.bankOnly.map((o) => { const sg = labelSug(ui.fec.result, o.label); return [t(fmtDate(o.date)), t(o.label || ''), n(o.amount), t(sg ? sugTxt(sg) : '')]; })), widths: [12, 60, 16, 50], freeze: { row: 1 } },
+    { name: 'Non comptabilisées', rows: [[t('Date', 1), t('Libellé', 1), t('Montant', 1), t('Affectation suggérée', 1)]].concat(res.bankOnly.map((o) => { const sg = labelSug(ui.fec.result, o.label, o.amount > 0); return [t(fmtDate(o.date)), t(o.label || ''), n(o.amount), t(sg ? sugTxt(sg) : '')]; })), widths: [12, 60, 16, 50], freeze: { row: 1 } },
     { name: 'Absentes du relevé', rows: [[t('Date', 1), t('Libellé', 1), t('Montant', 1)]].concat(opRows(res.bookOnly)), widths: [12, 60, 16], freeze: { row: 1 } },
   ] });
   download(`rapprochement-${st.compte}-${ref}.xlsx`, blob, blob.type);

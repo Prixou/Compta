@@ -111,7 +111,8 @@ function ecrProposals(r) {
 
   // 4. Dépréciation des créances clients échues depuis plus de 90 jours
   if (ui.fecProfile !== 'pharmacie' && closing) {
-    const od = overdue(r, '411', closing, fecTerme());
+    // Ancienneté appréciée à la date d'arrêté (fin de la situation), pas à la clôture à venir
+    const od = overdue(r, '411', isSituation(r) ? st.date : closing, fecTerme());
     const { mv, solde } = sums(r);
     const tx = r.kpi.ca > 0 ? Math.min(0.2, Math.max(0, -mv(['4457']) / r.kpi.ca)) : 0.2;
     const dep = -solde(['491']);
@@ -185,7 +186,8 @@ function ecrProposals(r) {
       src: { cycle: `saisie-${l.date.slice(0, 7)}`, check: "Opérations restées en compte d'attente", ex: attenteEx(l) },
       id: `att:${l.compte}:${l.date}:${i}`, group: "Affectation des opérations en compte d'attente", extournable: false, editable: false, amount: amt,
       label: `« ${l.lib} » du ${dt(l.date)} vers ${compte}${aux ? ' ' + aux : ''} ${lib}`,
-      why: `Même libellé déjà affecté ${n} fois à ${compte}${aux ? ' ' + aux : ''} ${lib}${nLet ? `, dont ${nLet} lettrée(s)` : ''}. À confirmer avant import.`,
+      why: l.sug[7] ? `Le libellé cite la facture ${l.sug[7]} de ${lib} : règlement à lettrer avec la facture. À confirmer avant import.`
+        : `Même libellé déjà affecté ${n} fois à ${compte}${aux ? ' ' + aux : ''} ${lib}${nLet ? `, dont ${nLet} lettrée(s)` : ''}. À confirmer avant import.`,
       make: () => (l.d
         ? [L(compte, l.lib, amt, 0, aux ? { num: aux, lib } : null), L(l.compte, l.lib, 0, amt)]
         : [L(l.compte, l.lib, amt, 0), L(compte, l.lib, 0, amt, aux ? { num: aux, lib } : null)]),

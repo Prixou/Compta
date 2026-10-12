@@ -11,15 +11,31 @@ const inMonth = (iso, ym) => !!iso && iso.slice(0, 7) === ym;
 // ---------- Affectations suggérées d'après le FEC ----------
 // Une opération dont le libellé (deux premiers mots significatifs) a déjà été affectée dans le FEC — compte de tiers lettré,
 // ou compte de charge ou de produit — reçoit la même affectation en suggestion.
-function labelSug(r, lib) {
+function labelSug(r, lib, credit) {
+  const inv = credit && invSugApp(r, lib);
+  if (inv) return inv;
   const idx = r.labelIdx;
   if (!idx || !lib) return null;
   const stop = idx._stop || Object.defineProperty(idx, '_stop', { value: new Set(idx.stop) })._stop;
   const words = norm(lib).replace(/[^a-z ]+/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !stop.has(w));
   return idx.map[words.slice(0, 2).join(' ') || '?'] || null;
 }
-// « 401 F07 ORANGE BUSINESS (10 fois, lettré) »
-const sugTxt = (sg) => `${sg[0]}${sg[1] ? ' ' + sg[1] : ''} ${sg[2]} (${sg[3]} fois${sg[5] > sg[3] ? ` sur ${sg[5]}` : ''}${sg[4] ? `, lettré${sg[4] < sg[3] ? ` ${sg[4]} fois` : ''}` : ''})`;
+// Encaissement dont le libellé cite le n° d'une facture client (« VIR X · F260012 ») : même calcul de clé que le moteur.
+function invSugApp(r, lib) {
+  const idx = r.invIdx;
+  if (!idx || !lib) return null;
+  const re = /(?:^|[^A-Z0-9])([A-Z]{1,4})[\s\-_/.]{0,2}0*(\d{4,9})(?!\d)/g;
+  const t = String(lib).toUpperCase();
+  let m;
+  while ((m = re.exec(t))) {
+    const x = idx[m[1] + m[2]];
+    if (x) return [x[0], x[1], x[2], 0, 0, 0, x[4], `${x[3]} du ${fmtDate(x[4])}, ${eur(x[5])} € TTC${x[6] ? ', déjà lettrée' : ''}`];
+  }
+  return null;
+}
+// « 401 F07 ORANGE BUSINESS (10 fois, lettré) » ; « 411 C12 MARTIN — facture F-260012 du 15/03/2026, 1 200,00 € TTC »
+const sugTxt = (sg) => (sg[7] ? `${sg[0]}${sg[1] ? ' ' + sg[1] : ''} ${sg[2]} — facture ${sg[7]}`
+  : `${sg[0]}${sg[1] ? ' ' + sg[1] : ''} ${sg[2]} (${sg[3]} fois${sg[5] > sg[3] ? ` sur ${sg[5]}` : ''}${sg[4] ? `, lettré${sg[4] < sg[3] ? ` ${sg[4]} fois` : ''}` : ''})`);
 const attenteEx = (l) => `${fmtDate(l.date)} · ${l.compte} · « ${l.lib} » · ${eur(l.d || l.c)} € au ${l.d ? 'débit' : 'crédit'}${l.sug ? ` → affectation suggérée : ${sugTxt(l.sug)}` : ''}`;
 
 // Change le mois affiché ; le contrôle de TVA suit (mois, ou trimestre qui le contient).
@@ -71,7 +87,7 @@ function saisieChecks(r, ym) {
   if (p) {
     const att = (p.attente || []).filter((l) => inMonth(l.date, ym) && !l.lettre && Math.abs(l.soldeCompte) >= 0.01);
     const nSug = att.filter((l) => l.sug).length;
-    if (att.length) o.add('warn', "Opérations restées en compte d'attente", `${att.length} ligne(s) du mois sur les comptes 471 à 478, non lettrées : à identifier (question au client dans « Pièces du mois ») puis à reclasser.${nSug ? ` ${nSug} affectation(s) suggérée(s) d'après les opérations au même libellé déjà affectées dans le FEC ; l'écriture de reclassement est proposée dans Révision → Écritures.` : ''}`, att.map(attenteEx), { full: p.attente.length < 400 });
+    if (att.length) o.add('warn', "Opérations restées en compte d'attente", `${att.length} ligne(s) du mois sur les comptes 471 à 478, non lettrées : à identifier (question au client dans « Pièces du mois ») puis à reclasser.${nSug ? ` ${nSug} affectation(s) suggérée(s) d'après les opérations au même libellé déjà affectées dans le FEC ou le n° de facture cité dans le libellé ; l'écriture de reclassement est proposée dans Révision → Écritures.` : ''}`, att.map(attenteEx), { full: p.attente.length < 400 });
     else o.add('ok', "Comptes d'attente", "Aucune opération du mois restée en compte d'attente.");
     // Solde de chaque compte de tiers à la fin du mois (à-nouveau compris)
     const end = (t) => round2(Object.keys(t.m).reduce((s, m) => (m <= ym ? s + t.m[m][0] - t.m[m][1] : s), t.an));
