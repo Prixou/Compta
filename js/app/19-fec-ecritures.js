@@ -177,6 +177,21 @@ function ecrProposals(r) {
     });
   }));
 
+  // 7. Affectation des opérations restées en compte d'attente, d'après les opérations au même libellé déjà affectées
+  (r.pieces.attente || []).filter((l) => l.sug && !l.lettre && Math.abs(l.soldeCompte) >= 0.01).forEach((l, i) => {
+    const [compte, aux, lib, n, nLet] = l.sug;
+    const amt = l.d || l.c;
+    add({
+      src: { cycle: `saisie-${l.date.slice(0, 7)}`, check: "Opérations restées en compte d'attente", ex: attenteEx(l) },
+      id: `att:${l.compte}:${l.date}:${i}`, group: "Affectation des opérations en compte d'attente", extournable: false, editable: false, amount: amt,
+      label: `« ${l.lib} » du ${dt(l.date)} vers ${compte}${aux ? ' ' + aux : ''} ${lib}`,
+      why: `Même libellé déjà affecté ${n} fois à ${compte}${aux ? ' ' + aux : ''} ${lib}${nLet ? `, dont ${nLet} lettrée(s)` : ''}. À confirmer avant import.`,
+      make: () => (l.d
+        ? [L(compte, l.lib, amt, 0, aux ? { num: aux, lib } : null), L(l.compte, l.lib, 0, amt)]
+        : [L(l.compte, l.lib, amt, 0), L(compte, l.lib, 0, amt, aux ? { num: aux, lib } : null)]),
+    });
+  });
+
   const finish = (p) => {
     p.amount = round2(st.amounts[p.id] !== undefined ? st.amounts[p.id] : p.amount);
     p.cpteValue = p.cpte ? st.cptes[p.id] || p.cpte : null;

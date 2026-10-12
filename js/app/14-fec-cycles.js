@@ -167,9 +167,9 @@ function chkClients(r, ref, prev, terme) {
   mispostCheck(r, out, '411');
   const nb = cl.numbering.filter((g) => !g.sparse);
   if (!cl.numbering.length && cl.invoices >= 10) out.add('info', 'Numérotation des factures de vente non contrôlable', 'Les n° de pièce des factures de vente ne se terminent pas par un numéro.');
-  else if (cl.numbering.length && !nb.length) out.add('info', 'Numérotation des factures non exploitable', `Les n° de pièce (${cl.numbering[0].first}…) semblent être des n° d'écriture : le n° de facture n'est pas repris dans le FEC.`);
+  else if (cl.numbering.length && !nb.length) out.add('info', 'Numérotation des factures non exploitable', `Les n° de pièce (${cl.numbering[0].first}…) ${cl.numbering.some((g) => g.ecriture) ? 'sont les n° d\'écriture' : 'ne forment pas une suite'} : le n° de facture n'est pas repris dans le FEC.`);
   nb.forEach((g) => {
-    const name = `${g.first} à ${g.last}`;
+    const name = `${g.first} à ${g.last}${nb.length > 1 || !g.prefix ? `, ${g.label}` : ''}`;
     if (g.missing) out.add('warn', `Factures de vente manquantes dans la numérotation (${name})`, `${g.missing} numéro(s) absent(s) : factures annulées (à justifier), non saisies ou émises par un autre outil ? La numérotation doit être continue (art. 242 nonies A de l'annexe II du CGI).`, g.ranges);
     else out.add('ok', 'Numérotation continue des factures de vente', `${g.count} factures, de ${name}.`);
     if (g.dups.length) out.add('warn', 'Numéros de facture utilisés plusieurs fois', `${g.dups.length} numéro(s) en double : facture saisie deux fois ou n° réattribué ?`, g.dups);
@@ -410,8 +410,9 @@ function viewClients() {
         <tbody>${od.tiers.slice(0, 60).map((t) => `<tr><td>${esc(t.lib)}</td><td>${eur(t.late, 0)}</td><td>${t.b91 ? eur(t.b91, 0) : ''}</td><td>${t.oldest === '0' ? 'À-nouveau' : fmtDate(t.oldest)}</td></tr>`).join('')}</tbody></table></div></details>` : ''}
     </section>
     ${cl.numbering.length ? `<section class="card"><h2>Numérotation des factures de vente</h2>
-      <div class="grid-wrap"><table class="dtable num"><thead><tr><th>Série</th><th>Factures</th><th>Du n°</th><th>Au n°</th><th>Manquants</th><th>Doublons</th></tr></thead>
-      <tbody>${cl.numbering.map((g) => `<tr><td>${esc(g.prefix || '(sans préfixe)')}${g.sparse ? ' <span class="muted small">n° d\'écriture ?</span>' : ''}</td><td>${g.count}</td><td>${g.first}</td><td>${g.last}</td><td>${g.sparse ? '—' : g.missing}</td><td>${g.dups.length || ''}</td></tr>`).join('')}</tbody></table></div></section>` : ''}`;
+      <div class="grid-wrap"><table class="dtable num"><thead><tr><th>Série</th><th>Factures et avoirs</th><th>Du n°</th><th>Au n°</th><th>Manquants</th><th>Doublons</th></tr></thead>
+      <tbody>${cl.numbering.map((g) => `<tr><td>${esc(g.label)}${g.sparse ? ` <span class="muted small">${g.ecriture ? 'n° d\'écriture' : 'pas une suite ?'}</span>` : ''}</td><td>${g.count}</td><td>${g.first}</td><td>${g.last}</td><td>${g.sparse ? '—' : g.missing}</td><td>${g.dups.length || ''}</td></tr>`).join('')}</tbody></table></div>
+      <p class="muted small">Toutes les écritures de produits (comptes 70, 75 et 77), factures et avoirs, par journal et préfixe du n° de pièce.</p></section>` : ''}`;
 }
 
 function viewTreso() {

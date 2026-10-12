@@ -8,6 +8,20 @@
 
 const inMonth = (iso, ym) => !!iso && iso.slice(0, 7) === ym;
 
+// ---------- Affectations suggérées d'après le FEC ----------
+// Une opération dont le libellé (deux premiers mots significatifs) a déjà été affectée dans le FEC — compte de tiers lettré,
+// ou compte de charge ou de produit — reçoit la même affectation en suggestion.
+function labelSug(r, lib) {
+  const idx = r.labelIdx;
+  if (!idx || !lib) return null;
+  const stop = idx._stop || Object.defineProperty(idx, '_stop', { value: new Set(idx.stop) })._stop;
+  const words = norm(lib).replace(/[^a-z ]+/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !stop.has(w));
+  return idx.map[words.slice(0, 2).join(' ') || '?'] || null;
+}
+// « 401 F07 ORANGE BUSINESS (10 fois, lettré) »
+const sugTxt = (sg) => `${sg[0]}${sg[1] ? ' ' + sg[1] : ''} ${sg[2]} (${sg[3]} fois${sg[5] > sg[3] ? ` sur ${sg[5]}` : ''}${sg[4] ? `, lettré${sg[4] < sg[3] ? ` ${sg[4]} fois` : ''}` : ''})`;
+const attenteEx = (l) => `${fmtDate(l.date)} · ${l.compte} · « ${l.lib} » · ${eur(l.d || l.c)} € au ${l.d ? 'débit' : 'crédit'}${l.sug ? ` → affectation suggérée : ${sugTxt(l.sug)}` : ''}`;
+
 // Change le mois affiché ; le contrôle de TVA suit (mois, ou trimestre qui le contient).
 function setFecMonth(ym) {
   const f = ui.fec;
@@ -56,7 +70,8 @@ function saisieChecks(r, ym) {
   const p = r.pieces;
   if (p) {
     const att = (p.attente || []).filter((l) => inMonth(l.date, ym) && !l.lettre && Math.abs(l.soldeCompte) >= 0.01);
-    if (att.length) o.add('warn', "Opérations restées en compte d'attente", `${att.length} ligne(s) du mois sur les comptes 471 à 478, non lettrées : à identifier (question au client dans « Pièces du mois ») puis à reclasser.`, att.map((l) => `${fmtDate(l.date)} · ${l.compte} · « ${l.lib} » · ${eur(l.d || l.c)} € au ${l.d ? 'débit' : 'crédit'}`), { full: p.attente.length < 400 });
+    const nSug = att.filter((l) => l.sug).length;
+    if (att.length) o.add('warn', "Opérations restées en compte d'attente", `${att.length} ligne(s) du mois sur les comptes 471 à 478, non lettrées : à identifier (question au client dans « Pièces du mois ») puis à reclasser.${nSug ? ` ${nSug} affectation(s) suggérée(s) d'après les opérations au même libellé déjà affectées dans le FEC ; l'écriture de reclassement est proposée dans Révision → Écritures.` : ''}`, att.map(attenteEx), { full: p.attente.length < 400 });
     else o.add('ok', "Comptes d'attente", "Aucune opération du mois restée en compte d'attente.");
     // Solde de chaque compte de tiers à la fin du mois (à-nouveau compris)
     const end = (t) => round2(Object.keys(t.m).reduce((s, m) => (m <= ym ? s + t.m[m][0] - t.m[m][1] : s), t.an));
@@ -71,6 +86,7 @@ function saisieChecks(r, ym) {
     if (cc.length) o.add(pharma ? 'info' : 'warn', lab, `${cc.length} compte(s), ${eur(-cc.reduce((t, x) => t + x.s, 0))} € : facture non saisie, encaissement en double ou passé sur le mauvais ${pharma ? 'organisme' : 'client'}, avoir à rembourser, ou acompte reçu à classer en 4191 ?`, ex(cc), { full: cc.length <= 30 });
     else o.add('ok', pharma ? 'Aucun organisme ni patient créditeur' : 'Aucun client créditeur', 'Comptes clients débiteurs ou soldés à la fin du mois.');
   }
+  numberingChecks(r, ym, o);
   const list = applyMemo(out.concat(o), `saisie-${ym}`);
   r._saisie = { key, list };
   return list;
@@ -83,6 +99,40 @@ function saisieSigned(cycle) {
   if (!c) return;
   const done = autoStep(c.id, ['saisie'], [`${m[2]}/${m[1]}`], /contr[ôo]le/i, "saisie du mois revue dans l'analyse du FEC");
   if (done) setTimeout(() => toast(`Saisie revue — ${done}.`), 0);
+}
+
+// Numérotation des factures de vente du mois : toutes les écritures de produits (70, 75, 77), factures et avoirs,
+// par série (journal et préfixe du n° de pièce). Trous, doublons et ordre chronologique, sur la suite de l'exercice.
+function numberingChecks(r, ym, o) {
+  const cl = r.cycles && r.cycles.clients;
+  if (!cl || !cl.numbering) return;
+  const mois = moisNom(`${ym}-01`);
+  const series = cl.numbering.filter((g) => !g.sparse && g.seq);
+  const missing = [], dups = [], inv = [], ok = [];
+  let nMissing = 0;
+  series.forEach((g) => {
+    const ref = (n) => g.prefix + String(n).padStart(g.w, '0');
+    const inM = g.seq.filter(([, d]) => inMonth(d, ym)).map(([n]) => n);
+    if (!inM.length) return;
+    const tag = series.length > 1 ? ` (série ${g.label})` : '';
+    // Un trou est rattaché au mois des factures qui l'encadrent
+    (g.gaps || []).filter(([, , da, db]) => inMonth(da, ym) || inMonth(db, ym)).forEach(([a, b, da, db]) => {
+      nMissing += b - a - 1;
+      missing.push(`${b - a === 2 ? ref(a + 1) : `${ref(a + 1)} à ${ref(b - 1)}`} : entre ${ref(a)} du ${fmtDate(da)} et ${ref(b)} du ${fmtDate(db)}${tag}`);
+    });
+    (g.dupL || []).filter(([, list]) => list.some(([d]) => inMonth(d, ym))).forEach(([p, list]) => dups.push(`${p} : ${list.map(([d, v]) => `${fmtDate(d)} (${eur(v)} € HT)`).join(' et ')}${tag}`));
+    (g.invL || []).filter(([, da, , db]) => inMonth(da, ym) || inMonth(db, ym)).forEach(([pa, da, pb, db]) => inv.push(`${pa} du ${fmtDate(da)} puis ${pb} du ${fmtDate(db)}`));
+    ok.push(`${g.label} : ${inM.length} pièce(s) du mois, de ${ref(Math.min(...inM))} à ${ref(Math.max(...inM))}`);
+  });
+  if (missing.length) o.add('warn', 'Factures de vente manquantes dans la numérotation', `${nMissing} numéro(s) absent(s) autour de ${mois} : facture annulée (garder l'original), non saisie, ou saisie sur un autre mois ou un autre compte ? La numérotation doit être continue (art. 242 nonies A de l'annexe II du CGI).`, missing, { full: true });
+  if (dups.length) o.add('warn', 'Numéros de facture de vente utilisés plusieurs fois', `${dups.length} numéro(s) : facture saisie deux fois, ou même n° donné à deux factures ?`, dups, { full: true });
+  if (inv.length) o.add('info', 'Factures de vente hors ordre chronologique', 'Un numéro plus élevé porte une date antérieure : erreur de date ou de numéro, ou facture antidatée ?', inv, { full: true });
+  if (ok.length && !missing.length && !dups.length) o.add('ok', 'Numérotation des factures de vente continue', ok.join(' ; ') + '.');
+  // Ventes du mois dont le n° de facture n'est pas exploitable
+  const noNum = (cl.noNum || []).filter(([d]) => inMonth(d, ym));
+  const notSeq = cl.numbering.filter((g) => g.sparse && g.seq && g.seq.some(([, d]) => inMonth(d, ym)));
+  if (!ok.length && notSeq.length) o.add('info', 'Numérotation des factures de vente non contrôlable', `Les n° de pièce des ventes du mois (${notSeq.map((g) => g.label).join(', ')}) ${notSeq.some((g) => g.ecriture) ? 'sont les n° d\'écriture' : 'ne forment pas une suite'} : le n° de facture n'est pas repris dans le FEC. À contrôler dans l'outil de facturation ou de caisse.`);
+  if (noNum.length) o.add('info', 'Écritures de vente sans n° de facture', `${noNum.length} écriture(s) de produits du mois dont la pièce ne se termine pas par un numéro : n° de facture à reporter dans la saisie.`, noNum.slice(0, 30).map(([d, jc, num, piece, amt, lib]) => `${fmtDate(d)} · ${jc} ${num} · « ${lib} » · ${eur(amt)} € HT${piece ? ` (pièce « ${piece} »)` : ''}`), { full: noNum.length <= 30 });
 }
 
 const saisieLeft = (r, ym) => wpProgress(`saisie-${ym}`, saisieChecks(r, ym)).left;

@@ -333,6 +333,7 @@ function analyse(buffer, fileName, until, docs) {
     if (attIdx >= 0 && !oe.att && f[attIdx] && f[attIdx].trim()) oe.att = f[attIdx].trim();
     if (/^5[13]/.test(compte)) oe.has5 = true;
     if (/^4[01]/.test(compte)) oe.has4 = true;
+    if (compte[0] === '4' && !compte.startsWith('445') && g('EcritureLet') && date && !an) (oe.lt = oe.lt || []).push(compte + '|' + auxNum);
     if (date && !an) {
       // Contrôle de la TVA : mouvements exacts des comptes 445 et de classe 7 de chaque écriture (journal + n° + date)
       if (compte.startsWith('445') || compte[0] === '7') {
@@ -475,6 +476,7 @@ function analyse(buffer, fileName, until, docs) {
     parts.forEach(([k, p]) => {
       if (p.l) merged.l.push(...p.l);
       ['has5', 'has4', 'att', 'piece', 'gift'].forEach((f) => { if (p[f] && !merged[f]) merged[f] = p[f]; });
+      if (p.lt) merged.lt = (merged.lt || []).concat(p.lt);
       remap.set(k, h);
     });
     opEntries.set(h, merged);
@@ -788,6 +790,7 @@ function analyse(buffer, fileName, until, docs) {
     if (date > gr.last) { gr.last = date; gr.label = elib; }
   });
   const soldeOf = (compte) => { const x = accounts.get(compte); return x ? round2(x.d - x.c) : 0; };
+  const labelIdx = buildLabelIndex(opEntries, accounts, auxNames);
   const pieces = {
     minOp: minOp === '9999' ? null : minOp,
     maxOp: maxOp === '0000' ? null : maxOp,
@@ -795,7 +798,7 @@ function analyse(buffer, fileName, until, docs) {
     suppliers: Array.from(supInv.values()).filter((x) => Object.keys(x.months).length >= 3)
       .map((x) => ({ num: x.num, lib: x.lib, months: Object.fromEntries(Object.entries(x.months).map(([k, v]) => [k, round2(v)])) })),
     payroll,
-    attente: attenteLines.map((l) => ({ ...l, soldeCompte: soldeOf(l.compte) })),
+    attente: attenteLines.map((l) => ({ ...l, soldeCompte: soldeOf(l.compte), sug: labelIdx[labelKey(l.lib)] || null })),
     immo: immoLines,
     cca: ccaLines,
     direct: Array.from(direct.values()).filter((x) => x.total >= 30).sort((a, b) => b.total - a.total).slice(0, 120)
@@ -842,6 +845,7 @@ function analyse(buffer, fileName, until, docs) {
     bankLines,
     aging,
     misposted,
+    labelIdx: { stop: Array.from(STOP), map: labelIdx },
     cycles,
     kpi: {
       ca: P(['70']), marge, va, ebe, rex, resultat,
@@ -930,6 +934,7 @@ function buildCycles(x) {
     return a;
   };
   const purchases = [], sales = [];
+  const docs7 = []; // écritures de produits (70, 75, 77) : factures et avoirs, pour la numérotation
   const noVatP = new Map(), overVatP = bucket(), autoliq = bucket(), noVatS = bucket(), overVatS = bucket();
   const cash = bucket(), notesFrais = bucket(), giftVat = bucket();
   const directSales = [];
@@ -949,6 +954,7 @@ function buildCycles(x) {
     const L = [];
     for (let i = 0; i < en.l.length; i += 4) L.push([en.l[i], en.l[i + 1], en.l[i + 2], en.l[i + 3]]);
     let supNet = 0, supKey = '', supMax = 0, chg = 0, im = 0, tv6 = 0, tv52 = 0, cliNet = 0, cliKey = '', cliMax = 0, ven = 0, tv7 = 0, tr = 0, hasTr = false, c455 = 0;
+    let v7d = 0, notDoc = false;
     let main = '', mainAmt = 0;
     for (const [compte, auxNum, d, c] of L) {
       const amt = d - c;
@@ -960,11 +966,15 @@ function buildCycles(x) {
       else if (compte.startsWith('4452')) tv52 -= amt;
       else if (compte.startsWith('4457')) tv7 -= amt;
       else if (compte.startsWith('70')) ven -= amt;
+      if (/^7[057]/.test(compte)) v7d -= amt;
+      // Déclaration de TVA (arrondis en 758) et régularisations d'inventaire (factures à établir, produits constatés d'avance) : pas des factures
+      if (/^(4455|44567|418|487)/.test(compte)) notDoc = true;
       else if (compte.startsWith('455')) c455 -= amt;
       if (TRESO.test(compte)) { tr += amt; hasTr = true; }
     }
     const date = en.date;
     const ref = `${dmy(date)} · ${en.jc} ${en.num} · ${(en.lib || '').slice(0, 45)}`;
+    if (Math.abs(v7d) >= 0.01 && !notDoc) docs7.push([date, String(en.piece || '').trim(), en.jc, String(en.num || '').trim(), round2(v7d), ek, (en.lib || '').slice(0, 50)]);
 
     // Achats : factures, avoirs, règlements
     const ht = round2(chg + im);
@@ -1097,39 +1107,58 @@ function buildCycles(x) {
     } else if (gap <= 3) addEx(dupPossible, p[2], `${name} · ${fmt(p[2])} € · pièces ${q[3] || '?'} (${dmy(q[1])}) et ${p[3] || '?'} (${dmy(p[1])})`, 30);
   }
 
-  // Numérotation des factures de vente (art. 242 nonies A, annexe II du CGI)
+  // Numérotation des factures de vente (art. 242 nonies A, annexe II du CGI) : toutes les écritures de produits (70, 75, 77),
+  // factures et avoirs, regroupées en séries par journal et préfixe du n° de pièce (« FA-2025-0012 » → série « FA-2025- »).
   const groups = new Map();
-  sales.forEach(([, date, ttc, piece, ref, ek]) => {
-    const m = String(piece).match(/^(.*?)(\d+)$/);
-    if (!m || m[2].length > 9) return;
-    const g = groups.get(m[1]) || groups.set(m[1], new Map()).get(m[1]);
-    if (!g.w) g.w = m[2].length;
+  const noNum = [];
+  docs7.forEach(([date, piece, jc, num, amt, ek, lib]) => {
+    const m = piece.match(/^(.*?)(\d+)$/);
+    // Sans n° exploitable : pièce vide, sans chiffre final, trop longue ou qui est une date (20251012)
+    if (!m || m[2].length > 9 || (/^20\d{6}$/.test(m[2]) && !m[1])) { if (noNum.length < 3000) noNum.push([date, jc, num, piece, amt, lib]); return; }
+    const key = jc + '\u0001' + m[1];
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { jc, prefix: m[1], w: m[2].length, map: new Map(), n: 0, same: 0 }));
     const n = +m[2];
-    (g.get(n) || g.set(n, []).get(n)).push({ date, ttc, piece, ek });
+    g.n++;
+    if (num && n === +num.replace(/\D+/g, '')) g.same++; // n° de pièce = n° d'écriture : ce n'est pas un n° de facture
+    (g.map.get(n) || g.map.set(n, []).get(n)).push({ date, ttc: amt, piece, ek });
   });
   const numbering = [];
-  groups.forEach((g, prefix) => {
-    if (g.size < 10) return;
-    const nums = Array.from(g.keys()).sort((a, b) => a - b);
+  const multiJ = new Set();
+  groups.forEach((g) => { groups.forEach((h) => { if (h !== g && h.prefix === g.prefix) multiJ.add(g.prefix); }); });
+  groups.forEach((g) => {
+    if (g.map.size < 3) return;
+    const nums = Array.from(g.map.keys()).sort((a, b) => a - b);
+    const prefix = g.prefix;
     const ref = (n) => prefix + String(n).padStart(g.w, '0');
-    const ranges = [];
+    const ranges = [], gaps = [];
     let missing = 0, inversions = 0;
-    const invEx = [];
+    const invEx = [], invL = [];
     for (let i = 1; i < nums.length; i++) {
+      const a = g.map.get(nums[i - 1])[0], b = g.map.get(nums[i])[0];
       const gap = nums[i] - nums[i - 1] - 1;
       if (gap > 0) {
         missing += gap;
         if (ranges.length < 25) ranges.push(gap === 1 ? ref(nums[i - 1] + 1) : `${ref(nums[i - 1] + 1)} à ${ref(nums[i] - 1)}`);
+        if (gaps.length < 2000) gaps.push([nums[i - 1], nums[i], a.date, b.date]);
       }
-      const a = g.get(nums[i - 1])[0], b = g.get(nums[i])[0];
-      if (b.date < a.date) { inversions++; if (invEx.length < 8) invEx.push(`${a.piece} du ${dmy(a.date)} puis ${b.piece} du ${dmy(b.date)}`); }
+      if (b.date < a.date) {
+        inversions++;
+        if (invEx.length < 8) invEx.push(`${a.piece} du ${dmy(a.date)} puis ${b.piece} du ${dmy(b.date)}`);
+        if (invL.length < 500) invL.push([a.piece, a.date, b.piece, b.date]);
+      }
     }
-    const dups = [];
-    g.forEach((list) => {
+    const dups = [], dupL = [];
+    g.map.forEach((list) => {
       const distinct = new Set(list.map((x) => x.ek));
-      if (distinct.size > 1 && dups.length < 20) dups.push(`${list[0].piece} : ${list.map((x) => `${dmy(x.date)} (${fmt(x.ttc)} €)`).join(' et ')}`);
+      if (distinct.size < 2) return;
+      if (dups.length < 20) dups.push(`${list[0].piece} : ${list.map((x) => `${dmy(x.date)} (${fmt(x.ttc)} €)`).join(' et ')}`);
+      if (dupL.length < 500) dupL.push([list[0].piece, list.map((x) => [x.date, x.ttc])]);
     });
-    numbering.push({ prefix, w: g.w, seq: g.size <= 6000 ? nums.map((n) => [n, g.get(n)[0].date]) : null, count: g.size, first: ref(nums[0]), last: ref(nums[nums.length - 1]), missing, ranges, inversions, invEx, dups, sparse: missing > g.size });
+    const ecriture = g.same >= g.n * 0.8;
+    const label = `${prefix || 'sans préfixe'}${multiJ.has(prefix) || !prefix ? ` (journal ${g.jc})` : ''}`;
+    numbering.push({ prefix, jc: g.jc, label, w: g.w, seq: g.map.size <= 6000 ? nums.map((n) => [n, g.map.get(n)[0].date, g.map.get(n)[0].ttc]) : null, count: g.map.size,
+      first: ref(nums[0]), last: ref(nums[nums.length - 1]), missing, ranges, gaps, inversions, invEx, invL, dups, dupL, ecriture, sparse: ecriture || missing > g.map.size });
   });
   numbering.sort((a, b) => b.count - a.count);
 
@@ -1200,7 +1229,7 @@ function buildCycles(x) {
     },
     clients: {
       invoices: sales.length, ttc: ttcS, avoirs: round2(avoirsS), customers: cliF.list, nbCustomers: cliF.count, delay: cliF.delay, directSales,
-      numbering, noVat: noVatS, overVat: overVatS, cut: cut.ventes, lastWeek: round2(lastWeek), avgWeek: round2((ttcS / spanDays) * 7),
+      numbering, noNum, docs7N: docs7.length, noVat: noVatS, overVat: overVatS, cut: cut.ventes, lastWeek: round2(lastWeek), avgWeek: round2((ttcS / spanDays) * 7),
     },
     treso: {
       accounts: tresorerie, cash,
@@ -1326,6 +1355,50 @@ function buildTva({ groups, accounts, opEntries }) {
   });
   Object.values(chk).forEach((c) => Object.values(c).forEach((b) => { b.total = round2(b.total); delete b.items; }));
   return { accs, ca, g, nv, nvN, ca7, months, chk };
+}
+
+// ---------- Affectations déjà faites, par libellé ----------
+// Opérations de banque ou de caisse déjà affectées : pour chaque libellé (deux premiers mots significatifs), le compte de
+// contrepartie retenu, combien de fois, et combien de fois la ligne de tiers a été lettrée. Sert à suggérer l'affectation
+// d'une opération restée en compte d'attente ou d'une opération du relevé non comptabilisée.
+function buildLabelIndex(opEntries, accounts, auxNames) {
+  const idx = new Map();
+  opEntries.forEach((en) => {
+    if (en.an || !en.l || !en.date) return;
+    let tr = 0, best = null, bestAmt = 0;
+    for (let i = 0; i < en.l.length; i += 4) {
+      const compte = en.l[i], amt = en.l[i + 2] - en.l[i + 3];
+      if (/^5[1-3]/.test(compte)) { tr += amt; continue; }
+      if (compte.startsWith('445')) continue;
+      if (Math.abs(amt) > bestAmt) { bestAmt = Math.abs(amt); best = [compte, en.l[i + 1] || '']; }
+    }
+    if (!best || Math.abs(tr) < 0.01 || /^(47|58)/.test(best[0])) return;
+    const key = labelKey(en.lib || '');
+    if (key === '?') return;
+    const tk = best[0] + '|' + best[1];
+    let m = idx.get(key);
+    if (!m) idx.set(key, (m = new Map()));
+    let st = m.get(tk);
+    if (!st) m.set(tk, (st = { compte: best[0], aux: best[1], n: 0, nLet: 0, last: '' }));
+    st.n++;
+    if ((en.lt || []).includes(tk)) st.nLet++;
+    if (en.date > st.last) st.last = en.date;
+  });
+  const out = {};
+  let k = 0;
+  idx.forEach((m, key) => {
+    if (k >= 40000) return;
+    const list = Array.from(m.values());
+    const total = list.reduce((t, x) => t + x.n, 0);
+    // Compte de tiers : seulement s'il a déjà été lettré ; autres comptes (charges, produits) : affectation seule
+    const ok = list.filter((x) => x.compte[0] !== '4' || x.nLet > 0).sort((a, b) => b.nLet - a.nLet || b.n - a.n);
+    if (!ok.length) return;
+    const x = ok[0];
+    const lib = x.aux ? auxNames.get(x.aux) || x.aux : (accounts.get(x.compte) || {}).lib || '';
+    out[key] = [x.compte, x.aux, lib, x.n, x.nLet, total, x.last];
+    k++;
+  });
+  return out;
 }
 
 // ---------- Factures et règlements imputés sur un autre compte de tiers ----------

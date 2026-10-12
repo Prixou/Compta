@@ -29,7 +29,7 @@ Elle a été conçue pour respecter le **secret professionnel** et la **déontol
 - **Filtre « Mes dossiers »** sur le tableau de bord, pour chaque collaborateur.
 - **Sauvegarde automatique** (ordinateur, Chrome ou Edge) : la sauvegarde chiffrée est écrite dans le fichier de votre choix après chaque modification.
 - **Analyse de FEC**, faite localement dans un processus isolé : le FEC n'est ni envoyé ni conservé, et 300 000 lignes sont traitées en quelques secondes. Un même FEC s'ouvre dans **trois espaces** selon la question du moment :
-  - **Mois** (gestion courante) : choix du mois, chiffres du mois, pièces du mois à demander, **contrôles de la saisie** (imputations sur le mauvais tiers, doublons, comptes d'attente, fournisseurs débiteurs et clients créditeurs en fin de mois) et contrôle de la TVA (bêta) ;
+  - **Mois** (gestion courante) : choix du mois, chiffres du mois, pièces du mois à demander, **contrôles de la saisie** (imputations sur le mauvais tiers, doublons, numérotation des factures de vente sur toutes les écritures de produits, comptes d'attente avec affectation suggérée d'après les libellés déjà affectés et lettrés, fournisseurs débiteurs et clients créditeurs en fin de mois) et contrôle de la TVA (bêta) ;
   - **Révision** (situation et bilan) : synthèse, cycles, écritures proposées, pièces à demander, revue N / N-1, rapprochement bancaire ;
   - **Consultation** : SIG et bilan, balance, journaux et tiers, conformité du fichier.
   L'espace utilisé en dernier est repris au FEC suivant. Elle comprend :
