@@ -48,6 +48,14 @@ const { fecTab, fecMonth } = require('./lib');
   expect(/FV-, n° lu dans le libellé/.test(v), 'série FV- lue dans le libellé');
   expect(/Voir les \d+ écriture\(s\) de vente du mois/.test(v), 'liste des ventes du mois');
   await p.screenshot({ path: O + 'ventes-mois.png', fullPage: true });
+  // 5. Format Pennylane : n° de facture dans le libellé de la ligne client 411 (avoirs compris)
+  await p.click('button[data-action=fec-pick]').catch(() => {});
+  const [ch3] = await Promise.all([p.waitForEvent('filechooser'), p.click('button[data-action=fec-pick]')]);
+  await ch3.setFiles(D + '888888888FEC20261231.txt'); await p.waitForFunction(() => (document.querySelector('.fec-file') || {}).textContent === '888888888FEC20261231.txt');
+  await fecTab(p, 'mois-ventes', 0); await fecMonth(p, '2026-02');
+  const pl = (await p.textContent('main')).replace(/\s+/g, ' ');
+  expect(/F-260007 : entre F-260006/.test(pl), 'Pennylane : F-260007 manquante (février)');
+  expect(/F-260012 : entre F-260011/.test(pl), 'Pennylane : F-260012 manquante (février)');
   await p.screenshot({ path: O + 'affect.png', fullPage: true });
   console.log(ko ? `${ko} écart(s)` : 'toutes les suggestions sont correctes');
   console.log('erreurs', errors);

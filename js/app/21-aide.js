@@ -13,7 +13,7 @@ function viewAide() {
   return `
     <div class="page-head"><h1>Aide</h1><span class="badge">Version ${ASSET_VERSION}</span></div>
     ${item(`Nouveautés des versions 29 à ${ASSET_VERSION}`, `<ul>
-      <li><strong>Factures de vente du mois</strong> (Analyse FEC → espace Mois → onglet « Factures de vente ») : toutes les écritures de produits 70, 75 et 77, factures et avoirs, par série ; numéros manquants, doublons, ordre chronologique, et la liste de toutes les ventes du mois. Le n° de facture est lu dans le n° de pièce, ou dans le libellé (« Facture FV-0207 … ») quand la pièce porte le n° d'écriture.</li>
+      <li><strong>Factures de vente du mois</strong> (Analyse FEC → espace Mois → onglet « Factures de vente ») : toutes les écritures de produits 70, 75 et 77, factures et avoirs, par série ; numéros manquants, doublons, ordre chronologique, et la liste de toutes les ventes du mois. Le n° de facture est lu dans le n° de pièce, ou dans le libellé (« Facture FV-0207 … ») quand la pièce porte le n° d'écriture. FEC Pennylane : le n° est lu dans le libellé de la ligne client 411 (« Facture X - F-260458 », « Avoir X - F-260466 »).</li>
       <li><strong>Affectations suggérées</strong> : une opération en compte d'attente (Contrôles de saisie) ou du relevé non comptabilisée (Révision → Rapprochement) reçoit le compte déjà utilisé pour le même libellé, lettré pour un compte de tiers ; l'écriture de reclassement est proposée dans Révision → Écritures.</li>
       <li><strong>Contrôle de la TVA refait</strong> sur les comptes (espace Mois → TVA).</li>
     </ul>`, true)}

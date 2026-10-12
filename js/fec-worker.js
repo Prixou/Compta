@@ -333,6 +333,7 @@ function analyse(buffer, fileName, until, docs) {
     if (attIdx >= 0 && !oe.att && f[attIdx] && f[attIdx].trim()) oe.att = f[attIdx].trim();
     if (/^5[13]/.test(compte)) oe.has5 = true;
     if (/^4[01]/.test(compte)) oe.has4 = true;
+    if (/^41/.test(compte) && !oe.lib41 && elib) oe.lib41 = elib; // libellé de la ligne client (n° de facture chez Pennylane)
     if (compte[0] === '4' && !compte.startsWith('445') && g('EcritureLet') && date && !an) (oe.lt = oe.lt || []).push(compte + '|' + auxNum);
     if (date && !an) {
       // Contrôle de la TVA : mouvements exacts des comptes 445 et de classe 7 de chaque écriture (journal + n° + date)
@@ -475,7 +476,7 @@ function analyse(buffer, fileName, until, docs) {
     const merged = Object.assign({}, head, { l: (head.l || []).slice() });
     parts.forEach(([k, p]) => {
       if (p.l) merged.l.push(...p.l);
-      ['has5', 'has4', 'att', 'piece', 'gift'].forEach((f) => { if (p[f] && !merged[f]) merged[f] = p[f]; });
+      ['has5', 'has4', 'att', 'piece', 'gift', 'lib41'].forEach((f) => { if (p[f] && !merged[f]) merged[f] = p[f]; });
       if (p.lt) merged.lt = (merged.lt || []).concat(p.lt);
       remap.set(k, h);
     });
@@ -974,7 +975,7 @@ function buildCycles(x) {
     }
     const date = en.date;
     const ref = `${dmy(date)} · ${en.jc} ${en.num} · ${(en.lib || '').slice(0, 45)}`;
-    if (Math.abs(v7d) >= 0.01 && !notDoc) docs7.push([date, String(en.piece || '').trim(), en.jc, String(en.num || '').trim(), round2(v7d), ek, (en.lib || '').slice(0, 50)]);
+    if (Math.abs(v7d) >= 0.01 && !notDoc) docs7.push([date, String(en.piece || '').trim(), en.jc, String(en.num || '').trim(), round2(v7d), ek, (en.lib || '').slice(0, 80), (en.lib41 || '').slice(0, 120)]);
 
     // Achats : factures, avoirs, règlements
     const ht = round2(chg + im);
@@ -1127,8 +1128,8 @@ function buildCycles(x) {
   };
   const buildSeries = (getNum, src) => {
     const groups = new Map();
-    docs7.forEach(([date, piece, jc, num, amt, ek, lib]) => {
-      const pn = getNum(piece, lib);
+    docs7.forEach(([date, piece, jc, num, amt, ek, lib, lib41]) => {
+      const pn = getNum(piece, lib, lib41);
       if (!pn) return;
       const key = jc + '\u0001' + pn[0];
       let g = groups.get(key);
@@ -1174,7 +1175,8 @@ function buildCycles(x) {
     return list;
   };
   const byPiece = buildSeries((piece) => pieceNum(piece), 'piece');
-  const byLib = buildSeries((piece, lib) => libNum(lib), 'libelle');
+  // Libellé de la ligne client d'abord (Pennylane : « Avoir X - F-260466 »), puis libellé de l'écriture
+  const byLib = buildSeries((piece, lib, lib41) => libNum(lib41) || libNum(lib), 'libelle');
   const quality = (list, jc) => list.filter((g) => g.jc === jc && !g.sparse).reduce((t, g) => t + g.count, 0);
   const journals7 = new Set(docs7.map((d) => d[2]));
   let numbering = [];
@@ -1186,11 +1188,11 @@ function buildCycles(x) {
   numbering.forEach((g) => { if (numbering.some((h) => h !== g && h.prefix === g.prefix)) multiJ.add(g.prefix); });
   numbering.forEach((g) => { g.label = `${g.prefix || 'sans préfixe'}${multiJ.has(g.prefix) || !g.prefix ? ` (journal ${g.jc})` : ''}${g.src === 'libelle' ? ', n° lu dans le libellé' : ''}`; });
   const noNum = [];
-  docs7.forEach(([date, piece, jc, num, amt, ek, lib]) => {
-    if (noNum.length < 3000 && !pieceNum(piece) && !libNum(lib)) noNum.push([date, jc, num, piece, amt, lib]);
+  docs7.forEach(([date, piece, jc, num, amt, ek, lib, lib41]) => {
+    if (noNum.length < 3000 && !pieceNum(piece) && !libNum(lib41) && !libNum(lib)) noNum.push([date, jc, num, piece, amt, lib]);
   });
   // Pièces de vente du mois, pour la liste détaillée
-  const docs7L = docs7.slice(0, 30000).map(([date, piece, jc, num, amt, , lib]) => [date, jc, num, piece, amt, lib]);
+  const docs7L = docs7.slice(0, 30000).map(([date, piece, jc, num, amt, , lib, lib41]) => [date, jc, num, piece, amt, lib41 && libNum(lib41) ? lib41 : lib]);
   numbering.sort((a, b) => b.count - a.count);
 
   // Charges constatées d'avance probables : paiements annuels ou trimestriels qui couvrent l'exercice suivant
