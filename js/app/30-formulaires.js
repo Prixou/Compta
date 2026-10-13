@@ -119,6 +119,32 @@ const forms = {
     toast(existing ? 'Mission mise à jour.' : 'Mission créée.');
   },
 
+  async note(form) {
+    const existing = form.dataset.id ? noteById(form.dataset.id) : null;
+    // Étapes conservées (et leur coche) quand leur libellé ne change pas.
+    const pool = existing ? existing.etapes.slice() : [];
+    const etapes = form.etapes.value.split('\n').map((s) => s.trim()).filter(Boolean).map((label) => {
+      const i = pool.findIndex((e) => e.label === label);
+      return i >= 0 ? pool.splice(i, 1)[0] : { id: uid(), label, done: false, doneAt: null };
+    });
+    const values = {
+      titre: val(form, 'titre'),
+      texte: form.texte.value.replace(/\s+$/, ''),
+      clientId: val(form, 'clientId'),
+      groupe: val(form, 'groupe').replace(/\s+/g, ' '),
+      epingle: form.epingle.checked,
+      etapes,
+      updatedAt: nowIso(),
+    };
+    const n = existing ? Object.assign(existing, values) : Object.assign({ id: uid(), createdAt: values.updatedAt }, values);
+    if (!existing) data.notes.push(n);
+    await persist();
+    closeModal();
+    refresh();
+    noteSheet(n.id);
+    toast(existing ? 'Note mise à jour.' : 'Note créée.');
+  },
+
   async journal(form) {
     const texte = form.texte.value.trim();
     if (!texte) return;

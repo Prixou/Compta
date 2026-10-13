@@ -143,6 +143,7 @@ function renderShell() {
           <a href="#/dossiers" data-nav="dossiers">${icon('folder')}<span>Dossiers</span></a>
           <a href="#/missions" data-nav="missions">${icon('list')}<span>Missions</span></a>
           <a href="#/grille" data-nav="grille">${icon('grid')}<span>Suivi mensuel</span></a>
+          <a href="#/notes" data-nav="notes">${icon('note')}<span>Notes</span></a>
           <a href="${fecHref()}" data-nav="fec">${icon('chart')}<span>Analyse FEC</span></a>
           <a href="#/calcul" data-nav="calcul">${icon('calc')}<span>Calcul TVA</span></a>
           <a href="#/releves" data-nav="releves">${icon('file')}<span>Relevés PDF</span></a>
@@ -157,6 +158,7 @@ function renderShell() {
       <header class="topbar">
         <div class="brand">${icon('shield')}<strong>Suivi Dossiers</strong></div>
         <div class="top-actions">
+          <a class="icon-btn" href="#/notes" title="Notes" aria-label="Notes">${icon('note')}</a>
           <a class="icon-btn" href="#/calcul" title="Calcul de TVA" aria-label="Calcul de TVA">${icon('calc')}</a>
           <a class="icon-btn" href="#/aide" title="Aide" aria-label="Aide">${icon('help')}</a>
           <button class="icon-btn" data-action="toggle-discret" title="Mode discret" aria-label="Mode discret">${icon(discret ? 'eyeOff' : 'eye')}</button>
@@ -199,6 +201,7 @@ function route() {
     case 'dossier': main.innerHTML = viewDossier(parts[1]); break;
     case 'missions': main.innerHTML = viewMissions(); renderMissionList(); break;
     case 'grille': main.innerHTML = viewGrille(); scrollGrilleToMonth(); break;
+    case 'notes': main.innerHTML = viewNotes(); renderNoteList(); break;
     case 'aide': main.innerHTML = viewAide(); break;
     case 'fec': main.innerHTML = viewFec(); break;
     case 'portefeuille': main.innerHTML = viewBatch(); break;

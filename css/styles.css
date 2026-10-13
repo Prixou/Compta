@@ -817,3 +817,20 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .rel-head { display: inline-flex; align-items: center; gap: .5rem; }
 .rel-table td:nth-child(2) { white-space: normal; min-width: 260px; }
 .rel-table tbody tr { cursor: default; }
+
+/* ---------- Notes ---------- */
+
+.note-group { margin-bottom: 1.4rem; }
+.note-group h2 .link-btn { font-size: .82rem; font-weight: 400; }
+.ncard { display: flex; flex-direction: column; gap: .45rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; color: var(--text); box-shadow: var(--shadow); cursor: pointer; min-width: 0; }
+.ncard:hover, .ncard:focus-visible { border-color: var(--primary); }
+.ncard-title { font-size: 1.02rem; overflow-wrap: anywhere; }
+.ncard-meta { display: flex; flex-wrap: wrap; gap: .3rem .5rem; align-items: center; font-size: .82rem; }
+.ncard-client { font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: .02em; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.ncard-text { font-size: .88rem; color: var(--muted); white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.badge.pin { background: var(--primary-soft); color: var(--primary); }
+.note-text { margin-bottom: 1rem; padding: .8rem .9rem; background: var(--surface-2); border-radius: 10px; }
+@media (max-width: 760px) {
+  /* Barre du bas limitée à six entrées : les notes sont dans la barre du haut. */
+  .nav a[data-nav=notes] { display: none; }
+}

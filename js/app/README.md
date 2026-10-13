@@ -25,7 +25,8 @@ de sécurité (CSP) n'autorise que les scripts du site.
 | `26-calcul-tva.js` | Calcul de TVA : HT, TVA, TTC aux quatre taux, ventilation par taux |
 | `27-anonymiser.js` | Anonymisation d'un FEC (moteur `fec-anon.js`) avant de l'envoyer à un tiers |
 | `28-releves.js` | Relevés bancaires PDF (édition ACD) → Excel pour l'import de transactions (lecture : `pdf-reader.js`, `releve-pdf.js`) |
-| `29-formulaires.js` | Formulaires, démarrage (toujours en dernier) |
+| `29-notes.js` | Notes : procédures, particularités de dossier, listes d'étapes à cocher (rattachées à un dossier ou non, classées par groupe) |
+| `30-formulaires.js` | Formulaires, démarrage (toujours en dernier) |
 
 Règles : un fichier ne doit pas exécuter au chargement une fonction déclarée dans un fichier suivant (les appels depuis
 des événements ou d'autres fonctions sont libres) ; deux fichiers ne doivent pas déclarer le même nom ; les noms ne doivent

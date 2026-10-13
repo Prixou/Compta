@@ -122,6 +122,7 @@ const ICONS = {
   calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8.5 11h.01M12 11h.01M15.5 11h.01M8.5 14.5h.01M12 14.5h.01M15.5 14.5h.01M8.5 18h.01M12 18h.01M15.5 18h.01"/>',
   file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
   grid: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16M15 4v16"/>',
+  note: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
 };
 
 function icon(name, cls) {
@@ -276,6 +277,7 @@ function emptyData() {
     clients: [],
     missions: [],
     journal: [],
+    notes: [],
   };
 }
 
@@ -289,6 +291,10 @@ function migrate(d) {
   d.clients = Array.isArray(d.clients) ? d.clients : [];
   d.missions = Array.isArray(d.missions) ? d.missions : [];
   d.journal = Array.isArray(d.journal) ? d.journal : [];
+  d.notes = Array.isArray(d.notes) ? d.notes : [];
+  d.notes.forEach((n) => {
+    n.etapes = Array.isArray(n.etapes) ? n.etapes : [];
+  });
   if (tplVersion < TEMPLATES_VERSION) {
     const libre = d.templates.findIndex((t) => t.id === 'libre');
     const missing = DEFAULT_TEMPLATES.filter((t) => t.id !== 'libre' && !d.templates.some((x) => x.id === t.id));

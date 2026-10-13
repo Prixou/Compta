@@ -122,6 +122,7 @@ function viewDossier(id) {
           ${open.length ? `<div class="mlist">${open.map((m) => missionRow(m, false)).join('')}</div>` : '<p class="muted">Aucune mission en cours.</p>'}
         </section>
         ${closed.length ? `<section class="card"><details><summary><h2>Missions terminées <span class="count">${closed.length}</span></h2></summary><div class="mlist">${closed.map((m) => missionRow(m, false)).join('')}</div></details></section>` : ''}
+        ${dossierNotes(c)}
         <section class="card">
           <h2>Journal du dossier</h2>
           ${discret ? '<p class="muted">Journal masqué en mode discret.</p>' : `

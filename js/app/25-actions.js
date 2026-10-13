@@ -36,7 +36,7 @@ const actions = {
     const c = clientById(el.dataset.id);
     const ok = await ask({
       title: 'Supprimer le dossier',
-      message: `Le dossier <strong>${esc(clientLabel(c))}</strong>, ses missions et son journal seront <strong>définitivement effacés</strong>. Pour la fin d'une mission, préférez l'archivage.`,
+      message: `Le dossier <strong>${esc(clientLabel(c))}</strong>, ses missions, son journal et ses notes seront <strong>définitivement effacés</strong>. Pour la fin d'une mission, préférez l'archivage.`,
       okLabel: 'Supprimer définitivement',
       danger: true,
       confirmText: 'SUPPRIMER',
@@ -45,6 +45,7 @@ const actions = {
     data.clients = data.clients.filter((x) => x.id !== c.id);
     data.missions = data.missions.filter((m) => m.clientId !== c.id);
     data.journal = data.journal.filter((j) => j.clientId !== c.id);
+    data.notes = data.notes.filter((n) => n.clientId !== c.id);
     await persist();
     toast('Dossier supprimé.');
     location.hash = '#/dossiers';
@@ -82,6 +83,44 @@ const actions = {
     if (!ok) return;
     data.journal = data.journal.filter((j) => j.id !== el.dataset.id);
     persist();
+    refresh();
+  },
+  'note-new': (el) => noteForm(null, el.dataset.client),
+  'note-open': (el) => noteSheet(el.dataset.id),
+  'note-edit': (el) => noteForm(noteById(el.dataset.id)),
+  'note-copy': (el) => noteForm(noteById(el.dataset.id), '', true),
+  'note-step': (el) => {
+    const n = noteById(el.dataset.note);
+    const e = n && n.etapes.find((x) => x.id === el.dataset.step);
+    if (!e) return;
+    Object.assign(e, { done: el.checked, doneAt: el.checked ? nowIso() : null });
+    persist();
+    refresh();
+  },
+  'note-reset': (el) => {
+    const n = noteById(el.dataset.id);
+    n.etapes.forEach((e) => Object.assign(e, { done: false, doneAt: null }));
+    persist();
+    refresh();
+    toast('Étapes décochées : la liste est prête à resservir.');
+  },
+  'note-delete': async (el) => {
+    const n = noteById(el.dataset.id);
+    const ok = await ask({ title: 'Supprimer la note', message: `Supprimer définitivement la note « ${esc(n.titre)} » ?`, okLabel: 'Supprimer', danger: true });
+    if (!ok) return;
+    data.notes = data.notes.filter((x) => x.id !== n.id);
+    await persist();
+    closeModal();
+    refresh();
+    toast('Note supprimée.');
+  },
+  'notes-tri': (el) => {
+    data.settings.notesTri = el.dataset.tri;
+    persist();
+    refresh();
+  },
+  'notes-reset': () => {
+    ui.notes = { q: '', groupe: '', dossier: '' };
     refresh();
   },
   'missions-more': () => {
@@ -580,6 +619,9 @@ document.addEventListener('change', (e) => {
   } else if (t.dataset.grille) {
     ui.grille[t.dataset.grille] = t.value;
     refresh();
+  } else if (t.dataset.notes && t.tagName === 'SELECT') {
+    ui.notes[t.dataset.notes] = t.value;
+    renderNoteList();
   } else if (t.dataset.actionChange === 'mission-status') {
     setStatus(missionById(t.dataset.id), t.value);
     persist();
@@ -642,6 +684,10 @@ document.addEventListener('input', (e) => {
     clearTimeout(filterTimer);
     if (t.type === 'search' && data.clients.length > 150) filterTimer = setTimeout(render, 150);
     else render();
+  }
+  if (t.dataset.notes === 'q' && data) {
+    ui.notes.q = t.value;
+    renderNoteList();
   }
   if (t.dataset.fec === 'q' && ui.fec) {
     ui.fec.q = t.value;
