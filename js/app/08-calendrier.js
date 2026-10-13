@@ -95,7 +95,7 @@ const OBLIGATIONS = [
   {
     id: 'tva', label: 'TVA mensuelle / trimestrielle',
     rule: 'Au jour limite TVA du dossier, le mois qui suit la période.',
-    applies: (c) => ['M', 'T'].includes(tvaShort(c.regimeTva)),
+    applies: (c) => !c.tvaClient && ['M', 'T'].includes(tvaShort(c.regimeTva)),
     plan: (c, Y) => {
       const quarterly = tvaShort(c.regimeTva) === 'T';
       const out = [];
@@ -114,7 +114,7 @@ const OBLIGATIONS = [
   {
     id: 'ca12', label: 'TVA annuelle CA12 et acomptes',
     rule: 'CA12 : 2e jour ouvré après le 1er mai (clôture au 31/12) ou 3 mois après la clôture. Acomptes : juillet et décembre (15 du mois).',
-    applies: (c) => tvaShort(c.regimeTva) === 'CA12',
+    applies: (c) => !c.tvaClient && tvaShort(c.regimeTva) === 'CA12',
     plan: (c, Y) => [
       { tpl: 'ca12', titre: `TVA CA12 ${Y}`, exercice: String(Y), echeance: ca12Date(closingDate(c, Y)), recurrence: 'annuelle' },
       { tpl: 'acompte_ca12', titre: `Acompte CA12 07/${Y}`, exercice: `07/${Y}`, echeance: nextWorkingDay(`${Y}-07-15`), recurrence: 'aucune' },

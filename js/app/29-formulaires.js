@@ -56,6 +56,7 @@ const forms = {
     const id = form.dataset.id;
     const fields = ['nom', 'code', 'forme', 'siren', 'cloture', 'regimeFiscal', 'regimeTva', 'activite', 'jourTva', 'responsable', 'collaborateur', 'superviseur', 'contact', 'email', 'tel', 'lettreMission', 'vigilance', 'kycDate', 'notes'];
     const values = Object.fromEntries(fields.map((f) => [f, val(form, f)]));
+    values.tvaClient = form.elements.tvaClient.checked;
     values.code = values.code.toUpperCase() || genCode(values.nom, id);
     if (data.clients.some((c) => c.code === values.code && c.id !== id)) {
       form.code.setCustomValidity('Ce code est déjà utilisé.');

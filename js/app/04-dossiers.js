@@ -143,6 +143,7 @@ function viewDossier(id) {
             ${field('SIREN / SIRET', c.siren, true)}
             ${field('Régime fiscal', c.regimeFiscal)}
             ${field('Régime de TVA', c.regimeTva)}
+            ${c.tvaClient ? field('Déclarations de TVA', 'Faites par le client (hors suivi TVA)') : ''}
             ${field('Activité (analyse FEC)', c.activite ? ACTIVITES[c.activite] : 'Détectée sur le FEC')}
             ${field('Jour limite TVA', c.jourTva)}
             ${field('Clôture', c.cloture)}
@@ -202,6 +203,7 @@ function clientForm(c) {
           <label>Régime de TVA<select name="regimeTva">${options(REGIMES_TVA, c.regimeTva, true)}</select></label>
           <label>Activité (analyse FEC)<select name="activite">${options(ACTIVITES, c.activite, 'Détectée sur le FEC')}</select></label>
           <label>Jour limite de dépôt TVA<input type="number" name="jourTva" min="1" max="31" value="${esc(c.jourTva)}" placeholder="ex. 21"></label>
+          <label class="check span2"><input type="checkbox" name="tvaClient"${c.tvaClient ? ' checked' : ''}><span>TVA déclarée par le client lui-même : dossier masqué du suivi de TVA</span></label>
           <label>Responsable<input name="responsable" list="collabs" value="${esc(c.responsable || (isNew ? data.settings.utilisateur : ''))}"></label>
           <label>Collaborateur<input name="collaborateur" list="collabs" value="${esc(c.collaborateur)}"></label>
           <label>Superviseur / associé<input name="superviseur" list="collabs" value="${esc(c.superviseur)}"></label>

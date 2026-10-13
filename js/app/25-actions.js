@@ -348,6 +348,10 @@ const actions = {
   'autobackup-choose': () => chooseAutoBackup(),
   'autobackup-resume': () => resumeAutoBackup(),
   'autobackup-stop': () => stopAutoBackup(),
+  'grille-tvaclient': () => {
+    ui.grille.tvaClient = !ui.grille.tvaClient;
+    refresh();
+  },
   'grille-reset': () => {
     ui.grille.regime = '';
     refresh();

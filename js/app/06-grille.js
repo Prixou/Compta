@@ -64,9 +64,12 @@ function grilleModel() {
     if (!grid.has(m.clientId)) grid.set(m.clientId, {});
     grid.get(m.clientId)[col] = m;
   });
-  const base = data.clients
+  const all = data.clients
     .filter((c) => grid.has(c.id) && !c.archive)
     .filter((c) => inPortfolio(c, g.resp));
+  // Dossiers dont le client fait lui-même sa TVA : masqués des suivis de TVA, sauf demande d'affichage.
+  const tvaClient = TVA_TPLS.includes(g.type) ? all.filter((c) => c.tvaClient).length : 0;
+  const base = tvaClient && !g.tvaClient ? all.filter((c) => !c.tvaClient) : all;
   const counts = base.reduce((acc, c) => {
     acc[regimeGroup(c)] = (acc[regimeGroup(c)] || 0) + 1;
     return acc;
@@ -81,8 +84,9 @@ function grilleModel() {
   const resps = allResps();
   // Colonne « Année » affichée seulement s'il existe des missions annuelles (ex. CA12 « 2026 »).
   const cols = clients.some((c) => grid.get(c.id)[13]) ? 13 : 12;
-  return { g, year, grid, years, base, clients, resps, regimeOptions, cols, sort };
+  return { g, year, grid, years, base, clients, resps, regimeOptions, cols, sort, tvaClient };
 }
+const TVA_TPLS = ['tva', 'ca12', 'acompte_ca12'];
 
 const GRILLE_TRIS = { code: 'N° de dossier', nom: 'Nom du dossier', tva: 'Régime de TVA', jour: 'Jour de dépôt TVA', cloture: 'Date de clôture', resp: 'Responsable', retard: 'Retards et avancement' };
 const grilleSort = () => Object.assign({ key: 'code', dir: 1 }, data.settings.grilleSort || {});
@@ -317,7 +321,7 @@ function setGrilleStep(m, i) {
 }
 
 function viewGrille() {
-  const { g, year, grid, years, base, clients, resps, regimeOptions, cols, sort } = grilleModel();
+  const { g, year, grid, years, base, clients, resps, regimeOptions, cols, sort, tvaClient } = grilleModel();
   const mode = grilleMode();
   const totals = Array.from({ length: cols }, () => ({ done: 0, all: 0 }));
 
@@ -360,6 +364,7 @@ function viewGrille() {
         <button class="${mode === 'pointage' ? 'on' : ''}" data-action="grille-mode" data-mode="pointage" title="Un clic pointe la case OK">Pointage rapide</button>
         <button class="${mode === 'fiche' ? 'on' : ''}" data-action="grille-mode" data-mode="fiche" title="Un clic ouvre la mission">Ouvrir</button>
       </div>
+      ${tvaClient ? `<button class="btn small${g.tvaClient ? ' on' : ''}" data-action="grille-tvaclient" aria-pressed="${!!g.tvaClient}" title="Dossiers soumis à TVA dont le client fait lui-même ses déclarations">${g.tvaClient ? 'Masquer' : 'Afficher'} les dossiers « TVA faite par le client » (${tvaClient})</button>` : ''}
       <span class="legend"><span class="g-ok">OK</span> terminée <span class="g-progress g-leg"><span class="g-step">Ventes</span><span class="g-frac">4/9</span></span> étape atteinte <span class="g-late">!</span> en retard <span class="g-wait">Att.</span> attente client <span class="g-todo">·</span> à faire</span>
     </div>
     ${clients.length ? `
@@ -373,5 +378,7 @@ function viewGrille() {
     <p class="muted small">${clients.length} dossier${clients.length > 1 ? 's' : ''}, triés par ${esc(GRILLE_TRIS[sort.key].toLowerCase())}${sort.dir > 0 ? '' : ' (ordre inverse)'} — cliquez sur un titre de colonne pour trier. ${mode === 'pointage' ? '<strong>Pointage rapide :</strong> un clic sur une case la passe à OK, un second clic annule.' : mode === 'etapes' ? '<strong>Étapes :</strong> un clic sur une case affiche les étapes de la mission ; cochez celle qui est faite (les précédentes le sont aussi ; banque importée, banque affectée, saisie des ventes et saisie des achats se cochent séparément ; la dernière étape termine la mission).' : 'Cliquez sur une case pour ouvrir la mission.'} Les missions mensuelles (« MM/AAAA »), trimestrielles (« T1 AAAA ») et annuelles (« AAAA ») de l'année choisie apparaissent ici.</p>`
     : base.length
       ? emptyState(`Aucun dossier « ${esc(REGIME_FILTRES[g.regime])} » pour ces critères.`, '<button class="btn" data-action="grille-reset">Afficher tous les régimes</button>')
+      : tvaClient
+        ? emptyState(`Tous les dossiers de ce suivi font eux-mêmes leur TVA (${tvaClient}).`, '<button class="btn" data-action="grille-tvaclient">Les afficher</button>')
       : emptyState(`Aucune mission « ${esc((templateById(g.type) || {}).nom || '')} » pour ${year}.`, `<button class="btn primary" data-action="import-sheet">Importer mon tableau Excel</button>`)}`;
 }
