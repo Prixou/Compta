@@ -141,9 +141,9 @@ function renderShell() {
         <nav class="nav">
           <a href="#/tableau" data-nav="tableau">${icon('home')}<span>Tableau de bord</span></a>
           <a href="#/dossiers" data-nav="dossiers">${icon('folder')}<span>Dossiers</span></a>
+          <a href="#/notes" data-nav="notes">${icon('note')}<span>Notes</span></a>
           <a href="#/missions" data-nav="missions">${icon('list')}<span>Missions</span></a>
           <a href="#/grille" data-nav="grille">${icon('grid')}<span>Suivi mensuel</span></a>
-          <a href="#/notes" data-nav="notes">${icon('note')}<span>Notes</span></a>
           <a href="${fecHref()}" data-nav="fec">${icon('chart')}<span>Analyse FEC</span></a>
           <a href="#/calcul" data-nav="calcul">${icon('calc')}<span>Calcul TVA</span></a>
           <a href="#/releves" data-nav="releves">${icon('file')}<span>Relevés PDF</span></a>

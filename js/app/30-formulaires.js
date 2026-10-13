@@ -121,11 +121,10 @@ const forms = {
 
   async note(form) {
     const existing = form.dataset.id ? noteById(form.dataset.id) : null;
-    // Étapes conservées (et leur coche) quand leur libellé ne change pas.
-    const pool = existing ? existing.etapes.slice() : [];
-    const etapes = form.etapes.value.split('\n').map((s) => s.trim()).filter(Boolean).map((label) => {
-      const i = pool.findIndex((e) => e.label === label);
-      return i >= 0 ? pool.splice(i, 1)[0] : { id: uid(), label, done: false, doneAt: null };
+    // Étapes dans l'ordre des cadres ; une étape existante garde sa coche, même si son libellé est retouché.
+    const etapes = $$('input[name=etape]', form).map((input) => [input.value.trim(), input.dataset.stepId]).filter(([label]) => label).map(([label, stepId]) => {
+      const prev = existing && stepId ? existing.etapes.find((e) => e.id === stepId) : null;
+      return prev ? Object.assign(prev, { label }) : { id: uid(), label, done: false, doneAt: null };
     });
     const values = {
       titre: val(form, 'titre'),

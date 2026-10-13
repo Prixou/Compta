@@ -834,3 +834,11 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
   /* Barre du bas limitée à six entrées : les notes sont dans la barre du haut. */
   .nav a[data-nav=notes] { display: none; }
 }
+.step-edit ol { list-style: none; margin: 0 0 .6rem; padding: 0; counter-reset: etape; display: grid; gap: .45rem; }
+.step-row { display: flex; align-items: center; gap: .3rem; counter-increment: etape; }
+.step-row::before { content: counter(etape); flex: none; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-weight: 700; font-size: .8rem; display: inline-flex; align-items: center; justify-content: center; }
+.step-row input { flex: 1; min-width: 0; }
+.step-row .icon-btn { width: 32px; height: 32px; flex: none; font-size: .95rem; color: var(--muted); }
+.step-row .icon-btn:hover { color: var(--text); }
+.step-row:first-child [data-dir="-1"], .step-row:last-child [data-dir="1"] { visibility: hidden; }
+.step-edit > .btn { margin-bottom: .4rem; }

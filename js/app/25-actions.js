@@ -114,6 +114,21 @@ const actions = {
     refresh();
     toast('Note supprimée.');
   },
+  'note-step-add': (el) => addNoteStep($('[data-step-list]', el.form || el.closest('form'))),
+  'note-step-move': (el) => {
+    const li = el.closest('li');
+    const to = Number(el.dataset.dir) < 0 ? li.previousElementSibling : li.nextElementSibling;
+    if (!to) return;
+    if (Number(el.dataset.dir) < 0) to.before(li);
+    else to.after(li);
+    el.focus();
+  },
+  'note-step-del': (el) => {
+    const li = el.closest('li');
+    const next = li.nextElementSibling || li.previousElementSibling;
+    li.remove();
+    if (next) $('input', next).focus();
+  },
   'notes-tri': (el) => {
     data.settings.notesTri = el.dataset.tri;
     persist();
@@ -468,6 +483,22 @@ document.addEventListener('keydown', (e) => {
     const td = $(`.grille td[data-id="${id}"]`);
     if (td) td.focus();
     return;
+  }
+  // Étapes d'une note : Entrée ajoute une étape en dessous, Retour arrière sur une étape vide la supprime.
+  if (e.target.name === 'etape' && e.target.closest('[data-step-list]')) {
+    const li = e.target.closest('li');
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addNoteStep(li.parentElement, li);
+      return;
+    }
+    if (e.key === 'Backspace' && !e.target.value && li.previousElementSibling) {
+      e.preventDefault();
+      const prev = $('input', li.previousElementSibling);
+      li.remove();
+      prev.focus();
+      return;
+    }
   }
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role=button][data-action]')) {
     e.preventDefault();

@@ -167,6 +167,26 @@ function noteSheet(id) {
   modalRefresh = () => noteSheet(id);
 }
 
+// Cadre d'une étape dans le formulaire. L'identifiant conserve la coche quand le libellé est modifié (pas pour une copie).
+function noteStepRow(e, copy) {
+  return `<li class="step-row">
+    <input name="etape" value="${esc(e.label || '')}" maxlength="300" placeholder="Décrire l'étape (ex. Importer le fichier Excel des factures)" aria-label="Étape"${e.id && !copy ? ` data-step-id="${e.id}"` : ''}>
+    <button type="button" class="icon-btn" data-action="note-step-move" data-dir="-1" title="Monter l'étape" aria-label="Monter l'étape">↑</button>
+    <button type="button" class="icon-btn" data-action="note-step-move" data-dir="1" title="Descendre l'étape" aria-label="Descendre l'étape">↓</button>
+    <button type="button" class="icon-btn" data-action="note-step-del" title="Supprimer l'étape" aria-label="Supprimer l'étape">✕</button>
+  </li>`;
+}
+
+// Ajoute un cadre d'étape (après `after`, sinon à la fin) et y place le curseur.
+function addNoteStep(list, after) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = noteStepRow({}).trim();
+  const li = tpl.content.firstChild;
+  if (after) after.after(li);
+  else list.appendChild(li);
+  $('input', li).focus();
+}
+
 // Création (n absent), modification, ou copie d'une note existante (copy : nouvelle note aux étapes décochées).
 function noteForm(n, presetClient, copy) {
   const isNew = !n || copy;
@@ -183,7 +203,12 @@ function noteForm(n, presetClient, copy) {
           <label>Groupe<input name="groupe" list="note-groups" maxlength="80" value="${esc(src.groupe)}" placeholder="ex. Procédures, Clôtures, Imports…"></label>
         </div>
         <label>Texte<textarea name="texte" rows="6" placeholder="Particularités, explications, rappels…">${esc(src.texte)}</textarea></label>
-        <label>Étapes à cocher <span class="muted small">(une par ligne, facultatif)</span><textarea name="etapes" rows="6" placeholder="ex. Exporter les factures du logiciel du client&#10;Mettre le fichier Excel au format d'import&#10;Importer dans le logiciel comptable&#10;Contrôler le total des ventes">${esc(src.etapes.map((e) => e.label).join('\n'))}</textarea></label>
+        <fieldset class="step-edit">
+          <legend>Étapes à cocher <span class="muted small">(facultatif)</span></legend>
+          <ol data-step-list>${(src.etapes.length ? src.etapes : [{}]).map((e) => noteStepRow(e, copy)).join('')}</ol>
+          <button type="button" class="btn small" data-action="note-step-add">${icon('plus')}Ajouter une étape</button>
+          <p class="muted small">Entrée dans une étape en ajoute une nouvelle juste en dessous. Les étapes laissées vides sont ignorées.</p>
+        </fieldset>
         <label class="check"><input type="checkbox" name="epingle"${src.epingle ? ' checked' : ''}><span>Épingler la note (affichée en premier dans son groupe et sur la fiche du dossier)</span></label>
         <p class="muted small">Le groupe sert à classer les notes : choisissez un groupe existant ou tapez un nouveau nom. Une note sans dossier est une note générale.</p>
         <datalist id="note-groups">${noteGroups().map((g) => `<option value="${esc(g)}">`).join('')}</datalist>
