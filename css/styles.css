@@ -662,7 +662,7 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
   .calc-fields { grid-template-columns: minmax(0, 1fr); }
   .calc-vent input { width: 6rem; }
   /* Barre du bas limitée à six entrées : le calcul de TVA est dans la barre du haut. */
-  .nav a[data-nav=calcul] { display: none; }
+  .nav a[data-nav=calcul], .nav a[data-nav=releves] { display: none; }
 }
 .tva-params select { min-height: 32px; font-size: .82rem; max-width: 100%; }
 .tva-params td { vertical-align: top; }
@@ -811,3 +811,9 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .anon-preview tbody tr { cursor: default; }
 .anon-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .5rem 1rem; margin: .25rem 0 .75rem; }
 .anon-modes .check input { width: 18px; height: 18px; }
+/* Relevés PDF → Excel */
+.rel-controls { list-style: none; padding: 0; margin: .4rem 0; font-size: .9rem; }
+.rel-controls li { padding: .1rem 0; }
+.rel-head { display: inline-flex; align-items: center; gap: .5rem; }
+.rel-table td:nth-child(2) { white-space: normal; min-width: 260px; }
+.rel-table tbody tr { cursor: default; }

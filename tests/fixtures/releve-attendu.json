@@ -1,0 +1,430 @@
+{
+ "releve-acd.pdf": {
+  "du": "2026-03-01",
+  "au": "2026-03-31",
+  "compte": "512100 BANQUE FICTIVE 00099",
+  "soldeInitial": 8452.17,
+  "soldeFinal": 10318.52,
+  "totals": {
+   "debit": 27780.22,
+   "credit": 29646.57
+  },
+  "ops": [
+   {
+    "date": "2026-03-02",
+    "lib": "REMISE CHEQUES 0203",
+    "debit": 0,
+    "credit": 653.3
+   },
+   {
+    "date": "2026-03-02",
+    "lib": "REMISE CHEQUES 0203",
+    "debit": 0,
+    "credit": 193.29
+   },
+   {
+    "date": "2026-03-04",
+    "lib": "PRLV SEPA OPERATEUR TELECOM",
+    "debit": 50.75,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-04",
+    "lib": "FRAIS TENUE DE COMPTE",
+    "debit": 0.8,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-05",
+    "lib": "CB PEAGE AUTOROUTE",
+    "debit": 33.76,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-05",
+    "lib": "PRLV SEPA LOCATION MATERIEL",
+    "debit": 171.73,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-05",
+    "lib": "CHEQUE N 0001234",
+    "debit": 490.88,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-05",
+    "lib": "LOYER LOCAL COMMERCIAL MARS 2026",
+    "debit": 1450.0,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-08",
+    "lib": "REMISE CB 0803",
+    "debit": 0,
+    "credit": 2514.27
+   },
+   {
+    "date": "2026-03-09",
+    "lib": "CB STATION CARBURANT",
+    "debit": 79.45,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-09",
+    "lib": "CB FOURNITURES BUREAU",
+    "debit": 83.35,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-10",
+    "lib": "REMISE CB 1003",
+    "debit": 0,
+    "credit": 1741.34
+   },
+   {
+    "date": "2026-03-11",
+    "lib": "URSSAF COTISATIONS 02 2026",
+    "debit": 2315.47,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-12",
+    "lib": "PRLV SEPA LOCATION MATERIEL",
+    "debit": 170.2,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-12",
+    "lib": "CB RESTAURANT LE DEMO",
+    "debit": 54.73,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-13",
+    "lib": "CHEQUE N 0001234",
+    "debit": 736.11,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-13",
+    "lib": "PRLV SEPA ASSURANCE MULTIRISQUE",
+    "debit": 134.16,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-14",
+    "lib": "REMISE CB 1403",
+    "debit": 0,
+    "credit": 644.64
+   },
+   {
+    "date": "2026-03-14",
+    "lib": "VIR SEPA CLIENT GAMMA FACTURE F-2026-031 SOLDE TRAVAUX ACOMPTE DEDUIT CHANTIER 12",
+    "debit": 0,
+    "credit": 12480.0
+   },
+   {
+    "date": "2026-03-15",
+    "lib": "PRLV SEPA OPERATEUR TELECOM",
+    "debit": 71.47,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-16",
+    "lib": "VIR SEPA CLIENT BETA 1603",
+    "debit": 0,
+    "credit": 1159.98
+   },
+   {
+    "date": "2026-03-16",
+    "lib": "CHEQUE N 0001234",
+    "debit": 738.69,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-17",
+    "lib": "PRLV SEPA FOURNISSEUR ENERGIE",
+    "debit": 362.68,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-17",
+    "lib": "REMISE CB 1703",
+    "debit": 0,
+    "credit": 1308.44
+   },
+   {
+    "date": "2026-03-18",
+    "lib": "PRLV SEPA LOCATION MATERIEL",
+    "debit": 171.77,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-18",
+    "lib": "REMBOURSEMENT LITIGE CB",
+    "debit": 0,
+    "credit": 42.15
+   },
+   {
+    "date": "2026-03-18",
+    "lib": "CHEQUE N 0001234",
+    "debit": 849.72,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-19",
+    "lib": "CHEQUE N 0001234",
+    "debit": 370.91,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-19",
+    "lib": "VIR SEPA CLIENT BETA 1903",
+    "debit": 0,
+    "credit": 535.4
+   },
+   {
+    "date": "2026-03-20",
+    "lib": "CB STATION CARBURANT",
+    "debit": 40.01,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-20",
+    "lib": "CB STATION CARBURANT",
+    "debit": 73.56,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-21",
+    "lib": "DGFIP TVA 02 2026",
+    "debit": 3870.0,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-21",
+    "lib": "CB RESTAURANT LE DEMO",
+    "debit": 62.79,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-21",
+    "lib": "CB FOURNITURES BUREAU",
+    "debit": 12.76,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-22",
+    "lib": "CB PEAGE AUTOROUTE",
+    "debit": 30.16,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-22",
+    "lib": "CHEQUE N 0001234",
+    "debit": 639.4,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-23",
+    "lib": "PRLV SEPA LOCATION MATERIEL",
+    "debit": 164.59,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-23",
+    "lib": "CB PEAGE AUTOROUTE",
+    "debit": 33.78,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-25",
+    "lib": "CB STATION CARBURANT",
+    "debit": 62.98,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-25",
+    "lib": "VIR SEPA CLIENT ALPHA 2503",
+    "debit": 0,
+    "credit": 2828.66
+   },
+   {
+    "date": "2026-03-25",
+    "lib": "COMMISSION INTERVENTION",
+    "debit": 8.0,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-26",
+    "lib": "CB FOURNITURES BUREAU",
+    "debit": 88.96,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-26",
+    "lib": "REMISE CB 2603",
+    "debit": 0,
+    "credit": 2505.3
+   },
+   {
+    "date": "2026-03-26",
+    "lib": "CB STATION CARBURANT",
+    "debit": 42.83,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-26",
+    "lib": "REMISE CHEQUES 2603",
+    "debit": 0,
+    "credit": 1785.45
+   },
+   {
+    "date": "2026-03-27",
+    "lib": "PRLV SEPA FOURNISSEUR ENERGIE",
+    "debit": 253.53,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-27",
+    "lib": "REMISE CHEQUES 2703",
+    "debit": 0,
+    "credit": 937.75
+   },
+   {
+    "date": "2026-03-28",
+    "lib": "VIR SALAIRE MARS 2026 ÉQUIPE",
+    "debit": 10250.33,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-28",
+    "lib": "CB FOURNITURES BUREAU",
+    "debit": 34.78,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-28",
+    "lib": "VIR SEPA FOURNISSEUR GROSSISTE",
+    "debit": 3331.04,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-29",
+    "lib": "PRLV SEPA ASSURANCE MULTIRISQUE",
+    "debit": 191.77,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-30",
+    "lib": "VIR SEPA CLIENT BETA 3003",
+    "debit": 0,
+    "credit": 316.6
+   },
+   {
+    "date": "2026-03-30",
+    "lib": "CB FOURNITURES BUREAU",
+    "debit": 18.7,
+    "credit": 0
+   },
+   {
+    "date": "2026-03-30",
+    "lib": "PRLV SEPA FOURNISSEUR ENERGIE",
+    "debit": 233.62,
+    "credit": 0
+   }
+  ]
+ },
+ "releve-banque.pdf": {
+  "du": "2026-04-01",
+  "au": "2026-04-30",
+  "compte": "99999 00000 00000000099",
+  "soldeInitial": -1250.4,
+  "soldeFinal": 3332.64,
+  "totals": {
+   "debit": 14818.38,
+   "credit": 19401.42
+  },
+  "ops": [
+   {
+    "date": "2026-04-01",
+    "lib": "PRLV SEPA FOURNISSEUR ENERGIE",
+    "debit": 312.4,
+    "credit": 0
+   },
+   {
+    "date": "2026-04-02",
+    "lib": "REMISE CB 0204",
+    "debit": 0,
+    "credit": 1875.2
+   },
+   {
+    "date": "2026-04-03",
+    "lib": "VIR SEPA CLIENT DELTA FACT 2026-118",
+    "debit": 0,
+    "credit": 4200.0
+   },
+   {
+    "date": "2026-04-07",
+    "lib": "CB FOURNITURES 0504",
+    "debit": 64.9,
+    "credit": 0
+   },
+   {
+    "date": "2026-04-08",
+    "lib": "CHEQUE 0004567",
+    "debit": 1250.0,
+    "credit": 0
+   },
+   {
+    "date": "2026-04-10",
+    "lib": "REMISE CHEQUES 3",
+    "debit": 0,
+    "credit": 980.55
+   },
+   {
+    "date": "2026-04-14",
+    "lib": "PRLV SEPA URSSAF 03 2026",
+    "debit": 1988.12,
+    "credit": 0
+   },
+   {
+    "date": "2026-04-15",
+    "lib": "COTISATION CARTE AFFAIRES",
+    "debit": 4.5,
+    "credit": 0
+   },
+   {
+    "date": "2026-04-17",
+    "lib": "VIR SEPA CLIENT EPSILON",
+    "debit": 0,
+    "credit": 12345.67
+   },
+   {
+    "date": "2026-04-22",
+    "lib": "PRLV SEPA DGFIP TVA 03 2026",
+    "debit": 2760.0,
+    "credit": 0
+   },
+   {
+    "date": "2026-04-24",
+    "lib": "VIR SALAIRES AVRIL 2026",
+    "debit": 8420.18,
+    "credit": 0
+   },
+   {
+    "date": "2026-04-28",
+    "lib": "INTERETS DEBITEURS 1ER TRIMESTRE",
+    "debit": 17.33,
+    "credit": 0
+   },
+   {
+    "date": "2026-04-30",
+    "lib": "FRAIS TENUE DE COMPTE",
+    "debit": 0.95,
+    "credit": 0
+   }
+  ]
+ }
+}

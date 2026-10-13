@@ -1,6 +1,6 @@
 /*
  * Lecture locale des relevés bancaires, sans bibliothèque tierce :
- * CFONB 120 (EBICS), OFX, CAMT.053 (ISO 20022), CSV et Excel.
+ * CFONB 120 (EBICS), OFX, CAMT.053 (ISO 20022), CSV, Excel et relevé PDF (édition « Relevé bancaire » d'ACD).
  *
  * BankReader.read(file) → { format, account, operations: [{ date, label, amount }],
  *                           opening: { date, amount } | null, closing: { date, amount } | null }
@@ -165,6 +165,15 @@
   async function read(file) {
     const buf = await file.arrayBuffer();
     const name = (file.name || '').toLowerCase();
+    if (/\.pdf$/.test(name) && window.PdfReader && window.RelevePdf) {
+      const r = window.RelevePdf.parse(await window.PdfReader.read(buf), window.PdfReader);
+      return finish({
+        format: 'PDF', account: r.meta.compte || '',
+        operations: r.ops.map((o) => ({ date: o.date, label: o.lib, amount: round2(o.credit - o.debit) })),
+        opening: r.soldeInitial !== null && r.meta.du ? { date: r.meta.du, amount: r.soldeInitial } : null,
+        closing: r.soldeFinal !== null && r.meta.au ? { date: r.meta.au, amount: r.soldeFinal } : null,
+      });
+    }
     if (/\.(xlsx|xlsm)$/.test(name)) {
       const book = await window.SheetReader.read(file);
       return finish(readTable(book.sheets.find((s) => s.rows.length > 1).rows));

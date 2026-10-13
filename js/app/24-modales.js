@@ -159,6 +159,7 @@ function forgetSession() {
   ui.fecState = null;
   ui.batch = null;
   ui.anon = null;
+  ui.rel = null;
   closeGrillePop();
   ui.imp = null;
   ui.cab = null;

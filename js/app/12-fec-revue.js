@@ -460,7 +460,7 @@ function rapproState() {
 }
 
 async function importStatement() {
-  const file = await pickFile('.txt,.csv,.xlsx,.ofx,.qfx,.xml,.cfonb,.dat,.120', true);
+  const file = await pickFile('.txt,.csv,.xlsx,.ofx,.qfx,.xml,.cfonb,.dat,.120,.pdf', true);
   if (!file) return;
   const st = rapproState();
   try {

@@ -16,6 +16,9 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
   `900000009-attendu.json`) : même structure qu'un export Pennylane réel (journaux AN, BQ, HA, VT, RT, OD, comptes suffixés
   par taux, TVA sur les encaissements, opérations en attente 4716 / 4717, ValidDate vide), données inventées. Toute
   fonction destinée aux dossiers Pennylane se teste sur ce fichier (`suites/pennylane-test.js`).
+  `genreleve_pdf.py` produit les **relevés bancaires PDF** de test (`releve-acd.pdf` : mise en page de l'édition
+  « Relevé bancaire » d'ACD, un caractère par opérateur, sur deux pages ; `releve-banque.pdf` : colonnes Date / Valeur /
+  Libellé / Débit / Crédit) et les opérations attendues (`releve-attendu.json`), données inventées (`suites/releves-test.js`).
 - `suites/` : une suite par fonction (analyse FEC, cycles, TVA, pièces, portefeuille, suivi mensuel, sécurité…) ; `suites/lib.js` regroupe les aides de navigation (onglets et espaces Mois / Révision / Consultation de l'analyse FEC, choix du mois).
 - `out/` : captures d'écran, fichiers exportés et journal de chaque suite (non versionné).
 

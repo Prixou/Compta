@@ -196,6 +196,10 @@ const actions = {
   'export-grille': () => exportGrille(),
   'batch-pick': async () => batchRun(await pickFiles('.txt,.csv,.tsv,.zip,text/plain,application/zip')),
   'anon-pick': async () => anonStart(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true)),
+  'rel-pick': async () => relAdd(await pickFiles('.pdf,application/pdf')),
+  'rel-download': () => relDownload(),
+  'rel-clear': () => { ui.rel = null; refresh(); },
+  'rel-remove': (el) => { const st = relState(); st.files.splice(+el.dataset.i, 1); if (!st.files.length) ui.rel = null; refresh(); },
   'anon-run': () => {
     const inp = $('input[data-anon=extra]');
     if (inp) anonState().extra = inp.value;
@@ -447,6 +451,8 @@ document.addEventListener('change', (e) => {
     onCalChange(t);
   } else if (t.dataset.anon && ui.anon) {
     onAnonChange(t);
+  } else if (t.dataset.rel && ui.rel) {
+    onRelChange(t);
   } else if (t.dataset.msg === 'mission' && ui.msg) {
     t.checked ? ui.msg.selected.add(t.value) : ui.msg.selected.delete(t.value);
     renderMessage();

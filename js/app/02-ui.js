@@ -145,6 +145,7 @@ function renderShell() {
           <a href="#/grille" data-nav="grille">${icon('grid')}<span>Suivi mensuel</span></a>
           <a href="${fecHref()}" data-nav="fec">${icon('chart')}<span>Analyse FEC</span></a>
           <a href="#/calcul" data-nav="calcul">${icon('calc')}<span>Calcul TVA</span></a>
+          <a href="#/releves" data-nav="releves">${icon('file')}<span>Relevés PDF</span></a>
           <a href="#/parametres" data-nav="parametres">${icon('gear')}<span>Paramètres</span></a>
         </nav>
         <div class="side-actions">
@@ -202,6 +203,7 @@ function route() {
     case 'fec': main.innerHTML = viewFec(); break;
     case 'portefeuille': main.innerHTML = viewBatch(); break;
     case 'anonymiser': main.innerHTML = viewAnon(); break;
+    case 'releves': main.innerHTML = viewReleves(); break;
     case 'calcul': main.innerHTML = viewCalc(); calcUpdate(); break;
     case 'parametres': main.innerHTML = viewSettings(); break;
     default: main.innerHTML = viewDashboard();
