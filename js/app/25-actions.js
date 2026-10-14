@@ -251,6 +251,11 @@ const actions = {
   'batch-pick': async () => batchRun(await pickFiles('.txt,.csv,.tsv,.zip,text/plain,application/zip')),
   'anon-pick': async () => anonStart(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true)),
   'rel-pick': async () => relAdd(await pickFiles('.pdf,application/pdf')),
+  'cmp-pick': async (el) => { const f = await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true); if (f) cmpDrop([f], el.dataset.side); },
+  'cmp-swap': () => { const st = cmpState(); [st.ref, st.cmp] = [st.cmp, st.ref]; cmpRun(); },
+  'cmp-clear': () => { cmpStop(); ui.cmp = null; refresh(); },
+  'cmp-tab': (el) => { cmpState().tab = el.dataset.tab; refresh(); },
+  'cmp-export': () => cmpExport(),
   'rel-download': () => relDownload(),
   'rel-clear': () => { ui.rel = null; refresh(); },
   'rel-remove': (el) => { const st = relState(); st.files.splice(+el.dataset.i, 1); if (!st.files.length) ui.rel = null; refresh(); },
@@ -527,6 +532,8 @@ document.addEventListener('change', (e) => {
     onAnonChange(t);
   } else if (t.dataset.rel && ui.rel) {
     onRelChange(t);
+  } else if (t.dataset.cmp && ui.cmp) {
+    onCmpChange(t);
   } else if (t.dataset.msg === 'mission' && ui.msg) {
     t.checked ? ui.msg.selected.add(t.value) : ui.msg.selected.delete(t.value);
     renderMessage();

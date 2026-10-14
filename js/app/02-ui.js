@@ -194,7 +194,7 @@ function route() {
   const main = $('#main');
   // Anciennes adresses : analyseur pharmacie (le profil vient désormais du dossier) et portefeuille.
   if (view === 'fec' && parts[1] === 'lot') { location.replace('#/portefeuille'); return; }
-  const navOf = { dossier: 'dossiers', portefeuille: 'dossiers', anonymiser: 'fec' };
+  const navOf = { dossier: 'dossiers', portefeuille: 'dossiers', anonymiser: 'fec', comparer: 'fec' };
   $$('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === (navOf[view] || view)));
   switch (view) {
     case 'dossiers': main.innerHTML = viewDossiers(); renderDossierList(); break;
@@ -206,6 +206,7 @@ function route() {
     case 'fec': main.innerHTML = viewFec(); break;
     case 'portefeuille': main.innerHTML = viewBatch(); break;
     case 'anonymiser': main.innerHTML = viewAnon(); break;
+    case 'comparer': main.innerHTML = viewCompare(); break;
     case 'releves': main.innerHTML = viewReleves(); break;
     case 'calcul': main.innerHTML = viewCalc(); calcUpdate(); break;
     case 'parametres': main.innerHTML = viewSettings(); break;

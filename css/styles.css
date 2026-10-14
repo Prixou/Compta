@@ -815,6 +815,29 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .rel-controls { list-style: none; padding: 0; margin: .4rem 0; font-size: .9rem; }
 .rel-controls li { padding: .1rem 0; }
 .rel-head { display: inline-flex; align-items: center; gap: .5rem; }
+/* Comparer deux FEC */
+.cmp-slots { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: .75rem; align-items: stretch; margin-bottom: 1rem; }
+.cmp-slot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25rem; padding: 1.4rem 1rem; margin: 0; min-width: 0; }
+.cmp-slot.on { border-style: solid; }
+.cmp-role { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--primary); }
+.cmp-file { overflow-wrap: anywhere; }
+.cmp-swap { align-self: center; font-size: 1.2rem; }
+.banner.ok { background: var(--ok-soft); color: var(--ok); }
+.cmp-period { flex-wrap: wrap; }
+.cmp-entry { border-top: 1px solid var(--border); padding: .45rem 0; }
+.cmp-entry summary { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; cursor: pointer; font-size: .9rem; }
+.cmp-entry[open] summary { margin-bottom: .4rem; }
+.cmp-when { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cmp-lib { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+.cmp-amt { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cmp-table td.n, .cmp-table th.n { text-align: right; font-variant-numeric: tabular-nums; }
+.cmp-table tbody tr { cursor: default; }
+.cmp-table td { white-space: normal; }
+.cmp-table td.n { white-space: nowrap; }
+.cmp-table tr.cmp-rub td { background: var(--surface-2); font-weight: 700; font-size: .8rem; }
+.cmp-table tr.cmp-strong td { font-weight: 700; }
+.cmp-table tr.cmp-diff td:last-child { color: var(--wait); }
+@media (max-width: 760px) { .cmp-slots { grid-template-columns: 1fr; } .cmp-swap { justify-self: center; } }
 .rel-table td:nth-child(2) { white-space: normal; min-width: 260px; }
 .rel-table tbody tr { cursor: default; }
 

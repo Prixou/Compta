@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '42';
+const ASSET_VERSION = '43';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -303,6 +303,7 @@ function viewFec() {
   const head = `<div class="page-head"><h1>Analyse FEC</h1>
     <div class="head-actions">${f && f.status === 'done' ? `<button class="btn" data-action="fec-export">Exporter en Excel</button>` : ''}
       <a class="btn" href="#/portefeuille">${icon('grid')}Plusieurs dossiers</a>
+      <a class="btn" href="#/comparer">${icon('compare')}Comparer deux FEC</a>
       <a class="btn" href="#/anonymiser">${icon('eyeOff')}Anonymiser un FEC</a>
       <button class="btn primary" data-action="fec-pick">${f ? 'Analyser un autre FEC' : 'Choisir un FEC'}</button></div></div>`;
   if (!f) {

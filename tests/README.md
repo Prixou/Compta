@@ -19,6 +19,8 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
   `genreleve_pdf.py` produit les **relevés bancaires PDF** de test (`releve-acd.pdf` : mise en page de l'édition
   « Relevé bancaire » d'ACD, un caractère par opérateur, sur deux pages ; `releve-banque.pdf` : colonnes Date / Valeur /
   Libellé / Débit / Crédit) et les opérations attendues (`releve-attendu.json`), données inventées (`suites/releves-test.js`).
+  `gencompare.py` produit deux FEC du même exercice (`fixtures/compare/`), l'un présenté comme ACD, l'autre comme Pennylane,
+  avec des différences connues (`compare-attendu.json`), pour le comparateur de FEC (`suites/compare-test.js`).
 - `suites/` : une suite par fonction (analyse FEC, cycles, TVA, pièces, portefeuille, suivi mensuel, sécurité…) ; `suites/lib.js` regroupe les aides de navigation (onglets et espaces Mois / Révision / Consultation de l'analyse FEC, choix du mois).
 - `out/` : captures d'écran, fichiers exportés et journal de chaque suite (non versionné).
 
