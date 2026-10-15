@@ -583,6 +583,10 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
 .pieces-group h3 { display: flex; align-items: center; gap: .4rem; margin: 0 0 .3rem; font-size: .9rem; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
 .check.piece { margin: 0; padding: .45rem .2rem; border-top: 1px solid var(--border); }
 .check.piece input:not(:checked) + span { color: var(--muted); text-decoration: line-through; }
+.piece-row { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem .6rem; border-top: 1px solid var(--border); }
+.piece-row .check.piece { flex: 1 1 320px; border-top: 0; }
+.piece-rub { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; }
+.piece-rub select { width: auto; min-height: 32px; padding: .2rem .5rem; font-size: .85rem; margin: 0; }
 .pieces-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.1rem; padding-top: .9rem; border-top: 1px solid var(--border); }
 .banner.info { background: var(--primary-soft); color: var(--primary); }
 

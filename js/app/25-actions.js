@@ -630,6 +630,8 @@ document.addEventListener('change', (e) => {
     const st = piecesState();
     t.checked ? st.excluded.delete(t.dataset.piece) : st.excluded.add(t.dataset.piece);
     refresh();
+  } else if (t.dataset.pieceRub && ui.fec) {
+    setRubrique(t.dataset.pieceRub, t.value);
   } else if (t.dataset.pieces === 'arrete' && ui.fec) {
     if (t.value) piecesState().arrete = t.value;
     refresh();

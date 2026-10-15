@@ -516,7 +516,8 @@ function justifPieces(r, push, from, to, scope) {
     if (x0.kind === 'achat') push('achats', `jm:${scope}:${x0.num}`, `${l.length > 1 ? 'Factures' : 'Facture'} ${x0.tlib} : ${items}`);
     else push('ventes', `jv:${scope}:${x0.num}`, `${l.length > 1 ? 'Factures de vente' : 'Facture de vente'} à ${x0.tlib} : ${items}`);
   });
-  list.filter((x) => x.kind === 'direct').slice(0, 60).forEach((x, i) => push('justif', `jd:${scope}:${i}`, `Justificatif « ${x.lib} » du ${d(x.date)} (${eur(x.amt)} €)`));
+  list.filter((x) => x.kind === 'direct').slice(0, 60).forEach((x, i) => push('justif', `jd:${scope}:${i}`, `Justificatif « ${x.lib} » du ${d(x.date)} (${eur(x.amt)} €)`,
+    { doc: `Justificatif « ${x.lib} »`, ops: [{ date: x.date, amt: x.amt }] }));
 }
 
 // Pièces et questions issues des cycles.
@@ -531,7 +532,8 @@ function cyclePieces(r, mode, arrete, push) {
   });
   const item = (x) => `« ${x.lib} » du ${d(x.date)} (${eur(Math.abs(x.amt))} €)`;
   const OPS = 'Opérations en espèces de 1 000 € ou plus', PERSO = 'Dépenses à caractère personnel possibles';
-  cy.treso.cash.items.filter((x) => x.date <= arrete && !memoHas('treso', OPS, x.lib)).slice(0, 10).forEach((x, i) => push('caisse', 'esp:' + i, `Justificatif de l'opération en espèces ${item(x)} : paiement en espèces limité à 1 000 €`));
+  cy.treso.cash.items.filter((x) => x.date <= arrete && !memoHas('treso', OPS, x.lib)).slice(0, 10).forEach((x, i) => push('caisse', 'esp:' + i, `Justificatif de l'opération en espèces ${item(x)} : paiement en espèces limité à 1 000 €`,
+    { doc: `Justificatif de l'opération en espèces « ${x.lib} » (paiement en espèces limité à 1 000 €)`, ops: [{ date: x.date, amt: Math.abs(x.amt) }] }));
   (cy.charges.perso.groups || []).filter((g) => g.first <= arrete && !memoHas('charges', PERSO, g.lib)).slice(0, 10).forEach((g, i) => push('questions', 'perso:' + i, g.n === 1
     ? `Caractère professionnel de la dépense « ${g.lib} » du ${d(g.first)} (${eur(g.total)} €)`
     : `Caractère professionnel des dépenses « ${g.lib} » : ${g.n} paiements du ${d(g.first)} au ${d(g.last)} (${eur(g.total)} €)`));

@@ -12,7 +12,7 @@ const PIECES_CATS = {
   justif: 'Justificatifs de dépenses payées directement',
   ventes: 'Ventes et encaissements',
   tp: 'Tiers payant et patients',
-  attente: 'Opérations à identifier',
+  divers: 'Opérations diverses',
   releve: 'Opérations bancaires non comptabilisées',
   immo: 'Immobilisations',
   social: 'Social',
@@ -125,20 +125,83 @@ function unmatchedPieces(r, push, from, to, scope) {
     const u0 = list[0];
     const total = list.reduce((s2, u) => s2 + u.amt, 0);
     const det = list.slice(0, 8).map((u) => `du ${d(u.date)} (${eur(u.amt)} €)`).join(', ') + (list.length > 8 ? ` et ${list.length - 8} autre(s), total ${eur(total)} €` : '');
+    const ops = list.map((u) => ({ date: u.date, amt: u.amt }));
     if (u0.racine === '401') push('achats', `nf:${scope}:${u0.num}`, list.length === 1
       ? `Facture ${u0.lib} correspondant au paiement de ${eur(u0.amt)} € du ${d(u0.date)}`
-      : `Factures ${u0.lib} correspondant aux paiements ${det}`);
+      : `Factures ${u0.lib} correspondant aux paiements ${det}`,
+    { doc: list.length === 1 ? `Facture ${u0.lib} correspondant au paiement` : `Factures ${u0.lib} correspondant aux ${list.length} paiements`, ops });
     else push('ventes', `ne:${scope}:${u0.num}`, list.length === 1
       ? `Facture ou avoir ${u0.lib} correspondant à l'encaissement de ${eur(u0.amt)} € du ${d(u0.date)}`
-      : `Factures ou avoirs ${u0.lib} correspondant aux encaissements ${det}`);
+      : `Factures ou avoirs ${u0.lib} correspondant aux encaissements ${det}`,
+    { doc: list.length === 1 ? `Facture ou avoir ${u0.lib} correspondant à l'encaissement` : `Factures ou avoirs ${u0.lib} correspondant aux ${list.length} encaissements`, ops });
   });
   return groups;
+}
+
+// ---------- Opérations en compte d'attente (47) ----------
+
+// Rubriques au choix pour une opération en compte d'attente, dans l'ordre du menu.
+const ATTENTE_RUBRIQUES = ['ventes', 'achats', 'divers'];
+
+// Rubrique proposée : celle du compte déjà utilisé pour le même libellé, sinon le sens de l'opération
+// (encaissement → ventes et encaissements, paiement → factures fournisseurs).
+function attenteDefaut(l) {
+  const sug = l.sug && l.sug[0];
+  if (!sug) return l.c > 0 ? 'ventes' : 'achats';
+  if (/^(40|60|61|62|2)/.test(sug)) return 'achats';
+  if (/^(41|70)/.test(sug)) return 'ventes';
+  return 'divers';
+}
+
+// Clé stable d'une opération (compte, date, montant, libellé) : sa rubrique est retrouvée d'une analyse à l'autre.
+const attenteKey = (l) => `${l.compte}|${l.date}|${(l.d - l.c).toFixed(2)}|${norm(l.lib).replace(/\s+/g, ' ').trim().slice(0, 40)}`;
+
+// Rubriques choisies, conservées dans le dossier (ou le temps de l'analyse si elle n'est rattachée à aucun dossier).
+// `create` : crée le registre s'il n'existe pas encore (sinon lecture seule, sans rien ajouter au dossier).
+function rubriquesStore(create) {
+  const f = ui.fec;
+  const c = clientById(f.clientId);
+  if (c) return c.piecesRubriques || (create ? (c.piecesRubriques = {}) : {});
+  return f.rubriques || (create ? (f.rubriques = {}) : {});
+}
+
+function setRubrique(key, cat) {
+  if (!ATTENTE_RUBRIQUES.includes(cat)) return;
+  const store = rubriquesStore(true);
+  store[key] = cat;
+  // Au-delà de 2 000 opérations, les plus anciennes sont oubliées.
+  const keys = Object.keys(store);
+  if (keys.length > 2000) keys.sort((a, b) => a.split('|')[1].localeCompare(b.split('|')[1])).slice(0, keys.length - 2000).forEach((k) => delete store[k]);
+  if (clientById(ui.fec.clientId)) persist();
+  refresh();
+}
+
+// Une demande par opération, rangée dans sa rubrique : le client reçoit des factures, des ventes ou des opérations diverses
+// à justifier, et non des « opérations à identifier ».
+function attentePieces(r, push, lines) {
+  const store = ui.fec && ui.fec.result === r ? rubriquesStore() : {};
+  const seen = new Map();
+  const d = fmtDate;
+  lines.forEach((l) => {
+    const base = attenteKey(l);
+    const n = seen.get(base) || 0;
+    seen.set(base, n + 1);
+    const key = n ? `${base}#${n}` : base;
+    const cat = ATTENTE_RUBRIQUES.includes(store[key]) ? store[key] : attenteDefaut(l);
+    const enc = l.c > 0, amt = l.c || l.d;
+    const op = `« ${l.lib} »`;
+    const doc = cat === 'achats' ? (enc ? `Avoir fournisseur correspondant à l'encaissement ${op}` : `Facture correspondant au paiement ${op}`)
+      : cat === 'ventes' ? (enc ? `Facture de vente correspondant à l'encaissement ${op}` : `Avoir client correspondant au paiement ${op}`)
+      : `Justificatif ${enc ? "de l'encaissement" : 'du paiement'} ${op}`;
+    push(cat, key, `${doc} du ${d(l.date)} (${eur(amt)} €)`, { id: 'attente:' + key, src: 'attente', key, compte: l.compte, doc, ops: [{ date: l.date, amt }] });
+  });
 }
 
 // Demande mensuelle : pièces manquantes du mois pour les cycles achats et ventes.
 function monthPieces(r, arrete) {
   const items = [];
-  const push = (cat, id, text) => items.push({ cat, id: `${cat}:${id}`, text });
+  // `x` : précisions pour la liste Excel (doc : document sans date ni montant, ops : opérations datées, total).
+  const push = (cat, id, text, x) => items.push(Object.assign({ cat, id: `${cat}:${id}`, text }, x));
   const p = r.pieces;
   const cy = r.cycles;
   const ym = ymOf(arrete);
@@ -164,19 +227,22 @@ function monthPieces(r, arrete) {
   (exact ? [] : p.directLines || []).filter((l) => inM(l[0])).forEach(([date, compte, clib, elib, amt]) => {
     const lib = String(elib).replace(/\S*\d\S*/g, '').replace(/\s+/g, ' ').trim() || elib;
     const k = compte + '|' + norm(lib);
-    const g = groups.get(k) || groups.set(k, { lib, clib, n: 0, total: 0, date }).get(k);
+    const g = groups.get(k) || groups.set(k, { lib, clib, n: 0, total: 0, date, ops: [] }).get(k);
     g.n++;
     g.total += amt;
+    g.ops.push({ date, amt });
   });
   const docName = (lib) => (/amende|antai|contravention|\bpv\b|penalit/i.test(lib) ? 'Avis de contravention' : 'Facture');
   Array.from(groups.values()).sort((a, b) => b.total - a.total).forEach((g, i) => push('justif', `m${ym}:${i}`, g.n === 1
     ? `${docName(g.lib)} « ${g.lib.slice(0, 45)} » du ${d(g.date)} (${eur(g.total)} €) — ${g.clib}`
-    : `Factures « ${g.lib.slice(0, 45)} » : ${g.n} paiements en ${mois}, total ${eur(g.total)} € — ${g.clib}`));
+    : `Factures « ${g.lib.slice(0, 45)} » : ${g.n} paiements en ${mois}, total ${eur(g.total)} € — ${g.clib}`,
+  { doc: `${g.n === 1 ? docName(g.lib) : 'Factures'} « ${g.lib.slice(0, 45)} » — ${g.clib}`, ops: g.ops.sort((a, b) => a.date.localeCompare(b.date)) }));
   // Acquisitions d'immobilisations du mois
-  p.immo.filter((l) => inM(l.date)).forEach((l, i) => push('immo', `m${ym}:${i}`, `Facture d'acquisition « ${l.lib} » du ${d(l.date)} (${eur(l.montant)} €, ${l.clib})`));
-  // Opérations en attente du mois
+  p.immo.filter((l) => inM(l.date)).forEach((l, i) => push('immo', `m${ym}:${i}`, `Facture d'acquisition « ${l.lib} » du ${d(l.date)} (${eur(l.montant)} €, ${l.clib})`,
+    { doc: `Facture d'acquisition « ${l.lib} » (${l.clib})`, ops: [{ date: l.date, amt: l.montant }] }));
+  // Opérations en attente du mois, chacune dans sa rubrique
   // (sauf les encaissements qui citent une facture client : identifiés, à lettrer)
-  p.attente.filter((l) => inM(l.date) && !l.lettre && !(l.sug && l.sug[7])).forEach((l, i) => push('attente', `m${ym}:${i}`, `Justificatif de l'opération « ${l.lib} » du ${d(l.date)} : ${l.c > 0 ? 'encaissement' : 'paiement'} de ${eur(l.c || l.d)} €`));
+  attentePieces(r, push, p.attente.filter((l) => inM(l.date) && !l.lettre && !(l.sug && l.sug[7])));
 
   if (!pharma && cy) {
     // Ventes : clients facturés chaque mois sans facture ce mois-ci
@@ -209,7 +275,8 @@ function monthPieces(r, arrete) {
     }
     // Encaissements enregistrés en ventes sans facture client (activité facturée)
     const facture = cy.clients.customers.reduce((s, c) => s + c.ht, 0);
-    if (r.kpi.ca > 0 && facture >= r.kpi.ca * 0.5) (cy.clients.directSales || []).filter(([date]) => inM(date)).slice(0, 15).forEach(([date, amt, lib], i) => push('ventes', `enc:${ym}:${i}`, `Facture de vente correspondant à l'encaissement « ${lib} » du ${d(date)} (${eur(amt)} €)`));
+    if (r.kpi.ca > 0 && facture >= r.kpi.ca * 0.5) (cy.clients.directSales || []).filter(([date]) => inM(date)).slice(0, 15).forEach(([date, amt, lib], i) => push('ventes', `enc:${ym}:${i}`, `Facture de vente correspondant à l'encaissement « ${lib} » du ${d(date)} (${eur(amt)} €)`,
+      { doc: `Facture de vente correspondant à l'encaissement « ${lib} »`, ops: [{ date, amt }] }));
   }
   return items;
 }
@@ -231,7 +298,7 @@ function computePiecesRaw(r, mode, arrete) {
   if (mode === 'mois') return monthPieces(r, arrete);
   const p = r.pieces;
   const items = [];
-  const push = (cat, id, text) => items.push({ cat, id: `${cat}:${id}`, text });
+  const push = (cat, id, text, x) => items.push(Object.assign({ cat, id: `${cat}:${id}`, text }, x));
   const endYm = ymOf(arrete);
   const startYm = ymOf(r.meta.start && r.meta.start <= arrete ? r.meta.start : p.minOp || arrete);
   const period = monthsBetween(startYm, endYm);
@@ -279,17 +346,18 @@ function computePiecesRaw(r, mode, arrete) {
     const months = Object.keys(g.months).filter((ym) => ym <= endYm);
     const when = g.count === 1 ? `du ${d(g.first)}` : `: ${g.count} paiements (${fmtMonths(months)})`;
     const label = g.label.replace(/\S*\d\S*/g, '').replace(/\s+/g, ' ').trim() || g.label;
-    push('justif', `${g.compte}:${i}`, `Factures « ${label.slice(0, 45)} » ${when}, total ${eur(g.total)} € — ${g.clib}`);
+    push('justif', `${g.compte}:${i}`, `Factures « ${label.slice(0, 45)} » ${when}, total ${eur(g.total)} € — ${g.clib}`, g.count === 1
+      ? { doc: `Facture « ${label.slice(0, 45)} » — ${g.clib}`, ops: [{ date: g.first, amt: g.total }] }
+      : { doc: `Factures « ${label.slice(0, 45)} » ${when} — ${g.clib}`, total: g.total });
   });
 
-  // Opérations en compte d'attente
-  p.attente.filter((l) => l.date <= arrete && !l.lettre && Math.abs(l.soldeCompte) >= 0.01 && !(l.sug && l.sug[7])).forEach((l, i) => {
-    push('attente', `${l.compte}:${i}`, `Justificatif de l'opération « ${l.lib} » du ${d(l.date)} : ${l.c > 0 ? 'encaissement' : 'paiement'} de ${eur(l.c || l.d)} €`);
-  });
+  // Opérations en compte d'attente, chacune dans sa rubrique
+  attentePieces(r, push, p.attente.filter((l) => l.date <= arrete && !l.lettre && Math.abs(l.soldeCompte) >= 0.01 && !(l.sug && l.sug[7])));
 
   // Immobilisations acquises
   p.immo.filter((l) => l.date <= arrete).forEach((l, i) => {
-    push('immo', `${l.compte}:${i}`, `Facture d'acquisition « ${l.lib} » du ${d(l.date)} (${eur(l.montant)} €, ${l.clib})`);
+    push('immo', `${l.compte}:${i}`, `Facture d'acquisition « ${l.lib} » du ${d(l.date)} (${eur(l.montant)} €, ${l.clib})`,
+      { doc: `Facture d'acquisition « ${l.lib} » (${l.clib})`, ops: [{ date: l.date, amt: l.montant }] });
   });
 
   // Paie
@@ -309,7 +377,8 @@ function computePiecesRaw(r, mode, arrete) {
   // Opérations du relevé bancaire non comptabilisées (rapprochement)
   const rappro = ui.fec && ui.fec.result === r && ui.fec.rappro && ui.fec.rappro.include ? rapproResult() : null;
   if (rappro) rappro.bankOnly.filter((o) => o.date <= arrete).forEach((o, i) => {
-    push('releve', `${o.date}:${o.amount}:${i}`, `Justificatif de l'opération bancaire « ${o.label} » du ${d(o.date)} (${o.amount > 0 ? 'encaissement' : 'paiement'} de ${eur(Math.abs(o.amount))} €), non comptabilisée`);
+    push('releve', `${o.date}:${o.amount}:${i}`, `Justificatif de l'opération bancaire « ${o.label} » du ${d(o.date)} (${o.amount > 0 ? 'encaissement' : 'paiement'} de ${eur(Math.abs(o.amount))} €), non comptabilisée`,
+      { doc: `Justificatif ${o.amount > 0 ? "de l'encaissement" : 'du paiement'} « ${o.label} », non comptabilisé`, ops: [{ date: o.date, amt: Math.abs(o.amount) }] });
   });
 
   // Caisse
@@ -376,12 +445,21 @@ function viewPieces() {
   const c = clientById(f.clientId);
   const groups = {};
   items.forEach((i) => (groups[i.cat] = groups[i.cat] || []).push(i));
+  const nAttente = items.filter((i) => i.src === 'attente').length;
+  const piece = (i) => {
+    const box = `<label class="check piece"><input type="checkbox" data-piece="${esc(i.id)}"${st.excluded.has(i.id) ? '' : ' checked'}><span>${esc(i.text)}</span></label>`;
+    if (i.src !== 'attente') return box;
+    // Opération en compte d'attente : rubrique de la demande au choix
+    return `<div class="piece-row">${box}<span class="piece-rub"><span class="badge" title="Opération en compte d'attente">${esc(i.compte)}</span>
+      <select data-piece-rub="${esc(i.key)}" aria-label="Rubrique de la demande">${ATTENTE_RUBRIQUES.map((k) => `<option value="${k}"${k === i.cat ? ' selected' : ''}>${esc(PIECES_CATS[k])}</option>`).join('')}</select></span></div>`;
+  };
   return `
     <section class="card">
       <h2>${st.mode === 'mois' ? `Pièces du mois à demander au client — ${esc(moisNom(st.arrete))}` : 'Pièces à demander au client'}</h2>
       <p class="muted small">${st.mode === 'mois'
-        ? 'Demande du mois, cycles achats et ventes : factures des fournisseurs et clients habituels absentes, règlements et encaissements sans facture, dépenses payées directement, numéros de facture manquants, opérations à identifier. À envoyer dès la saisie du mois pour anticiper la situation ou le bilan.'
-        : "Liste établie à partir des écritures : relevés manquants, factures récurrentes absentes, paiements sans facture, opérations à identifier… Décochez ce qui ne s'applique pas, puis créez la demande."}</p>
+        ? 'Demande du mois, cycles achats et ventes : factures des fournisseurs et clients habituels absentes, règlements et encaissements sans facture, dépenses payées directement, numéros de facture manquants, opérations en compte d\'attente. À envoyer dès la saisie du mois pour anticiper la situation ou le bilan.'
+        : "Liste établie à partir des écritures : relevés manquants, factures récurrentes absentes, paiements sans facture, opérations en compte d'attente… Décochez ce qui ne s'applique pas, puis créez la demande."}</p>
+      ${nAttente ? `<p class="muted small">Opérations en compte d'attente (${nAttente}, repérées par leur n° de compte) : choisissez pour chacune la rubrique de la demande, <em>Ventes et encaissements</em>, <em>Factures fournisseurs</em> ou <em>Opérations diverses</em>. La rubrique proposée suit l'affectation déjà utilisée pour le même libellé, sinon le sens de l'opération ; votre choix est conservé dans le dossier.</p>` : ''}
       <div class="filters pieces-opts">
         ${st.mode === 'mois' ? '' : `<div class="seg" role="group" aria-label="Travail à préparer">
           <button class="${st.mode === 'situation' ? 'on' : ''}" data-action="pieces-mode" data-mode="situation">Situation</button>
@@ -393,7 +471,7 @@ function viewPieces() {
       ${items.length ? Object.keys(PIECES_CATS).filter((k) => groups[k]).map((k) => `
         <div class="pieces-group">
           <h3>${esc(PIECES_CATS[k])} <span class="count">${groups[k].length}</span></h3>
-          ${groups[k].map((i) => `<label class="check piece"><input type="checkbox" data-piece="${esc(i.id)}"${st.excluded.has(i.id) ? '' : ' checked'}><span>${esc(i.text)}</span></label>`).join('')}
+          ${groups[k].map(piece).join('')}
         </div>`).join('') : '<p class="muted">Aucun élément manquant détecté pour cette période. 👍</p>'}
       <div class="pieces-actions">
         <button class="btn primary" data-action="pieces-demande"${c && kept.length ? '' : ' disabled'}>${icon('mail')}Créer la demande et préparer le mail</button>
@@ -522,9 +600,14 @@ function createPiecesRequest() {
   const titre = `Demande de pièces — ${label}`;
   const stamp = nowIso();
   let m = missionsOf(c.id).find((x) => x.titre === titre && isOpen(x));
-  const steps = items.map((i) => ({ id: uid(), label: i.text, cat: PIECES_CATS[i.cat], done: false, doneAt: null }));
+  const steps = items.map((i) => Object.assign({ id: uid(), label: i.text, cat: PIECES_CATS[i.cat], done: false, doneAt: null }, i.src === 'attente' ? { pid: i.id } : {}));
   if (m) {
-    m.etapes = m.etapes.concat(steps.filter((e) => !m.etapes.some((x) => x.label === e.label)));
+    steps.forEach((e) => {
+      // Opération en compte d'attente changée de rubrique : son étape est mise à jour plutôt que doublée.
+      const old = m.etapes.find((x) => x.label === e.label || (e.pid && x.pid === e.pid));
+      if (!old) m.etapes.push(e);
+      else if (e.pid && !old.done) Object.assign(old, { label: e.label, cat: e.cat });
+    });
     m.updatedAt = stamp;
   } else {
     m = {
@@ -542,14 +625,136 @@ function createPiecesRequest() {
 }
 
 function exportPiecesXlsx() {
-  const f = ui.fec;
   const st = piecesState();
-  const items = selectedPieces();
-  const c = clientById(f.clientId);
-  const t = (v, s) => ({ v, s: s === undefined ? 2 : s });
-  const rows = [[{ v: `Pièces à fournir — ${piecesLabel(st.mode, st.arrete)}${c ? ' — ' + c.nom : ''}`, s: 10 }], [],
-    [t('Catégorie', 1), t('Élément demandé', 1), t('Fourni', 1), t('Commentaire', 1)]]
-    .concat(items.map((i) => [t(PIECES_CATS[i.cat]), t(i.text), t(''), t('')]));
-  const blob = XlsxWriter.build({ sheets: [{ name: 'Pièces à fournir', rows, widths: [30, 110, 10, 40], freeze: { row: 3 }, filter: { row: 3 } }] });
-  download(`pieces-a-fournir-${st.arrete}.xlsx`, blob, blob.type);
+  const c = clientById(ui.fec.clientId);
+  const blob = XlsxWriter.build({ sheets: [piecesSheet(selectedPieces(), st, c)] });
+  // Nom de fichier sans accent ni caractère interdit : certains navigateurs remplacent sinon le nom par « download ».
+  const name = `Documents a fournir${c ? ` - ${c.nom}` : ''} - ${piecesLabel(st.mode, st.arrete)}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\//g, '-').replace(/[\\:*?"<>|]+|[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim();
+  download(`${name}.xlsx`, blob, blob.type);
+}
+
+// Largeur d'un texte en Calibri 11, en largeurs de chiffre (l'unité des colonnes Excel), d'après les chasses de la police.
+function charWidth(ch) {
+  const b = ch.normalize('NFD')[0];
+  if (/[0-9]/.test(b)) return 1;
+  if (/[fijlrt]/.test(b)) return 0.62;
+  if (/[mw]/.test(b)) return 1.5;
+  if (/[a-z]/.test(b)) return 0.95;
+  if (/[IJ]/.test(b)) return 0.6;
+  if (/[MW]/.test(b)) return 1.72;
+  if (/[A-Z]/.test(b)) return 1.1;
+  if (/[ \u00a0]/.test(b)) return 0.45;
+  if (/[—@%]/.test(b)) return 1.9;
+  if (/[€«»#&]/.test(b)) return 1;
+  return /[.,;:'!|]/.test(b) ? 0.5 : 0.8;
+}
+const textWidth = (t) => Array.from(t).reduce((w, ch) => w + charWidth(ch), 0);
+
+// Nombre de lignes d'un texte renvoyé à la ligne dans une colonne large de `width` chiffres.
+function wrapLines(text, width) {
+  return String(text).split('\n').reduce((n, para) => {
+    let lines = 1, len = 0;
+    para.split(' ').forEach((word) => {
+      const w = textWidth(word);
+      if (len && len + 0.45 + w > width) { lines++; len = 0; }
+      len += (len ? 0.45 : 0) + w;
+      while (len > width) { lines++; len -= width; }
+    });
+    return n + lines;
+  }, 0);
+}
+
+// Liste remise au client, présentée comme un document du cabinet : en-tête, explication, récapitulatif, puis une rubrique
+// par bandeau. Une ligne par document, sa date et son montant dans leurs colonnes (une ligne par opération quand la demande
+// en regroupe plusieurs), et deux colonnes à remplir : « Transmis » (menu Oui / Non / Sans objet, colorée) et commentaires.
+// À l'impression, un bandeau n'est jamais séparé de son premier document.
+function piecesSheet(items, st, c) {
+  const s = data.settings;
+  const W = [6, 62, 13, 15, 12, 36];
+  const PAGE = 500; // hauteur utile d'une page A4 paysage, en points (un peu moins que les 516 réels)
+  const rows = [], heights = {}, merges = [], fillRefs = [], breaks = [];
+  let used = 0;
+  const add = (row, h) => {
+    rows.push(row);
+    heights[rows.length - 1] = h;
+    used = used + h > PAGE ? h : used + h;
+    return rows.length;
+  };
+  // Saut de page avant les `h` points qui suivent s'ils ne tiennent plus sur la page.
+  const keep = (h) => { if (used && used + h > PAGE && h <= PAGE) { breaks.push(rows.length); used = 0; } };
+  const wide = (v, style, h) => { const n = add([{ v, s: style }].concat([1, 2, 3, 4, 5].map(() => ({ s: style }))), h); merges.push(`A${n}:F${n}`); };
+  const lineH = (n) => Math.max(20, n * 15 + 5);
+  const dp = st.mode === 'mois' ? `la comptabilité de ${moisNom(st.arrete)}` : `votre ${st.mode === 'bilan' ? 'bilan' : 'situation'} au ${fmtDate(st.arrete)}`;
+  const objet = st.mode === 'mois' ? `Comptabilité de ${moisNom(st.arrete)}` : `${st.mode === 'bilan' ? 'Bilan' : 'Situation'} au ${fmtDate(st.arrete)}`;
+  const m = c && missionsOf(c.id).find((x) => x.titre === `Demande de pièces — ${piecesLabel(st.mode, st.arrete)}` && isOpen(x));
+  const limit = m && m.echeance && m.echeance > todayStr() ? fmtDate(m.echeance) : '';
+
+  // En-tête
+  wide('Documents à nous transmettre', 13, 32);
+  wide(c ? `${c.nom} — ${objet}` : objet, 14, 22);
+  wide(`Liste établie le ${fmtDate(todayStr())}${s.cabinet ? ` par ${s.cabinet}` : ''}${limit ? ` · réponse souhaitée avant le ${limit}` : ''}`, 15, 18);
+  add([], 8);
+  const intro = `Afin d'établir ${dp}, merci de nous transmettre les documents ci-dessous. Vous pouvez les envoyer au fur et à mesure : indiquez « Oui » dans la colonne « Transmis » pour chaque document envoyé, ou « Sans objet » s'il n'existe pas, en le précisant en commentaire.`;
+  wide(intro, 16, lineH(wrapLines(intro, W.reduce((a, b) => a + b, 0) - 6)) + 8);
+
+  // Récapitulatif par rubrique
+  const groups = {};
+  items.forEach((i) => (groups[i.cat] = groups[i.cat] || []).push(i));
+  const cats = Object.keys(PIECES_CATS).filter((k) => groups[k]);
+  add([], 10);
+  keep(20 * (cats.length + 1));
+  add([{ s: 0 }, { v: 'Rubrique', s: 18 }, { v: 'Documents', s: 18 }], 20);
+  cats.forEach((k) => add([{ s: 0 }, { v: PIECES_CATS[k], s: 25 }, { v: groups[k].length, s: 26 }], 20));
+
+  // Une rubrique par bandeau, un document par ligne
+  let n = 0;
+  cats.forEach((k) => {
+    const q = k === 'questions';
+    const blocks = groups[k].map((it) => {
+      const all = it.ops || [];
+      const ops = all.slice(0, 30);
+      // Espaces insécables dans les guillemets : « et » ne restent jamais seuls en début de ligne.
+      const doc = (it.doc || it.text).replace(/« /g, '«\u00a0').replace(/ »/g, '\u00a0»') + (all.length > ops.length ? ` (${ops.length} premières opérations sur ${all.length})` : '');
+      const lines = Math.max(1, ops.length);
+      const h = Math.max(20, Math.ceil((wrapLines(doc, W[1] - 2) * 15 + 5) / lines));
+      return { it, ops, doc, lines, h };
+    });
+    add([], 14);
+    keep(24 + 22 + blocks[0].h * blocks[0].lines);
+    wide(`${PIECES_CATS[k].toUpperCase()}  ·  ${groups[k].length} ${q ? 'question' : 'document'}${groups[k].length > 1 ? 's' : ''}`, 17, 24);
+    add([{ v: 'N°', s: 18 }, { v: q ? 'Question' : 'Document demandé', s: 18 }, { v: 'Date', s: 18 }, { v: 'Montant', s: 18 }, { v: q ? 'Répondu' : 'Transmis', s: 18 }, { v: q ? 'Votre réponse' : 'Vos commentaires', s: 18 }], 22);
+    const first = rows.length + 1;
+    blocks.forEach(({ it, ops, doc, lines, h }) => {
+      n++;
+      if (lines > 1) keep(h * lines);
+      const r0 = rows.length + 1;
+      for (let j = 0; j < lines; j++) {
+        const op = ops[j];
+        const amt = op ? op.amt : !j && typeof it.total === 'number' ? it.total : null;
+        add([j ? { s: 20 } : { v: n, s: 20 }, j ? { s: 19 } : { v: doc, s: 19 },
+          op ? { v: XlsxWriter.serial(op.date), s: 21 } : { s: 21 }, amt === null ? { s: 22 } : { v: Math.round(amt * 100) / 100, s: 22 },
+          { s: 23 }, { s: 24 }], h);
+      }
+      if (lines > 1) merges.push(`A${r0}:A${r0 + lines - 1}`, `B${r0}:B${r0 + lines - 1}`);
+    });
+    fillRefs.push(`E${first}:E${rows.length}`);
+  });
+
+  // Pied de page
+  const sig = s.signature || [s.utilisateur, s.cabinet].filter(Boolean).join('\n');
+  const sigH = sig ? lineH(wrapLines(sig, 120)) : 0;
+  add([], 16);
+  keep(20 + sigH);
+  wide('Merci pour votre collaboration. Pour toute question, nous restons à votre disposition.', 27, 20);
+  if (sig) wide(sig, 27, sigH);
+
+  const ref = fillRefs.join(' ');
+  const amp = (x) => String(x || '').replace(/&/g, '&&');
+  return {
+    name: 'Documents à fournir', rows, widths: W, heights, merges, breaks, grid: false, filter: false,
+    lists: ref ? [{ ref, values: ['Oui', 'Non', 'Sans objet'] }] : [],
+    colors: ref ? [{ ref, equals: 'Oui', style: 0 }, { ref, equals: 'Non', style: 1 }, { ref, equals: 'Sans objet', style: 2 }] : [],
+    page: { landscape: true, footer: `&L${amp(s.cabinet)}&C${amp(c ? `${c.nom} — ${objet}` : objet)}&RPage &P / &N` },
+  };
 }
