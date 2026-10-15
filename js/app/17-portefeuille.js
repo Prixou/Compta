@@ -49,7 +49,7 @@ function batchSummary(it) {
     const props = ecrProposals(r).filter((p) => p.on);
     const moisArrete = defaultArrete(r, 'mois');
     return {
-      moisArrete, moisPieces: computePieces(r, 'mois', moisArrete).length,
+      moisArrete, moisPieces: piecesCount(r, 'mois', moisArrete),
       errors, warnings, left, total: Object.values(left).reduce((s, v) => s + v, 0), pieces, mode,
       ecr: props.length, impact: props.reduce((s, p) => s + ecrImpact(p.lines), 0),
       ca: r.kpi.ca, resultat: r.kpi.resultat, treso: r.kpi.tresorerie,
@@ -134,7 +134,7 @@ function viewBatch() {
     </div>
     <section class="card"><div class="card-head"><h2>Dossiers par charge de révision</h2>
       ${!b.running && linked.length ? `<button class="btn small" data-action="batch-save">Enregistrer les synthèses dans les dossiers (${linked.length})</button>` : ''}</div>
-      <div class="grid-wrap"><table class="dtable num batch"><thead><tr><th>Dossier</th><th>Travail</th><th>Anomalies</th><th>À traiter</th><th>Détail par cycle</th><th>Pièces</th><th title="Pièces manquantes de l'exercice jusqu'à la fin du mois indiqué (espace Mois)">Pièces cumulées</th><th>Écritures</th><th>Impact résultat</th><th>CA</th><th>Résultat</th><th></th></tr></thead>
+      <div class="grid-wrap"><table class="dtable num batch"><thead><tr><th>Dossier</th><th>Travail</th><th>Anomalies</th><th>À traiter</th><th>Détail par cycle</th><th>Pièces</th><th title="Gestion courante : pièces manquantes depuis le début de l'exercice jusqu'à la fin du dernier mois saisi">Pièces manquantes</th><th>Écritures</th><th>Impact résultat</th><th>CA</th><th>Résultat</th><th></th></tr></thead>
       <tbody>${items.map((x) => x.error ? `<tr><td>${esc(x.fileName)}</td><td colspan="10" class="late">${esc(x.error)}</td><td></td></tr>` : `<tr>
         <td>${name(x)}</td><td>${x.sum.mode === 'situation' ? 'Situation' : 'Bilan'}${x.profile === 'pharmacie' ? ' · officine' : ''}</td>
         <td class="${x.sum.errors ? 'late' : ''}">${x.sum.errors}</td><td>${x.sum.total}</td><td class="small">${cyc(x) || '—'}</td><td>${x.sum.pieces}</td><td>${x.sum.moisPieces ? `<button class="link-btn" data-action="batch-open" data-i="${x.i}" data-mois="1" title="Ouvrir la demande de pièces mensuelle">${x.sum.moisPieces} · ${esc(MOIS_COURTS[Number(x.sum.moisArrete.slice(5, 7)) - 1])}</button>` : '—'}</td><td>${x.sum.ecr}</td>
@@ -147,7 +147,7 @@ function viewBatch() {
 function batchExport() {
   const t = (v, s) => ({ v, s: s === undefined ? 2 : s });
   const n = (v, s) => ({ v: Number(v) || 0, s: s || 8 });
-  const rows = [['Dossier', 'Fichier', 'Travail', 'Profil', 'Anomalies', 'Points à traiter', 'Achats', 'Charges externes', 'Clients', 'Trésorerie', 'Généraux', 'Pièces à demander', 'Pièces cumulées (mensuel)', 'Écritures proposées', 'Impact résultat', 'CA', 'Résultat', 'Trésorerie fin'].map((c) => t(c, 1))]
+  const rows = [['Dossier', 'Fichier', 'Travail', 'Profil', 'Anomalies', 'Points à traiter', 'Achats', 'Charges externes', 'Clients', 'Trésorerie', 'Généraux', 'Pièces à demander', 'Pièces manquantes (fin de mois)', 'Écritures proposées', 'Impact résultat', 'CA', 'Résultat', 'Trésorerie fin'].map((c) => t(c, 1))]
     .concat(batchItems().filter((x) => x.sum).map((x) => {
       const c = clientById(x.st.clientId);
       return [t(c ? clientLabel(c) : ''), t(x.fileName), t(x.sum.mode === 'situation' ? 'Situation' : 'Bilan'), t(x.profile === 'pharmacie' ? 'Pharmacie' : 'Classique'),

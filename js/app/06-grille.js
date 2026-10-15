@@ -252,17 +252,20 @@ function openGrillePop(td, m, focusI) {
   pop.setAttribute('aria-label', `Étapes — ${m.titre}`);
   pop.dataset.id = m.id;
   const n = m.etapes.length, nd = m.etapes.filter((e) => e.done).length;
-  // Demande de pièces mensuelle en cours (issue de l'analyse FEC, cumulative depuis le début de l'exercice) qui couvre ce mois.
+  // Demande de pièces mensuelle en cours (issue de l'analyse FEC, cumulative depuis le début de l'exercice) qui couvre ce
+  // mois : pièces encore attendues jusqu'à la fin du mois.
   const per = (m.exercice || '').match(/^(\d{2})\/(\d{4})$/);
-  const req = per && missionsOf(m.clientId).find((x) => isOpen(x) && x.demandePieces && x.demandePieces.mode === 'mois' && x.demandePieces.arrete.slice(0, 7) >= `${per[2]}-${per[1]}`);
-  const reqLeft = req ? req.etapes.filter((e) => !e.done).length : 0;
+  const pym = per ? `${per[2]}-${per[1]}` : '';
+  const req = per && missionsOf(m.clientId).find((x) => isOpen(x) && x.demandePieces && x.demandePieces.mode === 'mois'
+    && ymOf(x.demandePieces.from || x.demandePieces.arrete) <= pym && ymOf(x.demandePieces.arrete) >= pym);
+  const reqLeft = req ? req.etapes.filter((e) => !e.done && stepYm(req, e) <= pym).length : 0;
   pop.innerHTML = `<div class="gp-head"><div><strong>${esc(c ? clientLabel(c) : '')}</strong><span class="muted small">${esc(m.titre)}${m.echeance ? ` · échéance ${fmtDate(m.echeance)}` : ''}</span>
       <span class="gp-state ${isOpen(m) ? '' : 'ok'}">${isOpen(m) ? `${nd} / ${n} étape(s) faite(s)` : 'Terminée'}</span></div>
       <button class="icon-btn gp-close" data-action="grille-pop-close" title="Fermer (Échap)" aria-label="Fermer">✕</button></div>
     ${m.etapes.length ? `<ol class="gp-steps">${m.etapes.map((e, i) => { const [ga, gb] = stepGroup(m.etapes, i); return `<li class="${ga !== gb ? 'gp-par' : ''}"><button class="${e.done ? 'done' : ''}${i + 1 === k ? ' current' : ''}" data-action="grille-step" data-id="${m.id}" data-i="${i}" aria-pressed="${e.done}"><span aria-hidden="true">${e.done ? '✓' : i + 1}</span>${esc(e.label)}</button></li>`; }).join('')}</ol>
       <p class="muted small">Un clic coche l'étape et celles qui la précèdent ; un second clic la décoche. Banque, ventes et achats (repère bleu) se cochent indépendamment, dans l'ordre où vous les faites ; « Banque affectée » coche aussi « Banque importée ». La dernière étape termine la mission. La fenêtre reste ouverte : fermez-la avec ✕, Échap ou un clic à côté.</p>`
       : `<div class="gp-foot"><button class="btn small primary" data-action="grille-step" data-id="${m.id}" data-i="all">Marquer terminée</button></div>`}
-    ${req ? `<p class="gp-req small">Demande de pièces en cours : <strong>${reqLeft} pièce(s) attendue(s)</strong>${lastRelance(req) ? `, demandée(s) le ${fmtDate(lastRelance(req).slice(0, 10))}` : ''}. <button class="link-btn" data-action="open-mission" data-id="${req.id}">Voir la demande</button></p>` : ''}
+    ${req ? `<p class="gp-req small">Demande de pièces en cours : <strong>${reqLeft} pièce(s) attendue(s) jusqu'à fin ${esc(moisNom(pym + '-01'))}</strong>${lastRelance(req) ? `, demandée(s) le ${fmtDate(lastRelance(req).slice(0, 10))}` : ''}. <button class="link-btn" data-action="open-mission" data-id="${req.id}">Voir la demande</button></p>` : ''}
     ${tvaAmountField(m)}
     <div class="gp-foot">
       <button class="btn small" data-action="grille-step" data-id="${m.id}" data-i="-1">Remettre à faire</button>

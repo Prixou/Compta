@@ -40,8 +40,8 @@ function buildMessage(c, missions, modele) {
   const signature = s.signature || [s.utilisateur, s.cabinet].filter(Boolean).join('\n');
   const titres = missions.map((m) => `« ${m.titre} »`).join(', ');
   const nextDue = missions.map((m) => m.echeance).filter(Boolean).sort()[0];
-  const demande = missions.find((m) => m.demandePieces);
-  if (demande) return buildPiecesMessage(c, demande, modele, salut, signature);
+  const demandes = missions.filter((m) => m.demandePieces);
+  if (demandes.length) return buildPiecesMessage(c, demandes, modele, salut, signature);
   const pieces = [];
   missions.forEach((m) => piecesManquantes(m).forEach((p) => {
     const line = missions.length > 1 ? `${p} (${m.titre})` : p;
@@ -87,36 +87,56 @@ function buildMessage(c, missions, modele) {
   return { subject, body: body.join('\n') };
 }
 
-// Message d'une demande de pièces issue du FEC : éléments non encore reçus, groupés par catégorie.
-function buildPiecesMessage(c, m, modele, salut, signature) {
-  const objet = m.demandePieces.mode === 'mois' ? `la comptabilité jusqu'au ${fmtDate(m.demandePieces.arrete)}` : `${m.demandePieces.mode === 'bilan' ? 'votre bilan' : 'votre situation'} au ${fmtDate(m.demandePieces.arrete)}`;
-  const groups = {};
-  m.etapes.filter((e) => !e.done).forEach((e) => (groups[e.cat || 'Autres'] = groups[e.cat || 'Autres'] || []).push(e.label));
-  const list = Object.entries(groups).map(([cat, l]) => `${cat} :\n${l.map((x) => `- ${x}`).join('\n')}`).join('\n\n');
-  const limit = m.echeance && m.echeance > todayStr() ? fmtDate(m.echeance) : null;
-  const last = lastRelance(m);
-  const body = modele === 'relance'
-    ? [salut, '', `Sauf erreur de notre part, il nous manque encore les éléments suivants${last ? `, demandés le ${fmtDate(last.slice(0, 10))},` : ''} pour établir ${objet} :`, '', list, '',
+// Message des demandes de pièces issues du FEC : pièces non encore reçues, groupées par rubrique. Demande : les pièces
+// ajoutées depuis le dernier envoi, puis « Pour rappel » celles déjà demandées ; relance : toutes, en une liste.
+function buildPiecesMessage(c, demandes, modele, salut, signature) {
+  const main = demandes.filter((m) => m.demandePieces.mode === 'mois').sort((a, b) => b.demandePieces.arrete.localeCompare(a.demandePieces.arrete))[0] || demandes[0];
+  const but = piecesBut(main.demandePieces);
+  const order = Object.values(PIECES_CATS);
+  const steps = [];
+  const seen = new Set();
+  demandes.forEach((m) => m.etapes.filter((e) => !e.done).forEach((e) => {
+    if (seen.has(e.label)) return;
+    seen.add(e.label);
+    steps.push({ m, e, sent: (m.relances || []).some((t) => t >= (e.at || m.createdAt || '')) });
+  }));
+  const list = (l) => {
+    const groups = {};
+    l.forEach(({ e }) => (groups[e.cat || 'Autres'] = groups[e.cat || 'Autres'] || []).push(e.label));
+    const rank = (k) => (order.includes(k) ? order.indexOf(k) : k === 'Opérations à identifier' ? order.indexOf(PIECES_CATS.divers) : order.length);
+    return Object.keys(groups).sort((a, b) => rank(a) - rank(b)).map((cat) => `${cat} :\n${groups[cat].map((x) => `- ${x}`).join('\n')}`).join('\n\n');
+  };
+  const fresh = steps.filter((x) => !x.sent), old = steps.filter((x) => x.sent);
+  const relance = modele === 'relance' || !fresh.length;
+  const limit = main.echeance && main.echeance > todayStr() ? fmtDate(main.echeance) : null;
+  // Une seule demande de situation ou de bilan : date de la demande rappelée
+  const last = demandes.length === 1 && main.demandePieces.mode !== 'mois' ? lastRelance(main) : null;
+  const body = relance
+    ? [salut, '', `Sauf erreur de notre part, il nous manque encore les éléments suivants${last ? `, demandés le ${fmtDate(last.slice(0, 10))},` : ''} pour ${but} :`, '', list(steps), '',
       'Merci de nous les transmettre dans les meilleurs délais afin que nous puissions finaliser nos travaux.', '', 'Cordialement,', signature]
-    : [salut, '', `Afin d'établir ${objet}, nous avons besoin des éléments suivants :`, '', list, '',
+    : [salut, '', `${afinDe(but)}, nous avons besoin des éléments suivants :`, '', list(fresh), '',
+      ...(old.length ? ['Pour rappel, nous restons dans l\'attente des éléments suivants, déjà demandés :', '', list(old), ''] : []),
       limit ? `Nous vous remercions de nous les transmettre avant le ${limit}. Vous pouvez nous les envoyer au fur et à mesure.` : 'Nous vous remercions de nous les transmettre dès que possible.',
       '', 'Pour les questions, une réponse rapide par retour de mail nous suffit.', '', 'Nous restons à votre disposition.', '', 'Cordialement,', signature];
   return {
-    subject: `${c.nom} — ${modele === 'relance' ? 'relance : ' : ''}pièces nécessaires pour ${objet}`,
+    subject: `${c.nom} — ${relance ? 'relance : ' : ''}pièces nécessaires pour ${but.replace(/^(mettre à jour|établir) /, '')}`,
     body: body.join('\n'),
   };
 }
 
-function openMessage(clientId, missionId) {
+// `modele` : imposé par l'appelant (demande de pièces : « pieces » si elle vient d'être complétée, sinon « relance »).
+function openMessage(clientId, missionId, modele) {
   const c = clientById(clientId);
   if (!c) return;
   const open = missionsOf(c.id).filter(isOpen).sort(byDue);
   let selected = missionId ? [missionId] : open.filter((m) => m.statut === 'attente_client').map((m) => m.id);
   if (!selected.length && open.length) selected = [open[0].id];
   const first = missionById(selected[0]);
+  // Demande de pièces : les autres demandes ouvertes du dossier qui attendent des pièces partent dans le même message.
+  if (first && first.demandePieces) open.filter((m) => m.demandePieces && m.etapes.some((e) => !e.done)).forEach((m) => { if (!selected.includes(m.id)) selected.push(m.id); });
   ui.msg = {
     clientId, selected: new Set(selected),
-    modele: first && first.statut === 'attente_client' && lastRelance(first) ? 'relance' : first && first.statut === 'a_valider' ? 'validation' : 'pieces',
+    modele: modele || (first && first.statut === 'attente_client' && lastRelance(first) ? 'relance' : first && first.statut === 'a_valider' ? 'validation' : 'pieces'),
   };
   renderMessage();
 }

@@ -12,7 +12,7 @@ const COLS = ['JournalCode', 'JournalLib', 'EcritureNum', 'EcritureDate', 'Compt
 const COLS_BNC = ['DateRglt', 'ModeRglt', 'NatOp', 'IdClient'];
 const REQUIRED = ['JournalCode', 'JournalLib', 'EcritureNum', 'EcritureDate', 'CompteNum', 'CompteLib', 'PieceRef', 'PieceDate', 'EcritureLib', 'ValidDate'];
 const MAX_EXAMPLES = 8;
-const MAX_ATTENTE = 5000; // lignes des comptes d'attente transmises à l'application (demande de pièces sur tout l'exercice)
+const MAX_ATTENTE = 3000; // lignes ouvertes des comptes d'attente transmises à l'application (les plus récentes)
 
 self.onmessage = (e) => {
   try {
@@ -415,8 +415,8 @@ function analyse(buffer, fileName, until, docs) {
         sp.months[ym] = (sp.months[ym] || 0) + c;
       }
       if (compte.startsWith('641') && d > 0) payroll[ym] = (payroll[ym] || 0) + d;
-      if (/^47[1-8]/.test(compte) && attenteLines.length < MAX_ATTENTE) attenteLines.push({ date, compte, lib: elib, d, c, lettre: !!g('EcritureLet'), ek: oek });
-      if (/^2[0-7]/.test(compte) && d > 0 && immoLines.length < 300) immoLines.push({ date, compte, clib, lib: elib, montant: d });
+      if (/^47[1-8]/.test(compte)) attenteLines.push({ date, compte, lib: elib, d, c, lettre: !!g('EcritureLet'), ek: oek });
+      if (/^2[0-7]/.test(compte) && d > 0) immoLines.push({ date, compte, clib, lib: elib, montant: d });
       if (compte.startsWith('455') && ccaLines.length < 300) ccaLines.push({ date, lib: elib, d, c });
       if (compte[0] === '6' && d > 0) chargeLines.push([oek, compte, clib, elib, d, date]);
       // Séparation des exercices : pièce datée hors de l'exercice
@@ -505,6 +505,7 @@ function analyse(buffer, fileName, until, docs) {
     parts.forEach(([k, p]) => {
       if (p.l) merged.l.push(...p.l);
       ['has5', 'has4', 'att', 'piece', 'gift', 'lib41'].forEach((f) => { if (p[f] && !merged[f]) merged[f] = p[f]; });
+      if (p.p5) merged.p5 = (merged.p5 || 0) + p.p5;
       if (p.lt) merged.lt = (merged.lt || []).concat(p.lt);
       remap.set(k, h);
     });
@@ -689,6 +690,7 @@ function analyse(buffer, fileName, until, docs) {
   // Règlements fournisseurs et encaissements clients non affectés à une facture : lignes non lettrées (si le compte
   // est lettré), rapprochement montant pour montant, puis imputation sur les factures restantes ; les règlements
   // les plus récents qui restent sans facture sont listés un par un (date, montant, libellé).
+  const trunc = {}; // listes plafonnées : date du plus ancien élément conservé (les plus récents d'abord), sinon ''
   const unmatched = [];
   aux.forEach((t) => {
     if (t.racine !== '401' && t.racine !== '411') return;
@@ -732,10 +734,11 @@ function analyse(buffer, fileName, until, docs) {
         v.rest -= take;
         a -= take;
       }
-      if (a >= 0.01 && unmatched.length < 5000) unmatched.push({ racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(a), label: String(pm.lib || '').slice(0, 60) });
+      // amt : part non couverte par une facture ; brut : montant du paiement
+      if (a >= 0.01) unmatched.push({ racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(a), brut: round2(-pm.amt), label: String(pm.lib || '').slice(0, 60) });
     });
   });
-  unmatched.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  trunc.unm = keepRecent(unmatched, 5000);
 
   // Balance âgée des tiers (411 clients, 401 fournisseurs) : pièces non soldées et leur date.
   // Avec lettrage dans le FEC : lignes non lettrées. Sinon : règlements imputés sur les factures les plus anciennes (FIFO).
@@ -815,7 +818,7 @@ function analyse(buffer, fileName, until, docs) {
   chargeLines.forEach(([ek, compte, clib, elib, amt, date]) => {
     const en = opEntries.get(remap.get(ek) || ek);
     if (!en || !en.has5 || en.has4 || /^(627|6[3-9]|64|658|66|67|68|69)/.test(compte)) return;
-    if (directLines.length < 5000) directLines.push([date, compte, clib, elib, round2(amt)]);
+    directLines.push([date, compte, clib, elib, round2(amt), round2(Math.abs(en.p5 || amt))]); // bq : montant payé en banque (TTC)
     const key = compte + '|' + labelKey(elib);
     let gr = direct.get(key);
     if (!gr) direct.set(key, (gr = { compte, clib, label: elib, count: 0, total: 0, months: {}, first: date, last: date }));
@@ -825,9 +828,15 @@ function analyse(buffer, fileName, until, docs) {
     if (date < gr.first) gr.first = date;
     if (date > gr.last) { gr.last = date; gr.label = elib; }
   });
+  trunc.dir = keepRecent(directLines, 5000, (x) => x[0]);
+  trunc.immo = keepRecent(immoLines, 2000);
+  trunc.enc = keepRecent(cycles.clients.directSales, 5000, (x) => x[0]);
   const soldeOf = (compte) => { const x = accounts.get(compte); return x ? round2(x.d - x.c) : 0; };
   const labelIdx = buildLabelIndex(opEntries, accounts, auxNames);
   const invIdx = buildInvIndex(opEntries, auxNames, aux);
+  // Comptes d'attente : lignes encore ouvertes, les plus récentes
+  const attOpen = settleAttente(attenteLines, accounts, opEntries, remap);
+  trunc.att = keepRecent(attOpen, MAX_ATTENTE);
   const pieces = {
     minOp: minOp === '9999' ? null : minOp,
     maxOp: maxOp === '0000' ? null : maxOp,
@@ -835,9 +844,11 @@ function analyse(buffer, fileName, until, docs) {
     suppliers: Array.from(supInv.values()).filter((x) => Object.keys(x.months).length >= 3)
       .map((x) => ({ num: x.num, lib: x.lib, months: Object.fromEntries(Object.entries(x.months).map(([k, v]) => [k, round2(v)])) })),
     payroll,
-    // bank : ligne d'une écriture de banque ou de caisse (opération à justifier) ; sinon OD, reclassement ou facture.
-    attente: attenteLines.map(({ ek, ...l }) => ({ ...l, bank: !!(opEntries.get(remap.get(ek) || ek) || {}).has5, soldeCompte: soldeOf(l.compte), sug: invSug(invIdx, l.lib, l.c > 0) || labelIdx[labelKey(l.lib)] || null })),
-    attenteMax: attenteLines.length >= MAX_ATTENTE,
+    // bank : ligne d'une écriture de banque ou de caisse (opération à justifier) ; sinon OD ou facture passée en attente.
+    attente: attOpen.map((l) => ({ date: l.date, compte: l.compte, lib: l.lib, d: l.d, c: l.c, lettre: l.lettre, bank: l.bank, soldeCompte: soldeOf(l.compte),
+      sug: invSug(invIdx, l.lib, l.c > 0) || labelIdx[labelKey(l.lib)] || null })),
+    attenteMax: !!trunc.att,
+    trunc,
     immo: immoLines,
     cca: ccaLines,
     direct: Array.from(direct.values()).filter((x) => x.total >= 30).sort((a, b) => b.total - a.total).slice(0, 120)
@@ -893,6 +904,101 @@ function analyse(buffer, fileName, until, docs) {
       totalBilan: totalActif,
     },
   };
+}
+
+// Liste plafonnée : triée par date, seuls les `max` éléments les plus récents sont gardés.
+// Renvoie la date du plus ancien élément gardé si des éléments ont été écartés, sinon ''.
+function keepRecent(list, max, dateOf = (x) => x.date) {
+  list.sort((a, b) => (dateOf(a) < dateOf(b) ? -1 : dateOf(a) > dateOf(b) ? 1 : 0));
+  if (list.length <= max) return '';
+  list.splice(0, list.length - max);
+  return dateOf(list[0]);
+}
+
+// ---------- Comptes d'attente : lignes soldées et lignes encore ouvertes ----------
+
+// Règles appliquées compte par compte, dans cet ordre (montants comparés au centime) :
+// 1. compte soldé à la fin du fichier, à-nouveau compris : toutes ses lignes sont soldées ;
+// 2. ligne lettrée (ou de montant nul) : soldée ;
+// 3. OD (écriture sans compte 51 ni 53) et opération de banque de montant opposé : rapprochées une à une, la plus proche
+//    en date, de préférence datée au plus tard le jour de l'OD ; à défaut, une OD opposée au solde d'à-nouveau le solde ;
+// 4. OD et opérations de banque de sens opposé du mois de l'OD, datées au plus tard de l'OD, de somme nulle : soldées
+//    ensemble ; sinon même essai avec le mois précédent (seul, puis avec le mois de l'OD) ;
+// 5. solde progressif (à-nouveau, puis jour par jour) nul à une date, avec au moins une OD ou une ligne lettrée depuis le
+//    solde nul précédent : toutes les lignes datées jusqu'à ce jour sont soldées.
+// Deux opérations de banque ne sont jamais rapprochées entre elles. Renvoie les lignes ouvertes (bank renseigné).
+function settleAttente(lines, accounts, opEntries, remap) {
+  const byAcc = new Map();
+  lines.forEach((l) => {
+    l.bank = !!(opEntries.get(remap.get(l.ek) || l.ek) || {}).has5;
+    l.ct = Math.round((l.d - l.c) * 100);
+    l.ok = l.lettre || !l.ct;
+    (byAcc.get(l.compte) || byAcc.set(l.compte, []).get(l.compte)).push(l);
+  });
+  const open = [];
+  const byDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  byAcc.forEach((list, compte) => {
+    const a = accounts.get(compte);
+    if (!a || Math.round((a.d - a.c) * 100) === 0) return;
+    list.sort(byDate);
+    const an0 = Math.round((a.dAN - a.cAN) * 100);
+    // 3. Rapprochement un pour un (opérations de banque indexées par montant, dans l'ordre des dates)
+    const banks = new Map();
+    list.forEach((l) => { if (l.bank && !l.ok) (banks.get(l.ct) || banks.set(l.ct, []).get(l.ct)).push(l); });
+    let an = an0;
+    list.forEach((od) => {
+      if (od.bank || od.ok) return;
+      const cand = banks.get(-od.ct);
+      let before = null, after = null;
+      if (cand) {
+        let lo = 0, hi = cand.length;
+        while (lo < hi) { const m = (lo + hi) >> 1; if (cand[m].date <= od.date) lo = m + 1; else hi = m; }
+        for (let i = lo - 1; i >= 0 && !before; i--) if (!cand[i].ok) before = cand[i];
+        for (let i = lo; i < cand.length && !after; i++) if (!cand[i].ok) after = cand[i];
+      }
+      const bk = before || (an && od.ct === -an ? null : after);
+      if (bk) bk.ok = od.ok = true;
+      else if (an && od.ct === -an) { od.ok = true; an = 0; }
+    });
+    // 4. Solde du mois : OD et opérations de banque de sens opposé
+    const byMonth = new Map();
+    list.forEach((l) => { if (l.bank && !l.ok) { const ym = l.date.slice(0, 7); (byMonth.get(ym) || byMonth.set(ym, []).get(ym)).push(l); } });
+    const pick = (od, ym, upTo) => {
+      const out = [];
+      let s = 0;
+      for (const b of byMonth.get(ym) || []) {
+        if (b.date > upTo) break;
+        if (!b.ok && (b.ct > 0) !== (od.ct > 0)) { s += b.ct; out.push(b); }
+      }
+      return { s, out };
+    };
+    const settle = (od, ...groups) => { od.ok = true; groups.forEach((g) => g.out.forEach((b) => { b.ok = true; })); };
+    if (byMonth.size) list.forEach((od) => {
+      if (od.bank || od.ok) return;
+      const ym = od.date.slice(0, 7);
+      const y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+      const prev = m > 1 ? `${y}-${pad(m - 1)}` : `${y - 1}-12`;
+      const cur = pick(od, ym, od.date);
+      if (cur.out.length && od.ct + cur.s === 0) return settle(od, cur);
+      const pr = pick(od, prev, '9999');
+      if (pr.out.length && od.ct + pr.s === 0) return settle(od, pr);
+      if (pr.out.length && cur.out.length && od.ct + pr.s + cur.s === 0) settle(od, pr, cur);
+    });
+    // 5. Solde progressif du compte, les lignes d'un même jour ensemble
+    let bal = an0, mark = false, done = 0;
+    for (let i = 0; i < list.length;) {
+      const day = list[i].date;
+      for (; i < list.length && list[i].date === day; i++) {
+        bal += list[i].ct;
+        if (!list[i].bank || list[i].lettre) mark = true;
+      }
+      if (bal) continue;
+      if (mark) for (; done < i; done++) list[done].ok = true;
+      mark = false;
+    }
+    list.forEach((l) => { if (!l.ok) open.push(l); });
+  });
+  return open;
 }
 
 // ---------- Cycles de révision : achats, charges externes, clients, trésorerie ----------
@@ -1071,7 +1177,7 @@ function buildCycles(x) {
     } else if (cliNet < -0.005 && tr > 0.005) {
       const a = agg(custs, cliKey);
       a.pay++; a.payAmt -= cliNet;
-    } else if (hasTr && tr > 0.005 && ven > 0.005 && Math.abs(cliNet) < 0.005 && directSales.length < 5000) {
+    } else if (hasTr && tr > 0.005 && ven > 0.005 && Math.abs(cliNet) < 0.005) {
       directSales.push([date, round2(tr), (en.lib || '').slice(0, 60)]); // encaissement comptabilisé en vente sans compte client
     }
 

@@ -85,9 +85,16 @@ function saisieChecks(r, ym) {
   const o = checksList();
   const p = r.pieces;
   if (p) {
-    const att = attenteOuvertes(p, `${ym}-01`, endOfMonth(`${ym}-01`));
+    // Lignes encore ouvertes (le moteur écarte les lignes lettrées, reclassées ou d'un compte soldé)
+    const ouv = p.attente || [];
+    const att = ouv.filter((l) => inMonth(l.date, ym));
+    const avant = ouv.filter((l) => l.date < `${ym}-01`).length;
+    const nBq = att.filter((l) => l.bank && !(l.sug && l.sug[7])).length;
     const nSug = att.filter((l) => l.sug).length;
-    if (att.length) o.add('warn', "Opérations restées en compte d'attente", `${att.length} ligne(s) du mois sur les comptes 471 à 478, non lettrées : à identifier (question au client dans « Pièces à demander ») puis à reclasser.${nSug ? ` ${nSug} affectation(s) suggérée(s) d'après les opérations au même libellé déjà affectées dans le FEC ou le n° de facture cité dans le libellé ; l'écriture de reclassement est proposée dans Révision → Écritures.` : ''}`, att.map(attenteEx), { full: !p.attenteMax });
+    // Au-delà de 3 000 lignes ouvertes, seules les plus récentes sont transmises
+    const cut = p.trunc && p.trunc.att;
+    if (att.length) o.add('warn', "Opérations restées en compte d'attente", `${att.length} ligne(s) du mois sur les comptes 471 à 478 encore ouvertes (ni lettrées, ni reclassées), dont ${nBq} opération(s) de banque ou de caisse reprises dans « Pièces manquantes » : à identifier puis à reclasser.${avant ? ` ${avant} autre(s) ligne(s) des mois précédents de l'exercice toujours ouverte(s).` : ''}${nSug ? ` ${nSug} affectation(s) suggérée(s) d'après les opérations au même libellé déjà affectées dans le FEC ou le n° de facture cité dans le libellé ; l'écriture de reclassement est proposée dans Révision → Écritures.` : ''}`, att.map(attenteEx), { full: !cut || ym > cut.slice(0, 7) });
+    else if (cut && ym <= cut.slice(0, 7)) o.add('info', "Comptes d'attente", `Plus de 3 000 lignes encore ouvertes sur les comptes 471 à 478 : seules celles depuis le ${fmtDate(cut)} sont détaillées.`);
     else o.add('ok', "Comptes d'attente", "Aucune opération du mois restée en compte d'attente.");
     // Solde de chaque compte de tiers à la fin du mois (à-nouveau compris)
     const end = (t) => round2(Object.keys(t.m).reduce((s, m) => (m <= ym ? s + t.m[m][0] - t.m[m][1] : s), t.an));

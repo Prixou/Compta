@@ -178,13 +178,18 @@ function ecrProposals(r) {
     });
   }));
 
-  // 7. Affectation des opérations restées en compte d'attente, d'après les opérations au même libellé déjà affectées
-  (r.pieces.attente || []).filter((l) => l.sug && !l.lettre && Math.abs(l.soldeCompte) >= 0.01).forEach((l, i) => {
+  // 7. Affectation des opérations restées en compte d'attente (lignes ouvertes), d'après les opérations au même libellé déjà affectées
+  const attIds = new Map();
+  (r.pieces.attente || []).filter((l) => l.sug).forEach((l) => {
     const [compte, aux, lib, n, nLet] = l.sug;
     const amt = l.d || l.c;
+    // Identifiant stable : compte, date, montant et libellé de la ligne
+    const base = `att:${l.compte}|${l.date}|${(l.d - l.c).toFixed(2)}|${norm(l.lib).replace(/\s+/g, ' ').trim().slice(0, 40)}`;
+    const k = attIds.get(base) || 0;
+    attIds.set(base, k + 1);
     add({
       src: { cycle: `saisie-${l.date.slice(0, 7)}`, check: "Opérations restées en compte d'attente", ex: attenteEx(l) },
-      id: `att:${l.compte}:${l.date}:${i}`, group: "Affectation des opérations en compte d'attente", extournable: false, editable: false, amount: amt,
+      id: k ? `${base}#${k}` : base, group: "Affectation des opérations en compte d'attente", extournable: false, editable: false, amount: amt,
       label: `« ${l.lib} » du ${dt(l.date)} vers ${compte}${aux ? ' ' + aux : ''} ${lib}`,
       why: l.sug[7] ? `Le libellé cite la facture ${l.sug[7]} de ${lib} : règlement à lettrer avec la facture. À confirmer avant import.`
         : `Même libellé déjà affecté ${n} fois à ${compte}${aux ? ' ' + aux : ''} ${lib}${nLet ? `, dont ${nLet} lettrée(s)` : ''}. À confirmer avant import.`,

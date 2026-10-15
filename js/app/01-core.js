@@ -481,16 +481,26 @@ function autoStep(clientId, types, periods, re, why) {
   return `${m.titre} : « ${e.label} » cochée`;
 }
 
-// Demande de pièces entièrement reçue : étape « Pièces reçues » de la mission du mois (TVA, saisie), de la situation ou du bilan.
+// Demande de pièces reçue : étape « Pièces reçues » de la situation ou du bilan quand toute la demande est reçue. Demande
+// mensuelle (unique et cumulative pour l'exercice) : mois par mois, étape des missions du mois (TVA, saisie) dès que toutes
+// les pièces rattachées à ce mois et aux mois précédents sont reçues.
 function piecesReceived(m) {
   const dp = m.demandePieces;
   const year = (dp.arrete || '').slice(0, 4);
-  const why = `toutes les pièces de « ${m.titre} » sont reçues`;
-  let done = '';
-  if (dp.mode === 'mois') done = autoStep(m.clientId, ['tva', 'saisie'], [`${dp.arrete.slice(5, 7)}/${year}`], /^pi[eè]ces/i, why);
-  else if (dp.mode === 'situation') done = autoStep(m.clientId, ['situation'], [year, ''], /^pi[eè]ces/i, why);
-  else done = autoStep(m.clientId, ['bilan'], [year], /^pi[eè]ces/i, why);
-  if (done) toast(`Pièces reçues — ${done}.`);
+  let done = [];
+  if (dp.mode === 'mois') {
+    const last = ymOf(dp.arrete);
+    monthsBetween(ymOf(dp.from || dp.arrete), last).forEach((ym) => {
+      const has = m.etapes.some((e) => stepYm(m, e) === ym) || (ym === last && m.statut === 'termine');
+      if (!has || !m.etapes.filter((e) => stepYm(m, e) <= ym).every((e) => e.done)) return;
+      const x = autoStep(m.clientId, ['tva', 'saisie'], [`${ym.slice(5, 7)}/${ym.slice(0, 4)}`], /^pi[eè]ces/i, `toutes les pièces demandées jusqu'à fin ${moisNom(ym + '-01')} sont reçues`);
+      if (x) done.push(x);
+    });
+  } else {
+    const why = `toutes les pièces de « ${m.titre} » sont reçues`;
+    done = [dp.mode === 'situation' ? autoStep(m.clientId, ['situation'], [year, ''], /^pi[eè]ces/i, why) : autoStep(m.clientId, ['bilan'], [year], /^pi[eè]ces/i, why)].filter(Boolean);
+  }
+  if (done.length) toast(`Pièces reçues — ${done.join(' ; ')}.`);
 }
 
 function createNextOccurrence(m) {
@@ -525,11 +535,15 @@ function toggleStep(m, stepId, done) {
   if (!step) return;
   step.done = done;
   step.doneAt = done ? nowIso() : null;
+  // Coche automatique annulée à la main : l'étape ne sera plus cochée automatiquement.
+  if (!done && step.auto) step.noAuto = true;
   delete step.auto;
   const all = m.etapes.every((e) => e.done);
   if (all && m.statut !== 'termine') setStatus(m, 'termine');
   else if (!all && m.statut === 'termine') setStatus(m, 'en_cours');
   else if (done && m.statut === 'a_faire') setStatus(m, 'en_cours');
+  // Demande mensuelle : les mois dont toutes les pièces sont reçues sont cochés sans attendre la fin de la demande.
+  if (done && !all && m.demandePieces && m.demandePieces.mode === 'mois') piecesReceived(m);
   m.updatedAt = nowIso();
   persist();
 }

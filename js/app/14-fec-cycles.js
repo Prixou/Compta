@@ -502,26 +502,26 @@ function justifCard(r) {
   </section>`;
 }
 
-// Écritures sans justificatif sur la période, regroupées par tiers.
-// `keep(clé)` : faux pour une écriture dont la pièce est déjà reçue (demande précédente).
-function justifPieces(r, push, from, to, scope, keep = () => true) {
+// Écritures sans justificatif sur la période, regroupées par tiers ; `flt` écarte les pièces déjà reçues, déjà demandées ou
+// écartées (voir piecesSuivi).
+function justifPieces(r, push, from, to, flt = ALL_PIECES) {
   if (!justifOk(r)) return;
   const d = fmtDate;
-  const uniq = keyer();
-  const list = r.cycles.justif.missing.filter((x) => x.date >= from && x.date <= to)
-    .map((x) => Object.assign({ key: uniq(`jus|${x.kind}|${x.num || ''}|${x.date}|${x.amt}|${x.piece || keyLib(x.lib || '')}`) }, x)).filter((x) => keep(x.key));
+  const K = pieceKeys(r).jus;
+  const list = r.cycles.justif.missing.map((x, i) => ({ x, keys: K[i] })).filter(({ x, keys }) => x.date >= from && x.date <= to && flt.ok(keys));
   const desc = (x) => `${x.avoir ? 'avoir' : 'facture'}${x.piece ? ` n° ${x.piece}` : ''} du ${d(x.date)} (${eur(Math.abs(x.amt))} €)`;
   const groups = new Map();
-  list.filter((x) => x.kind !== 'direct').forEach((x) => { const k = x.kind + '|' + x.num; (groups.get(k) || groups.set(k, []).get(k)).push(x); });
+  list.filter(({ x }) => x.kind !== 'direct').forEach((y) => { const k = y.x.kind + '|' + y.x.num; (groups.get(k) || groups.set(k, []).get(k)).push(y); });
   groups.forEach((l) => {
-    const x0 = l[0];
-    const items = l.slice(0, 12).map(desc).join(', ') + (l.length > 12 ? ` et ${l.length - 12} autre(s)` : '');
-    const keys = l.map((x) => x.key);
-    if (x0.kind === 'achat') push('achats', `jm:${scope}:${x0.num}`, `${l.length > 1 ? 'Factures' : 'Facture'} ${x0.tlib} : ${items}`, { keys });
-    else push('ventes', `jv:${scope}:${x0.num}`, `${l.length > 1 ? 'Factures de vente' : 'Facture de vente'} à ${x0.tlib} : ${items}`, { keys });
+    const x0 = l[0].x;
+    const items = l.slice(0, 12).map(({ x }) => desc(x)).join(', ') + (l.length > 12 ? ` et ${l.length - 12} autre(s)` : '');
+    const extra = { keys: l.flatMap((y) => y.keys), ops: l.map(({ x }) => ({ date: x.date, amt: Math.abs(x.amt) })) };
+    if (x0.kind === 'achat') push('achats', `jm:${x0.num}`, `${l.length > 1 ? 'Factures' : 'Facture'} ${x0.tlib} : ${items}`, extra);
+    else push('ventes', `jv:${x0.num}`, `${l.length > 1 ? 'Factures de vente' : 'Facture de vente'} à ${x0.tlib} : ${items}`, extra);
   });
-  list.filter((x) => x.kind === 'direct').slice(0, 60).forEach((x, i) => push('justif', `jd:${scope}:${i}`, `Justificatif « ${x.lib} » du ${d(x.date)} (${eur(x.amt)} €)`,
-    { doc: `Justificatif « ${x.lib} »`, ops: [{ date: x.date, amt: x.amt }], keys: [x.key] }));
+  // Dépenses payées directement sans justificatif : les 200 plus récentes de la période
+  list.filter(({ x }) => x.kind === 'direct').sort((a, b) => b.x.date.localeCompare(a.x.date)).slice(0, 200).forEach(({ x, keys }) => push('justif', `jd:${keys[0]}`, `Justificatif « ${x.lib} » du ${d(x.date)} (${eur(x.amt)} €)`,
+    { doc: `Justificatif « ${x.lib} »`, ops: [{ date: x.date, amt: x.amt }], keys }));
 }
 
 // Pièces et questions issues des cycles.
@@ -530,10 +530,7 @@ function cyclePieces(r, mode, arrete, push) {
   const cy = r.cycles;
   const d = fmtDate;
   const bilan = mode === 'bilan';
-  if (ui.fecProfile !== 'pharmacie') cy.clients.numbering.filter((g) => !g.sparse && g.missing).forEach((g) => {
-    if (g.missing <= 30) g.ranges.forEach((n) => push('ventes', `num:${g.prefix}:${n}`, `Facture de vente n° ${n} : copie, ou confirmation de son annulation (absente de la comptabilité)`));
-    else push('ventes', 'num:' + g.prefix, `Liste des factures de vente de la série ${g.prefix} (${g.missing} numéros absents de la comptabilité entre ${g.first} et ${g.last})`);
-  });
+  // (numéros de facture manquants : numberingPieces, commun à la demande mensuelle)
   const item = (x) => `« ${x.lib} » du ${d(x.date)} (${eur(Math.abs(x.amt))} €)`;
   const OPS = 'Opérations en espèces de 1 000 € ou plus', PERSO = 'Dépenses à caractère personnel possibles';
   cy.treso.cash.items.filter((x) => x.date <= arrete && !memoHas('treso', OPS, x.lib)).slice(0, 10).forEach((x, i) => push('caisse', 'esp:' + i, `Justificatif de l'opération en espèces ${item(x)} : paiement en espèces limité à 1 000 €`,

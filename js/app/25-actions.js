@@ -398,10 +398,26 @@ const actions = {
   },
   'pieces-demande': () => createPiecesRequest(),
   'pieces-copy': async () => {
-    const text = piecesText(selectedPieces());
+    const text = piecesCopyText();
     try { await navigator.clipboard.writeText(text); toast('Liste copiée.'); } catch (e) { toast('Copie impossible sur ce navigateur.', true); }
   },
   'pieces-xlsx': () => exportPiecesXlsx(),
+  // Pièce déjà demandée reçue : cochée dans sa demande (et les mois entièrement reçus de la demande mensuelle)
+  'piece-recue': (el) => {
+    const m = missionById(el.dataset.mission);
+    if (!m) return;
+    toggleStep(m, el.dataset.step, true);
+    toast(`Pièce marquée reçue — ${m.titre}.`);
+    refresh();
+  },
+  'pieces-sync': () => {
+    const c = clientById(ui.fec.clientId);
+    if (!c) return;
+    const n = autoSolve(c, ui.fec.result, piecesState());
+    persist();
+    toast(n ? `${n} pièce(s) comptabilisée(s) depuis la demande marquée(s) reçue(s).` : 'Aucune pièce à marquer.');
+    refresh();
+  },
   'fec-mission': () => fecMission(),
   'open-ics': () => icsForm(),
   'autobackup-choose': () => chooseAutoBackup(),
@@ -632,6 +648,11 @@ document.addEventListener('change', (e) => {
     refresh();
   } else if (t.dataset.pieceRub && ui.fec) {
     setRubrique(t.dataset.pieceRub, t.value);
+  } else if (t.dataset.ecarte && ui.fec) {
+    // Pièce écartée remise dans les pièces à demander
+    setEcarte(JSON.parse(t.dataset.ecarte), false);
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
   } else if (t.dataset.pieces === 'arrete' && ui.fec) {
     if (t.value) piecesState().arrete = t.value;
     refresh();
