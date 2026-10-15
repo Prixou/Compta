@@ -12,6 +12,7 @@ const COLS = ['JournalCode', 'JournalLib', 'EcritureNum', 'EcritureDate', 'Compt
 const COLS_BNC = ['DateRglt', 'ModeRglt', 'NatOp', 'IdClient'];
 const REQUIRED = ['JournalCode', 'JournalLib', 'EcritureNum', 'EcritureDate', 'CompteNum', 'CompteLib', 'PieceRef', 'PieceDate', 'EcritureLib', 'ValidDate'];
 const MAX_EXAMPLES = 8;
+const MAX_ATTENTE = 5000; // lignes des comptes d'attente transmises à l'application (demande de pièces sur tout l'exercice)
 
 self.onmessage = (e) => {
   try {
@@ -414,7 +415,7 @@ function analyse(buffer, fileName, until, docs) {
         sp.months[ym] = (sp.months[ym] || 0) + c;
       }
       if (compte.startsWith('641') && d > 0) payroll[ym] = (payroll[ym] || 0) + d;
-      if (/^47[1-8]/.test(compte) && attenteLines.length < 400) attenteLines.push({ date, compte, lib: elib, d, c, lettre: !!g('EcritureLet') });
+      if (/^47[1-8]/.test(compte) && attenteLines.length < MAX_ATTENTE) attenteLines.push({ date, compte, lib: elib, d, c, lettre: !!g('EcritureLet'), ek: oek });
       if (/^2[0-7]/.test(compte) && d > 0 && immoLines.length < 300) immoLines.push({ date, compte, clib, lib: elib, montant: d });
       if (compte.startsWith('455') && ccaLines.length < 300) ccaLines.push({ date, lib: elib, d, c });
       if (compte[0] === '6' && d > 0) chargeLines.push([oek, compte, clib, elib, d, date]);
@@ -834,7 +835,9 @@ function analyse(buffer, fileName, until, docs) {
     suppliers: Array.from(supInv.values()).filter((x) => Object.keys(x.months).length >= 3)
       .map((x) => ({ num: x.num, lib: x.lib, months: Object.fromEntries(Object.entries(x.months).map(([k, v]) => [k, round2(v)])) })),
     payroll,
-    attente: attenteLines.map((l) => ({ ...l, soldeCompte: soldeOf(l.compte), sug: invSug(invIdx, l.lib, l.c > 0) || labelIdx[labelKey(l.lib)] || null })),
+    // bank : ligne d'une écriture de banque ou de caisse (opération à justifier) ; sinon OD, reclassement ou facture.
+    attente: attenteLines.map(({ ek, ...l }) => ({ ...l, bank: !!(opEntries.get(remap.get(ek) || ek) || {}).has5, soldeCompte: soldeOf(l.compte), sug: invSug(invIdx, l.lib, l.c > 0) || labelIdx[labelKey(l.lib)] || null })),
+    attenteMax: attenteLines.length >= MAX_ATTENTE,
     immo: immoLines,
     cca: ccaLines,
     direct: Array.from(direct.values()).filter((x) => x.total >= 30).sort((a, b) => b.total - a.total).slice(0, 120)

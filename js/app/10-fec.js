@@ -119,7 +119,7 @@ function setFecProfile(p) {
 
 // Trois espaces de travail sur un même FEC, selon la question du moment.
 const FEC_SPACES = {
-  mois: { label: 'Mois', hint: 'Gestion courante : pièces du mois, factures de vente, contrôles de saisie, TVA' },
+  mois: { label: 'Mois', hint: 'Gestion courante : pièces à demander, factures de vente, contrôles de saisie, TVA' },
   revision: { label: 'Révision', hint: 'Situation et bilan : cycles, écritures, pièces, revue N-1, rapprochement' },
   consult: { label: 'Consultation', hint: 'Chiffres : SIG, bilan, balance, journaux et tiers, conformité du fichier' },
 };
@@ -343,7 +343,7 @@ function viewFec() {
   if (space === 'mois') {
     const ym = fecMonth();
     tva = r.cycles && r.cycles.tva && Object.keys(r.cycles.tva.months).length ? tvaData(r) : null;
-    tabs = { 'mois-pieces': cnt('Pièces du mois', computePieces(r, 'mois', endOfMonth(`${ym}-01`)).length), 'mois-ventes': cnt('Factures de vente', ventesLeft(r, ym)), 'mois-saisie': cnt('Contrôles de saisie', saisieLeft(r, ym)) };
+    tabs = { 'mois-pieces': cnt('Pièces à demander', computePieces(r, 'mois', endOfMonth(`${ym}-01`)).length), 'mois-ventes': cnt('Factures de vente', ventesLeft(r, ym)), 'mois-saisie': cnt('Contrôles de saisie', saisieLeft(r, ym)) };
     if (tva) tabs.tva = cnt('TVA · bêta', wpProgress(tva.cycle, tva.checks).left);
   } else if (space === 'consult') {
     tabs = { sig: 'SIG et bilan', balance: 'Balance', details: 'Journaux et tiers', conformite: cnt('Conformité du fichier', errors) };

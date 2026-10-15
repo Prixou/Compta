@@ -252,9 +252,9 @@ function openGrillePop(td, m, focusI) {
   pop.setAttribute('aria-label', `Étapes — ${m.titre}`);
   pop.dataset.id = m.id;
   const n = m.etapes.length, nd = m.etapes.filter((e) => e.done).length;
-  // Demande de pièces du même mois en cours (issue de l'analyse FEC mensuelle).
+  // Demande de pièces mensuelle en cours (issue de l'analyse FEC, cumulative depuis le début de l'exercice) qui couvre ce mois.
   const per = (m.exercice || '').match(/^(\d{2})\/(\d{4})$/);
-  const req = per && missionsOf(m.clientId).find((x) => isOpen(x) && x.demandePieces && x.demandePieces.mode === 'mois' && x.demandePieces.arrete.slice(0, 7) === `${per[2]}-${per[1]}`);
+  const req = per && missionsOf(m.clientId).find((x) => isOpen(x) && x.demandePieces && x.demandePieces.mode === 'mois' && x.demandePieces.arrete.slice(0, 7) >= `${per[2]}-${per[1]}`);
   const reqLeft = req ? req.etapes.filter((e) => !e.done).length : 0;
   pop.innerHTML = `<div class="gp-head"><div><strong>${esc(c ? clientLabel(c) : '')}</strong><span class="muted small">${esc(m.titre)}${m.echeance ? ` · échéance ${fmtDate(m.echeance)}` : ''}</span>
       <span class="gp-state ${isOpen(m) ? '' : 'ok'}">${isOpen(m) ? `${nd} / ${n} étape(s) faite(s)` : 'Terminée'}</span></div>

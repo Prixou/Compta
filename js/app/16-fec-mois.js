@@ -85,9 +85,9 @@ function saisieChecks(r, ym) {
   const o = checksList();
   const p = r.pieces;
   if (p) {
-    const att = (p.attente || []).filter((l) => inMonth(l.date, ym) && !l.lettre && Math.abs(l.soldeCompte) >= 0.01);
+    const att = attenteOuvertes(p, `${ym}-01`, endOfMonth(`${ym}-01`));
     const nSug = att.filter((l) => l.sug).length;
-    if (att.length) o.add('warn', "Opérations restées en compte d'attente", `${att.length} ligne(s) du mois sur les comptes 471 à 478, non lettrées : à identifier (question au client dans « Pièces du mois ») puis à reclasser.${nSug ? ` ${nSug} affectation(s) suggérée(s) d'après les opérations au même libellé déjà affectées dans le FEC ou le n° de facture cité dans le libellé ; l'écriture de reclassement est proposée dans Révision → Écritures.` : ''}`, att.map(attenteEx), { full: p.attente.length < 400 });
+    if (att.length) o.add('warn', "Opérations restées en compte d'attente", `${att.length} ligne(s) du mois sur les comptes 471 à 478, non lettrées : à identifier (question au client dans « Pièces à demander ») puis à reclasser.${nSug ? ` ${nSug} affectation(s) suggérée(s) d'après les opérations au même libellé déjà affectées dans le FEC ou le n° de facture cité dans le libellé ; l'écriture de reclassement est proposée dans Révision → Écritures.` : ''}`, att.map(attenteEx), { full: !p.attenteMax });
     else o.add('ok', "Comptes d'attente", "Aucune opération du mois restée en compte d'attente.");
     // Solde de chaque compte de tiers à la fin du mois (à-nouveau compris)
     const end = (t) => round2(Object.keys(t.m).reduce((s, m) => (m <= ym ? s + t.m[m][0] - t.m[m][1] : s), t.an));

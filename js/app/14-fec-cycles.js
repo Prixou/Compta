@@ -503,21 +503,25 @@ function justifCard(r) {
 }
 
 // Écritures sans justificatif sur la période, regroupées par tiers.
-function justifPieces(r, push, from, to, scope) {
+// `keep(clé)` : faux pour une écriture dont la pièce est déjà reçue (demande précédente).
+function justifPieces(r, push, from, to, scope, keep = () => true) {
   if (!justifOk(r)) return;
   const d = fmtDate;
-  const list = r.cycles.justif.missing.filter((x) => x.date >= from && x.date <= to);
+  const uniq = keyer();
+  const list = r.cycles.justif.missing.filter((x) => x.date >= from && x.date <= to)
+    .map((x) => Object.assign({ key: uniq(`jus|${x.kind}|${x.num || ''}|${x.date}|${x.amt}|${x.piece || keyLib(x.lib || '')}`) }, x)).filter((x) => keep(x.key));
   const desc = (x) => `${x.avoir ? 'avoir' : 'facture'}${x.piece ? ` n° ${x.piece}` : ''} du ${d(x.date)} (${eur(Math.abs(x.amt))} €)`;
   const groups = new Map();
   list.filter((x) => x.kind !== 'direct').forEach((x) => { const k = x.kind + '|' + x.num; (groups.get(k) || groups.set(k, []).get(k)).push(x); });
   groups.forEach((l) => {
     const x0 = l[0];
     const items = l.slice(0, 12).map(desc).join(', ') + (l.length > 12 ? ` et ${l.length - 12} autre(s)` : '');
-    if (x0.kind === 'achat') push('achats', `jm:${scope}:${x0.num}`, `${l.length > 1 ? 'Factures' : 'Facture'} ${x0.tlib} : ${items}`);
-    else push('ventes', `jv:${scope}:${x0.num}`, `${l.length > 1 ? 'Factures de vente' : 'Facture de vente'} à ${x0.tlib} : ${items}`);
+    const keys = l.map((x) => x.key);
+    if (x0.kind === 'achat') push('achats', `jm:${scope}:${x0.num}`, `${l.length > 1 ? 'Factures' : 'Facture'} ${x0.tlib} : ${items}`, { keys });
+    else push('ventes', `jv:${scope}:${x0.num}`, `${l.length > 1 ? 'Factures de vente' : 'Facture de vente'} à ${x0.tlib} : ${items}`, { keys });
   });
   list.filter((x) => x.kind === 'direct').slice(0, 60).forEach((x, i) => push('justif', `jd:${scope}:${i}`, `Justificatif « ${x.lib} » du ${d(x.date)} (${eur(x.amt)} €)`,
-    { doc: `Justificatif « ${x.lib} »`, ops: [{ date: x.date, amt: x.amt }] }));
+    { doc: `Justificatif « ${x.lib} »`, ops: [{ date: x.date, amt: x.amt }], keys: [x.key] }));
 }
 
 // Pièces et questions issues des cycles.

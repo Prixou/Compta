@@ -89,7 +89,7 @@ function buildMessage(c, missions, modele) {
 
 // Message d'une demande de pièces issue du FEC : éléments non encore reçus, groupés par catégorie.
 function buildPiecesMessage(c, m, modele, salut, signature) {
-  const objet = m.demandePieces.mode === 'mois' ? `la comptabilité de ${moisNom(m.demandePieces.arrete)}` : `${m.demandePieces.mode === 'bilan' ? 'votre bilan' : 'votre situation'} au ${fmtDate(m.demandePieces.arrete)}`;
+  const objet = m.demandePieces.mode === 'mois' ? `la comptabilité jusqu'au ${fmtDate(m.demandePieces.arrete)}` : `${m.demandePieces.mode === 'bilan' ? 'votre bilan' : 'votre situation'} au ${fmtDate(m.demandePieces.arrete)}`;
   const groups = {};
   m.etapes.filter((e) => !e.done).forEach((e) => (groups[e.cat || 'Autres'] = groups[e.cat || 'Autres'] || []).push(e.label));
   const list = Object.entries(groups).map(([cat, l]) => `${cat} :\n${l.map((x) => `- ${x}`).join('\n')}`).join('\n\n');
