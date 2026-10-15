@@ -54,6 +54,16 @@ const { fecTab, fecMonth } = require('./lib');
   await p.setViewportSize({ width: 390, height: 844 }); await p.waitForTimeout(200);
   console.log('débordement mobile :', await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1),
     await p.evaluate(() => Array.from(document.querySelectorAll('main *')).filter((e) => e.getBoundingClientRect().right > window.innerWidth + 1 && !e.closest('.grid-wrap, .viz-scroll, .fec-tabs')).slice(0, 6).map((e) => e.tagName + '.' + e.className + ' ' + Math.round(e.getBoundingClientRect().right))));
+  // Brouillon de CA3 aux lignes du formulaire en vigueur : acquisition intracommunautaire (avril), service autoliquidé (juillet)
+  const line = (ym) => p.evaluate((k) => { const K = tvaCalc(ui.fec.result, tvaPeriod(k)); return K.draft.rows.filter((x) => x.line).map((x) => [x.line, x.base, x.tva]); }, ym);
+  const has = (rows, l, base, tva, label) => { const x = rows.find((y) => y[0] === l && (base === null || Math.abs((y[1] || 0) - base) < 0.01) && (tva === null || Math.abs((y[2] || 0) - tva) < 0.01)); console.log(x ? `OK ${label}` : `KO ${label} : ${JSON.stringify(rows)}`); };
+  const avr = await line('2025-04'), jul = await line('2025-07');
+  has(avr, 'B2', 4000, null, 'avril : acquisition intracommunautaire en ligne B2 (base réelle 4 000 €)');
+  has(avr, '17', null, 800, 'avril : ligne 17, dont TVA sur acquisitions intracommunautaires 800 €');
+  has(avr, '08', 17381.49, 3476.29, 'avril : ligne 08 = ventes à 20 % + acquisition autoliquidée');
+  has(avr, 'E1', 2500, null, 'avril : exportation en ligne E1');
+  has(jul, 'A3', 1000, null, 'juillet : prestation de services autoliquidée en ligne A3');
+  console.log(avr.some((x) => ['01', '2A / 03', '04', '14'].includes(x[0])) ? 'KO anciens numéros de ligne' : 'OK aucun ancien numéro de ligne (01, 2A, 04, 14)');
   console.log('erreurs', errors);
   await b.close();
 })();

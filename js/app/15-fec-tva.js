@@ -15,15 +15,48 @@
 
 const QUARTER_NAMES = ['1er', '2e', '3e', '4e'];
 const rateTxt = (r) => `${String(r).replace('.', ',')} %`;
-const TVA_RATES = [20, 10, 5.5, 2.1, 8.5, 13, 0.9, 1.05, 19.6, 7];
+const TVA_RATES = [20, 10, 5.5, 2.1, 8.5, 13, 0.9, 1.75, 1.05, 19.6, 7];
 const TVA_ROLES = {
   coll: 'TVA collectée', 'coll-att': 'TVA collectée non exigible (encaissements)', autoliq: 'TVA autoliquidée due',
   ded: 'TVA déductible biens et services', 'ded-immo': 'TVA déductible immobilisations', 'ded-att': 'TVA déductible non exigible (encaissements)', credit: 'Crédit de TVA à reporter',
   due: 'TVA à décaisser', remb: 'Remboursement de crédit demandé', acompte: 'Acomptes de TVA (CA12)', regul: 'TVA à régulariser (non déclarée)', autre: 'Non pris en compte',
 };
-const CA_ROLES = { export: 'Exportation (ligne 04)', intra: 'Livraison intracommunautaire (ligne 06)', exo: 'Non imposable ou exonéré (ligne 05)', hc: 'Hors champ (non déclaré)', sans: 'À qualifier' };
-// Ligne de la CA3 (formulaire 3310-CA3) de chaque taux ; 2,1 % en métropole : taux particulier, annexe 3310 A.
-const CA3_RATE_LINE = { 20: '08', 5.5: '09', 10: '9B', 8.5: '10', 2.1: '14', 13: '14', 0.9: '14', 1.05: '14', 19.6: '13', 7: '13' };
+const CA_ROLES = { export: 'Exportation (ligne E1)', intra: 'Livraison intracommunautaire (ligne F2)', exo: 'Non imposable ou exonéré (ligne E2)', hc: 'Hors champ (non déclaré)', sans: 'À qualifier' };
+// Ligne de la CA3 (formulaire 3310-CA3-SD en vigueur) de chaque taux. Le 2,1 % se déclare ligne T6 en France
+// continentale, ligne 11 dans les DOM et T4 en Corse ; la zone se déduit des taux du dossier (8,5 %, 1,75 %, 1,05 % : DOM ;
+// 13 %, 0,9 % : Corse).
+function ca3RateLine(rt, zone) {
+  if (rt === 2.1) return zone === 'dom' ? ['11', 'DOM — taux réduit 2,1 %'] : zone === 'corse' ? ['T4', 'Corse — taux de 2,1 %'] : ['T6', 'France continentale — taux de 2,1 %'];
+  if (rt === 10 && zone === 'corse') return ['T3', 'Corse — taux de 10 %'];
+  return {
+    20: ['08', 'Taux normal 20 %'], 5.5: ['09', 'Taux réduit 5,5 %'], 10: ['9B', 'Taux réduit 10 %'], 8.5: ['10', 'DOM — taux normal 8,5 %'],
+    1.75: ['T1', 'DOM — taux de 1,75 %'], 1.05: ['T2', 'DOM — taux de 1,05 %'], 13: ['TC', 'Corse — taux de 13 %'], 0.9: ['T5', 'Corse — taux de 0,9 %'],
+    19.6: ['13', 'Ancien taux 19,6 %'], 7: ['13', 'Ancien taux 7 %'],
+  }[rt] || ['?', `Taux de ${rateTxt(rt)} (ligne à vérifier)`];
+}
+const ca3Zone = (rates) => (rates.some((rt) => [8.5, 1.75, 1.05].includes(rt)) ? 'dom' : rates.some((rt) => [13, 0.9].includes(rt)) ? 'corse' : 'cont');
+
+// Achats autoliquidés de la période (TVA due par le client) : base HT et taux d'après les charges et immobilisations de
+// l'écriture ; biens (comptes 60 et 2) en acquisitions intracommunautaires (ligne B2), services en ligne A3. Un achat
+// auprès d'un fournisseur établi hors de l'Union (article 283-1) se déclare ligne B4 : à reclasser au besoin.
+function autoliqBases(M, per) {
+  const out = {};
+  M.groups.forEach((g) => {
+    if (g.kind !== 'op' || !per.months.includes(g.ym)) return;
+    let vat = 0;
+    Object.entries(g.m).forEach(([c, v]) => { if (c.startsWith('445') && M.roleOf(c) === 'autoliq') vat -= v; });
+    if (Math.abs(vat) < 0.01) return;
+    const goods = g.goods, serv = g.serv, base = goods + serv;
+    const rt = snapRate(base, vat);
+    const cat = Math.abs(goods) >= Math.abs(serv) ? 'B2' : 'A3';
+    const k = `${cat}|${rt === null ? '' : rt}`;
+    const x = out[k] || (out[k] = { cat, rate: rt, base: 0, tva: 0, n: 0, estimated: rt === null });
+    x.base += rt === null ? vat / 0.2 : base;
+    x.tva += vat;
+    x.n++;
+  });
+  return Object.values(out).map((x) => Object.assign(x, { base: round2(x.base), tva: round2(x.tva) }));
+}
 
 // Période : « 2025-06 » (mois) ou « 2025-T2 » (trimestre).
 function tvaPeriod(key) {
@@ -118,7 +151,7 @@ function tvaModel(r) {
   const isColl = (c) => /^coll/.test(roleOf(c));
 
   // Nature de chaque écriture : opération, déclaration (OD de TVA) ou paiement
-  const groups = T.g.map(([date, ref, piece, lib, m, p5, fl]) => {
+  const groups = T.g.map(([date, ref, piece, lib, m, p5, fl, goods, serv]) => {
     let due = false, collD = false, collC = false, dedC = false, dedD = false, autoD = false, has70 = false;
     Object.entries(m).forEach(([c, v]) => {
       if (c.startsWith('70')) { has70 = true; return; }
@@ -133,7 +166,7 @@ function tvaModel(r) {
     if (!has70 && due && (collD || dedC || autoD)) kind = 'decl';
     else if (!has70 && collD && dedC && !(fl & 1)) kind = 'decl'; // déclaration et paiement dans la même écriture
     else if (due && Math.abs(p5) >= 0.01 && !collD && !collC && !dedC && !dedD) kind = 'pay';
-    return { date, ym: date.slice(0, 7), ref, piece, lib, m, p5, kind };
+    return { date, ym: date.slice(0, 7), ref, piece, lib, m, p5, kind, goods: goods || 0, serv: serv || 0 };
   });
 
   // Taux des comptes de produits constatés sur les écritures (base × taux = TVA)
@@ -332,38 +365,56 @@ function tvaCalc(r, per) {
   const comptaTotal = round2(enc ? o.coll + o.att : o.coll);
   const caReg = Object.entries(o.caReg).filter(([, v]) => Math.abs(v) >= 0.01).map(([c, v]) => ({ compte: c, lib: (M.ca[c] || {}).lib || '', base: v }));
 
-  // Brouillon de CA3 (opérations de la période)
+  // Brouillon de CA3 (opérations de la période), aux lignes du formulaire 3310-CA3-SD en vigueur
   const brute = round2(o.coll + o.auto);
   const dedTot = round2(o.ded + o.dedImmo + report);
   const net = round2(brute - dedTot);
   const rows = [];
   // Encaissements : bases de la CA3 recalculées sur la TVA exigible de chaque taux (sommes encaissées HT)
   const encRows = enc ? Object.entries(o.collRate).map(([rt, v]) => ({ rate: Number(rt), base: round2((v * 100) / Number(rt)), tva: v })).sort((a, b) => b.rate - a.rate) : null;
-  const base01 = enc ? round2(encRows.reduce((t, x) => t + x.base, 0)) : round2(Object.values(byRate).reduce((t, x) => t + x.base70, 0));
-  const base02 = enc ? 0 : round2(Object.values(byRate).reduce((t, x) => t + x.base7, 0));
+  const baseA1 = enc ? round2(encRows.reduce((t, x) => t + x.base, 0)) : round2(Object.values(byRate).reduce((t, x) => t + x.base70, 0));
+  const baseA2 = enc ? 0 : round2(Object.values(byRate).reduce((t, x) => t + x.base7, 0));
+  const auto = autoliqBases(M, per);
+  const autoSum = (cat, k) => round2(auto.filter((x) => x.cat === cat).reduce((t, x) => t + x[k], 0));
+  const est = (cat) => (auto.some((x) => x.cat === cat && x.estimated) ? ' — base estimée au taux de 20 % (charge introuvable dans l\'écriture)' : '');
   rows.push({ h: 'A. Montant des opérations réalisées' });
-  rows.push({ line: '01', label: `Ventes, prestations de services${enc ? ' (encaissements de la période, HT)' : ''}`, base: base01 });
-  if (base02) rows.push({ line: '02', label: 'Autres opérations imposables', base: base02 });
-  if (o.auto) rows.push({ line: '2A / 03', label: 'Achats autoliquidés (services ligne 2A, biens ligne 03) — base estimée au taux de 20 %', base: round2(o.auto / 0.2) });
-  if (nonTax.export) rows.push({ line: '04', label: 'Exportations hors Union européenne', base: round2(nonTax.export) });
-  if (nonTax.exo) rows.push({ line: '05', label: 'Autres opérations non imposables', base: round2(nonTax.exo) });
-  if (nonTax.intra) rows.push({ line: '06', label: 'Livraisons intracommunautaires', base: round2(nonTax.intra) });
+  rows.push({ line: 'A1', label: `Ventes, prestations de services${enc ? ' (encaissements de la période, HT)' : ''}`, base: baseA1 });
+  if (baseA2) rows.push({ line: 'A2', label: 'Autres opérations imposables', base: baseA2 });
+  if (autoSum('A3', 'tva')) rows.push({ line: 'A3', label: `Achats de prestations de services auprès d'un prestataire non établi en France (autoliquidation)${est('A3')}`, base: autoSum('A3', 'base') });
+  if (autoSum('B2', 'tva')) rows.push({ line: 'B2', label: `Acquisitions intracommunautaires (autoliquidation ; ligne B4 si le fournisseur est établi hors de l'Union)${est('B2')}`, base: autoSum('B2', 'base') });
+  if (nonTax.export) rows.push({ line: 'E1', label: 'Exportations hors Union européenne', base: round2(nonTax.export) });
+  if (nonTax.exo) rows.push({ line: 'E2', label: 'Autres opérations non imposables', base: round2(nonTax.exo) });
+  if (nonTax.intra) rows.push({ line: 'F2', label: 'Livraisons intracommunautaires à destination d\'une personne assujettie', base: round2(nonTax.intra) });
   if (nonTax.sans) rows.push({ line: '?', label: 'Produits sans taux défini (à qualifier dans le paramétrage)', base: round2(nonTax.sans), warn: true });
   rows.push({ h: 'B. Décompte de la TVA à payer' });
-  if (enc) {
-    encRows.forEach((x) => rows.push({ line: CA3_RATE_LINE[x.rate] || '14', label: `Taux ${rateTxt(x.rate)} — TVA exigible (encaissements)`, base: x.base, tva: x.tva }));
-    if (Math.abs(o.collNoRate) >= 0.01) rows.push({ line: '', label: 'TVA exigible sur des comptes sans taux (à paramétrer)', tva: o.collNoRate, warn: true });
-  } else rapp.forEach((x) => rows.push({ line: CA3_RATE_LINE[x.rate] || '14', label: `Taux ${rateTxt(x.rate)}${x.rate === 2.1 ? ' (taux particulier, annexe 3310 A)' : ''}${ratedAcc ? '' : ' — TVA théorique'}`, base: x.base, tva: ratedAcc ? x.compta : x.theo }));
+  // TVA brute par taux : ventes de la période et achats autoliquidés au même taux
+  const byLine = new Map();
+  const addLine = (rt, base, tva) => {
+    const x = byLine.get(rt) || { rate: rt, base: 0, tva: 0 };
+    x.base += base; x.tva += tva;
+    byLine.set(rt, x);
+  };
+  if (enc) encRows.forEach((x) => addLine(x.rate, x.base, x.tva));
+  else rapp.forEach((x) => addLine(x.rate, x.base, ratedAcc ? x.compta : x.theo));
+  auto.filter((x) => x.rate !== null).forEach((x) => addLine(x.rate, x.base, x.tva));
+  const zone = ca3Zone(Array.from(byLine.keys()));
+  Array.from(byLine.values()).sort((a, b) => b.rate - a.rate).forEach((x) => {
+    const [line, lab] = ca3RateLine(x.rate, zone);
+    rows.push({ line, label: `${lab}${!enc && !ratedAcc ? ' — TVA théorique' : ''}${enc ? ' — TVA exigible (encaissements)' : ''}`, base: round2(x.base), tva: round2(x.tva), warn: line === '?' });
+  });
+  if (enc && Math.abs(o.collNoRate) >= 0.01) rows.push({ line: '', label: 'TVA exigible sur des comptes sans taux (à paramétrer)', tva: o.collNoRate, warn: true });
   const otherColl = ratedAcc || enc ? 0 : round2(o.coll - theoTotal);
   if (Math.abs(otherColl) >= 0.01) rows.push({ line: '', label: 'Écart entre la TVA comptabilisée et la TVA théorique des ventes', tva: otherColl, warn: Math.abs(otherColl) >= 1 });
-  if (o.auto) rows.push({ line: '', label: 'TVA autoliquidée', tva: o.auto });
+  const autoNoRate = round2(auto.filter((x) => x.rate === null).reduce((t, x) => t + x.tva, 0));
+  if (Math.abs(autoNoRate) >= 0.01) rows.push({ line: '08', label: 'TVA autoliquidée (taux non reconnu, présumé 20 %)', base: round2(autoNoRate / 0.2), tva: autoNoRate, warn: true });
   rows.push({ line: '16', label: 'Total de la TVA brute due', tva: brute, strong: true });
+  if (autoSum('B2', 'tva')) rows.push({ line: '17', label: 'Dont TVA sur acquisitions intracommunautaires', tva: autoSum('B2', 'tva') });
   rows.push({ line: '19', label: 'TVA déductible sur immobilisations', tva: o.dedImmo });
   rows.push({ line: '20', label: 'TVA déductible sur autres biens et services', tva: o.ded });
   if (report) rows.push({ line: '22', label: 'Report du crédit de la déclaration précédente', tva: report });
   rows.push({ line: '23', label: 'Total de la TVA déductible', tva: dedTot, strong: true });
   rows.push(net >= 0 ? { line: '28', label: 'TVA nette due', tva: net, strong: true } : { line: '25 / 27', label: 'Crédit de TVA (à reporter ou à rembourser)', tva: -net, strong: true });
-  const draft = { rows, brute, ded: dedTot, net, taxable: round2(base01 + base02) };
+  const draft = { rows, brute, ded: dedTot, net, taxable: round2(baseA1 + baseA2), auto, zone };
 
   // Paiement : règlement de la TVA à décaisser dans les 70 jours suivant la fin de la période
   const due = liq ? liq.due : 0;
@@ -440,11 +491,13 @@ function tvaChecks(r, K) {
   const nvG = M.T.nv.filter(([date, , , , m]) => per.months.includes(date.slice(0, 7)) && Object.keys(m).some((cpt) => M.caRate(cpt) !== null));
   if (nvG.length) out.add('warn', 'Ventes sans TVA sur des comptes taxables', `${nvG.length} écriture(s) sur des comptes de produits soumis à la TVA, sans ligne de TVA : TVA oubliée, ou compte à corriger (export, exonération).`, nvG.slice(0, 30).map(([date, ref, , lib, m]) => `${fmtDate(date)} · ${ref} · ${lib} · ${eur(-Object.values(m).reduce((t, v) => t + v, 0))} € HT`), { full: nvG.length <= 30 });
   const nt = K.nonTax;
-  if (nt.export) out.add('info', `Exportations : ${eur(nt.export)} € HT (ligne 04)`, "Justificatifs d'exportation (déclaration en douane) à conserver.");
-  if (nt.intra) out.add('info', `Livraisons intracommunautaires : ${eur(nt.intra)} € HT (ligne 06)`, "N° de TVA intracommunautaire du client sur la facture ; état récapitulatif à déposer.");
-  if (nt.exo) out.add('info', `Opérations non imposables : ${eur(nt.exo)} € HT (ligne 05)`, 'Mention de l\'exonération sur les factures.');
-  if (Math.abs(o.att) >= 0.01) out.add('info', `TVA non encore exigible (encaissements) : ${eur(o.att)} € sur la période`, 'TVA facturée en attente d\'encaissement : seule la TVA virée en TVA collectée exigible est déclarée.');
-  if (Math.abs(o.dedAtt) >= 0.01) out.add('info', `TVA déductible en attente de paiement : ${eur(o.dedAtt)} € sur la période`, 'TVA des fournisseurs soumis aux encaissements (prestations de services) : déductible au paiement, quand elle est virée en TVA déductible sur autres biens et services.');
+  if (nt.export) out.add('info', `Exportations : ${eur(nt.export)} € HT (ligne E1)`, "Justificatifs d'exportation (déclaration en douane) à conserver.");
+  if (nt.intra) out.add('info', `Livraisons intracommunautaires : ${eur(nt.intra)} € HT (ligne F2)`, "N° de TVA intracommunautaire du client sur la facture ; état récapitulatif à déposer.");
+  if (nt.exo) out.add('info', `Opérations non imposables : ${eur(nt.exo)} € HT (ligne E2)`, 'Mention de l\'exonération sur les factures.');
+  if (o.att >= 0.01) out.add('info', `TVA facturée non encore exigible (encaissements) : ${eur(o.att)} € sur la période`, 'TVA des ventes de la période en attente d\'encaissement : seule la TVA virée en TVA collectée exigible est déclarée.');
+  else if (o.att <= -0.01) out.add('info', `TVA des périodes précédentes devenue exigible : ${eur(-o.att)} €`, 'Encaissements de la période supérieurs à la TVA facturée sur la période : la TVA de factures antérieures (ou reprise en à-nouveau) devient exigible et est déclarée.');
+  if (o.dedAtt >= 0.01) out.add('info', `TVA déductible en attente de paiement : ${eur(o.dedAtt)} € sur la période`, 'TVA des fournisseurs soumis aux encaissements (prestations de services) : déductible au paiement, quand elle est virée en TVA déductible sur autres biens et services.');
+  else if (o.dedAtt <= -0.01) out.add('info', `TVA déductible des périodes précédentes devenue déductible : ${eur(-o.dedAtt)} €`, 'Paiements de la période supérieurs à la TVA en attente facturée sur la période : la TVA de factures antérieures devient déductible.');
   if (K.caReg.length) out.add('info', 'Régularisations de produits sans TVA', `${eur(K.caReg.reduce((t, x) => t + x.base, 0))} € (produits constatés d'avance, factures ou avoirs à établir et leurs extournes) : écartés du rapprochement avec la TVA.`, K.caReg.map((x) => `${x.compte} ${x.lib} : ${eur(x.base)} €`), { full: true });
 
   // Déclaration comptabilisée, reliquats, paiement
@@ -498,7 +551,7 @@ function tvaChecks(r, K) {
   const d = declOf(per.key);
   const diffs = [];
   const cmpD = (label, decl, calc) => { if (decl !== '' && decl !== undefined && decl !== null && Math.abs(Number(decl) - calc) >= 1) diffs.push(`${label} : déclaré ${eur(decl)} €, comptabilité ${eur(calc)} € (écart ${eur(Number(decl) - calc)} €)`); };
-  cmpD('Ligne 01 (ventes)', d.b01, draft.taxable); cmpD('Ligne 16 (TVA brute)', d.t16, draft.brute); cmpD('Ligne 23 (TVA déductible)', d.t23, draft.ded); cmpD(`Net à payer (+) ou crédit (−)${d.fromMission ? ' noté dans le suivi mensuel' : ''}`, d.net, draft.net);
+  cmpD('Ligne A1 (ventes)', d.b01, draft.taxable); cmpD('Ligne 16 (TVA brute)', d.t16, draft.brute); cmpD('Ligne 23 (TVA déductible)', d.t23, draft.ded); cmpD(`Net à payer (+) ou crédit (−)${d.fromMission ? ' noté dans le suivi mensuel' : ''}`, d.net, draft.net);
   if (diffs.length) out.add('error', 'Déclaration déposée différente de la comptabilité', 'Écart entre les montants déclarés et les écritures de la période : déclaration rectificative ou régularisation sur la suivante.', diffs);
   else if (['b01', 't16', 't23', 'net'].some((k) => d[k] !== '' && d[k] !== undefined)) out.add('ok', 'Déclaration déposée conforme à la comptabilité', 'Les montants déclarés correspondent aux écritures de la période.');
   return out;
@@ -659,7 +712,7 @@ function viewTva() {
     <section class="card"><h2>Montants télédéclarés <span class="muted small">(facultatif)</span></h2>
       <p class="muted small">Saisissez les montants de la déclaration déposée pour la comparer aux écritures. Le net est aussi celui du suivi mensuel (mission TVA de la période). Conservés${c ? ', chiffrés, dans le dossier' : ' pendant la session (rattachez un dossier pour les conserver)'}.</p>
       <div class="filters tva-decl">
-        <label class="inline-label">Ligne 01 <input type="number" step="0.01" data-tva-decl="b01" value="${esc(d.b01 ?? '')}" placeholder="${eur(draft.taxable, 0)}"></label>
+        <label class="inline-label">Ligne A1 <input type="number" step="0.01" data-tva-decl="b01" value="${esc(d.b01 ?? '')}" placeholder="${eur(draft.taxable, 0)}"></label>
         <label class="inline-label">Ligne 16 <input type="number" step="0.01" data-tva-decl="t16" value="${esc(d.t16 ?? '')}" placeholder="${eur(draft.brute, 0)}"></label>
         <label class="inline-label">Ligne 23 <input type="number" step="0.01" data-tva-decl="t23" value="${esc(d.t23 ?? '')}" placeholder="${eur(draft.ded, 0)}"></label>
         <label class="inline-label">Net (à payer +, crédit −) <input type="number" step="0.01" data-tva-decl="net" value="${esc(d.net ?? '')}" placeholder="${eur(draft.net, 0)}"></label>

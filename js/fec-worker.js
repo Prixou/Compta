@@ -1387,7 +1387,17 @@ function buildTva({ groups, accounts, opEntries }) {
         if (v) m[k] = v;
       }
       const ref = `${oe.jc} ${oe.num}`.trim(), lib = (oe.lib || '').slice(0, 60);
-      if (oe.t445) g.push([oe.date, ref, oe.piece || '', lib, m, round2(oe.p5 || 0), (oe.fT ? 1 : 0) | (oe.f6 ? 2 : 0) | (oe.f2 ? 4 : 0)]);
+      if (oe.t445) {
+        // Base HT des achats de l'écriture (biens : comptes 60 et 2 ; services : autres comptes 6), pour l'autoliquidation
+        let goods = 0, serv = 0;
+        const L = oe.l || [];
+        for (let i = 0; i < L.length; i += 4) {
+          const c = L[i];
+          if (/^(60|2)/.test(c)) goods += L[i + 2] - L[i + 3];
+          else if (c[0] === '6') serv += L[i + 2] - L[i + 3];
+        }
+        g.push([oe.date, ref, oe.piece || '', lib, m, round2(oe.p5 || 0), (oe.fT ? 1 : 0) | (oe.f6 ? 2 : 0) | (oe.f2 ? 4 : 0), round2(goods), round2(serv)]);
+      }
       else if (oe.t70 && !reg) { nvN++; if (nv.length < 6000) nv.push([oe.date, ref, oe.piece || '', lib, m]); }
     }
   }

@@ -86,6 +86,9 @@ const { fecTab } = require('./lib');
   await p.setViewportSize({ width: 390, height: 844 }); await p.waitForTimeout(200);
   console.log('débordement mobile :', await p.evaluate(() => Array.from(document.querySelectorAll('main *')).filter((e) => e.getBoundingClientRect().right > window.innerWidth + 1 && !e.closest('.grid-wrap, .viz-scroll, .fec-tabs')).slice(0, 5).map((e) => e.tagName + '.' + e.className)));
   console.log(ko ? `${ko} écart(s)` : 'tous les montants concordent');
+  // Officine : 2,1 % déclaré ligne T6 (France continentale)
+  const t6 = await p.evaluate(() => tvaCalc(ui.fec.result, tvaPeriod('2025-05')).draft.rows.find((x) => /2,1 %/.test(x.label || '')));
+  console.log(t6 && t6.line === 'T6' ? 'OK 2,1 % en ligne T6 (France continentale)' : `KO 2,1 % : ${JSON.stringify(t6)}`);
   console.log('erreurs', errors);
   await b.close();
 })().catch((e) => { console.error(e); process.exit(1); });
