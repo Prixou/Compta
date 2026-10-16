@@ -106,7 +106,7 @@ function buildPiecesMessage(c, demandes, modele, salut, signature, primary) {
       if (k ? k.some((x) => keys.has(x)) : labs.has(e.label) && !own.has(e.label)) return;
       (k || []).forEach((x) => keys.add(x));
       if (!k) { labs.add(e.label); own.add(e.label); }
-      steps.push({ m, e, sent: (m.relances || []).some((t) => t >= (e.at || m.createdAt || '')) });
+      steps.push({ m, e, sent: !!e.sentAt || (m.relances || []).some((t) => t >= (e.at || m.createdAt || '')) });
     });
   });
   const list = (l) => {

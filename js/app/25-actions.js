@@ -406,16 +406,18 @@ const actions = {
   'piece-recue': (el) => {
     const m = missionById(el.dataset.mission);
     if (!m) return;
-    toggleStep(m, el.dataset.step, true);
+    // Message général d'abord : celui de « Pièces reçues » cochée dans la mission du mois, s'il y en a un, le remplace.
     toast(`Pièce marquée reçue — ${m.titre}.`);
+    toggleStep(m, el.dataset.step, true);
     refresh();
   },
   'pieces-sync': () => {
     const c = clientById(ui.fec.clientId);
     if (!c) return;
+    toast('Aucune pièce à marquer.');
     const n = autoSolve(c, ui.fec.result, piecesState());
     persist();
-    toast(n ? `${n} pièce(s) comptabilisée(s) depuis la demande marquée(s) reçue(s).` : 'Aucune pièce à marquer.');
+    if (n && /^Aucune pièce/.test($('#toast').textContent)) toast(`${n} pièce(s) comptabilisée(s) depuis la demande marquée(s) reçue(s).`);
     refresh();
   },
   'fec-mission': () => fecMission(),
@@ -649,8 +651,9 @@ document.addEventListener('change', (e) => {
   } else if (t.dataset.pieceRub && ui.fec) {
     setRubrique(t.dataset.pieceRub, t.value);
   } else if (t.dataset.ecarte && ui.fec) {
-    // Pièce écartée remise dans les pièces à demander
+    // Pièce écartée remise dans les pièces à demander (le bloc reste ouvert)
     setEcarte(JSON.parse(t.dataset.ecarte), false);
+    ui.fec.ecartesOpen = true;
     if (clientById(ui.fec.clientId)) persist();
     refresh();
   } else if (t.dataset.pieces === 'arrete' && ui.fec) {

@@ -171,15 +171,15 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   const q = await start();
   await q.evaluate(() => {
     const c = data.clients[0];
-    const old = (titre, arrete, etapes) => ({ id: uid(), clientId: c.id, type: 'libre', titre, exercice: arrete.slice(0, 4), echeance: '', statut: 'attente_client', priorite: 'normale', responsable: '',
-      recurrence: 'aucune', notes: '', suiteCreee: false, termineLe: null, createdAt: '2026-10-02T09:00:00.000Z', updatedAt: '2026-10-02T09:00:00.000Z', relances: ['2026-10-02T09:05:00.000Z'],
+    const old = (titre, arrete, etapes, relances) => ({ id: uid(), clientId: c.id, type: 'libre', titre, exercice: arrete.slice(0, 4), echeance: '', statut: 'attente_client', priorite: 'normale', responsable: '',
+      recurrence: 'aucune', notes: '', suiteCreee: false, termineLe: null, createdAt: '2026-10-02T09:00:00.000Z', updatedAt: '2026-10-02T09:00:00.000Z', relances,
       demandePieces: { mode: 'mois', arrete }, etapes: etapes.map(([label, done]) => ({ id: uid(), label, cat: 'Ventes et encaissements', done, doneAt: done ? '2026-10-03T09:00:00.000Z' : null })) });
     data.missions.push(old('Demande de pièces — mois de septembre 2026', '2026-09-30', [
       ['Facture de vente n° F-260159 (septembre 2026) : copie, ou confirmation de son annulation', false],
       ['Facture de vente n° F-260181 (septembre 2026) : copie, ou confirmation de son annulation', true],
       // Libellé d'avant la version 45 pour une opération en compte d'attente
-      ["Justificatif de l'opération « CARTE X1111 PARKING CENTRE » du 29/09/2026 : paiement de 4,60 €", false]]));
-    data.missions.push(old("Demande de pièces — mois d'octobre 2026", '2026-10-31', [['Facture de vente n° F-260182 (septembre 2026) : copie, ou confirmation de son annulation', false]]));
+      ["Justificatif de l'opération « CARTE X1111 PARKING CENTRE » du 29/09/2026 : paiement de 4,60 €", false]], ['2026-10-02T09:05:00.000Z']));
+    data.missions.push(old("Demande de pièces — mois d'octobre 2026", '2026-10-31', [['Facture de vente n° F-260182 (septembre 2026) : copie, ou confirmation de son annulation', false]], []));
     data.missions.push({ id: uid(), clientId: c.id, type: 'tva', titre: 'TVA 09/2026', exercice: '09/2026', echeance: '', statut: 'en_cours', priorite: 'normale', responsable: '', recurrence: 'aucune', notes: '',
       suiteCreee: false, termineLe: null, createdAt: nowIso(), updatedAt: nowIso(), etapes: [{ id: uid(), label: 'Pièces reçues', done: false, doneAt: null }] });
     persist();
@@ -200,11 +200,17 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   const park = open[0].etapes.find((e) => /PARKING CENTRE/.test(e.label));
   expect(park && park.keys.some((k) => k.startsWith('att|')) && open[0].etapes.filter((e) => /PARKING CENTRE/.test(e.label)).length === 1, 'opération en attente reprise une seule fois, avec ses clés');
   expect(await q.evaluate(() => data.missions.find((m) => m.type === 'tva').etapes[0].done) === false, 'reprise sans valoir réception : TVA de septembre non cochée');
+  await month(q, '2026-10');
+  v = await view(q);
+  const b159 = (v.pending.find((x) => /F-260159/.test(x.text)) || { badges: [] }).badges, b182 = (v.pending.find((x) => /F-260182/.test(x.text)) || { badges: [] }).badges;
+  expect(b159.includes('demandée le 02/10/2026') && b182.some((t) => /pas encore envoyée/.test(t)), "pièce reprise d'une ancienne demande : sa date d'envoi est conservée", `${b159} / ${b182}`);
   // Facture F-260159 saisie depuis la demande : signalée, cochée à la demande de l'utilisateur
   await load(q, FEC2, '2026-10');
   v = await view(q);
   const tag = v.pending.find((x) => /F-260159/.test(x.text));
   expect(tag && tag.badges.includes('comptabilisée depuis la demande') && v.pending.filter((x) => x.badges.includes('comptabilisée depuis la demande')).length === 1, 'facture saisie depuis : « comptabilisée depuis la demande »', tag && tag.badges.join(','));
+  const copie = await q.evaluate(() => piecesCopyText());
+  expect(!/F-260159/.test(copie) && /F-260182/.test(copie), 'texte copié : pièce comptabilisée depuis la demande retirée, autres pièces attendues en rappel');
   await q.click('button[data-action=pieces-sync]'); await q.waitForTimeout(150);
   dm = await demandes(q);
   const auto = dm.find((m) => m.statut !== 'termine').etapes.find((e) => /F-260159/.test(e.label));

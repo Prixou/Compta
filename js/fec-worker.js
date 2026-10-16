@@ -837,6 +837,9 @@ function analyse(buffer, fileName, until, docs) {
   const invIdx = buildInvIndex(opEntries, auxNames, aux);
   // Comptes d'attente : lignes encore ouvertes, les plus récentes
   const attOpen = settleAttente(attenteLines, accounts, opEntries, remap);
+  // Nombre de lignes ouvertes par mois, avant troncature
+  const attMois = {};
+  attOpen.forEach((l) => { attMois[l.date.slice(0, 7)] = (attMois[l.date.slice(0, 7)] || 0) + 1; });
   trunc.att = keepRecent(attOpen, MAX_ATTENTE);
   const pieces = {
     minOp: minOp === '9999' ? null : minOp,
@@ -849,6 +852,7 @@ function analyse(buffer, fileName, until, docs) {
     attente: attOpen.map((l) => ({ date: l.date, compte: l.compte, lib: l.lib, d: l.d, c: l.c, lettre: l.lettre, bank: l.bank, soldeCompte: soldeOf(l.compte),
       sug: invSug(invIdx, l.lib, l.c > 0) || labelIdx[labelKey(l.lib)] || null })),
     attenteMax: !!trunc.att,
+    attenteMois: attMois,
     trunc,
     immo: immoLines,
     cca: ccaLines,
@@ -921,12 +925,13 @@ function keepRecent(list, max, dateOf = (x) => x.date) {
 // Règles appliquées compte par compte, dans cet ordre (montants comparés au centime) :
 // 1. compte soldé à la fin du fichier, à-nouveau compris : toutes ses lignes sont soldées ;
 // 2. ligne lettrée (ou de montant nul) : soldée ;
-// 3. OD (écriture sans compte 51 ni 53) et opération de banque de montant opposé : rapprochées une à une, la plus proche
-//    en date, de préférence datée au plus tard le jour de l'OD ; à défaut, une OD opposée au solde d'à-nouveau le solde ;
+// 3. OD (écriture sans compte 51 ni 53) et opération de banque de montant opposé, du mois de l'OD ou du mois précédent :
+//    rapprochées une à une, la plus proche en date, de préférence datée au plus tard le jour de l'OD ; à défaut, une OD
+//    opposée au solde d'à-nouveau le solde ;
 // 4. OD et opérations de banque de sens opposé du mois de l'OD, datées au plus tard de l'OD, de somme nulle : soldées
 //    ensemble ; sinon même essai avec le mois précédent (seul, puis avec le mois de l'OD) ;
 // 5. solde progressif (à-nouveau, puis jour par jour) nul à une date, avec au moins une OD ou une ligne lettrée depuis le
-//    solde nul précédent : toutes les lignes datées jusqu'à ce jour sont soldées.
+//    solde nul précédent : les lignes de ce segment sont soldées (un segment d'opérations de banque seules reste ouvert).
 // Deux opérations de banque ne sont jamais rapprochées entre elles. Renvoie les lignes ouvertes (bank renseigné).
 function settleAttente(lines, accounts, opEntries, remap) {
   const byAcc = new Map();
@@ -952,10 +957,13 @@ function settleAttente(lines, accounts, opEntries, remap) {
       const cand = banks.get(-od.ct);
       let before = null, after = null;
       if (cand) {
+        // Fenêtre : mois précédent et mois de l'OD (une opération d'un autre mois, du même montant, n'est pas celle-ci)
+        const y = +od.date.slice(0, 4), mo = +od.date.slice(5, 7);
+        const winStart = mo > 1 ? `${y}-${pad(mo - 1)}-01` : `${y - 1}-12-01`, winEnd = `${od.date.slice(0, 7)}-31`;
         let lo = 0, hi = cand.length;
         while (lo < hi) { const m = (lo + hi) >> 1; if (cand[m].date <= od.date) lo = m + 1; else hi = m; }
-        for (let i = lo - 1; i >= 0 && !before; i--) if (!cand[i].ok) before = cand[i];
-        for (let i = lo; i < cand.length && !after; i++) if (!cand[i].ok) after = cand[i];
+        for (let i = lo - 1; i >= 0 && !before && cand[i].date >= winStart; i--) if (!cand[i].ok) before = cand[i];
+        for (let i = lo; i < cand.length && !after && cand[i].date <= winEnd; i++) if (!cand[i].ok) after = cand[i];
       }
       const bk = before || (an && od.ct === -an ? null : after);
       if (bk) bk.ok = od.ok = true;
@@ -995,6 +1003,7 @@ function settleAttente(lines, accounts, opEntries, remap) {
       }
       if (bal) continue;
       if (mark) for (; done < i; done++) list[done].ok = true;
+      else done = i;
       mark = false;
     }
     list.forEach((l) => { if (!l.ok) open.push(l); });

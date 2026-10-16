@@ -650,7 +650,7 @@ function piecesPending(r, mode, arrete, S = piecesSuivi(r)) {
     if (e.done || seen.has(e.id) || stepYm(m, e) > ymOf(arrete)) return;
     seen.add(e.id);
     const at = e.at || m.createdAt || '';
-    const sent = (m.relances || []).filter((t) => t >= at).sort()[0] || '';
+    const sent = e.sentAt || (m.relances || []).filter((t) => t >= at).sort()[0] || '';
     out.push({ m, e, sent, comptab: solvable(m, e, x) });
   }));
   return out;
@@ -834,7 +834,7 @@ function piecesText(items, pending = []) {
 function piecesCopyText() {
   const st = piecesState();
   const v = piecesView(ui.fec.result, st);
-  return piecesText(v.fresh.filter((i) => !st.excluded.has(i.id)), v.pending);
+  return piecesText(v.fresh.filter((i) => !st.excluded.has(i.id)), v.pending.filter((x) => !x.comptab));
 }
 
 // Familles dont la liste du moteur est tronquée (fichier volumineux) à une date postérieure au début de la période.
@@ -875,10 +875,11 @@ function viewPieces() {
     return `<div class="piece-row pending"><span class="piece-text">${esc(e.label)}</span><span class="piece-rub">
       ${comptab ? '<span class="badge ok" title="Plus listée dans le FEC : facture saisie ou opération reclassée">comptabilisée depuis la demande</span>' : ''}
       <span class="badge warn">${esc(when)}</span>
-      ${key && ATTENTE_RUBRIQUES.includes(cat) ? `<span class="badge" title="Opération en compte d'attente">${esc(key.split('|')[0])}</span>${rubSel(key, cat)}` : ''}
+      ${key && ATTENTE_RUBRIQUES.includes(cat) && attLive.has('att|' + key) ? `<span class="badge" title="Opération en compte d'attente">${esc(key.split('|')[0])}</span>${rubSel(key, cat)}` : ''}
       <button class="btn small" data-action="piece-recue" data-mission="${esc(m.id)}" data-step="${esc(e.id)}">Reçue</button></span></div>`;
   };
   const nComptab = v.pending.filter((x) => x.comptab).length;
+  const attLive = new Set(pieceKeys(r).att.map((ks) => ks[0]));
   const action = kept.length ? (req ? 'Compléter la demande en cours et préparer le mail' : 'Créer la demande et préparer le mail') : v.pending.length ? 'Préparer la relance' : 'Créer la demande et préparer le mail';
   const group = (k, list, fn) => `<div class="pieces-group"><h3>${esc(PIECES_CATS[k])} <span class="count">${list.length}</span></h3>${list.map(fn).join('')}</div>`;
   return `
@@ -901,10 +902,10 @@ function viewPieces() {
       <h3 class="pieces-head">À demander <span class="count">${items.length}</span></h3>
       ${items.length ? byCat(items, (i) => i.cat).map(([k, list]) => group(k, list, piece)).join('') : `<p class="muted">Aucune nouvelle pièce à demander${mois ? ` du ${esc(fmtDate(st.from))} au ${esc(fmtDate(st.arrete))}` : ' pour cette période'}. 👍</p>`}
       ${v.pending.length ? `<h3 class="pieces-head">Déjà demandées, en attente du client <span class="count">${v.pending.length}</span></h3>
-        <p class="muted small">Pièces des demandes en cours, toujours attendues : elles figurent dans le mail (« Pour rappel ») et la liste Excel, sans être redemandées. « Reçue » coche la pièce dans sa demande.</p>
+        <p class="muted small">Pièces des demandes en cours, toujours attendues : elles figurent dans le mail (« Pour rappel ») et la liste Excel, sans être redemandées. « Reçue » coche la pièce dans sa demande. Une pièce « comptabilisée depuis la demande » (facture saisie, opération reclassée) n'est plus réclamée : elle est cochée reçue à la prochaine demande ou relance, ou tout de suite avec le bouton ci-dessous.</p>
         ${nComptab ? `<p class="small"><button class="btn small" data-action="pieces-sync">Marquer comme reçues les pièces comptabilisées depuis la demande (${nComptab})</button></p>` : ''}
         ${byCat(v.pending, (x) => CAT_OF_LABEL[x.e.cat] || 'questions').map(([k, list]) => group(k, list, pend)).join('')}` : ''}
-      ${v.ecartes.length ? `<details class="pieces-ecartes"><summary>Écartées <span class="count">${v.ecartes.length}</span></summary>
+      ${v.ecartes.length ? `<details class="pieces-ecartes"${f.ecartesOpen ? ' open' : ''}><summary>Écartées <span class="count">${v.ecartes.length}</span></summary>
         <p class="muted small">Pièces décochées lors d'une demande précédente : elles ne sont plus proposées. Cochez-en une pour la remettre dans les pièces à demander.</p>
         ${v.ecartes.map((i) => `<label class="check piece"><input type="checkbox" data-ecarte="${esc(JSON.stringify(i.keys))}"><span>${esc(i.text)}</span></label>`).join('')}
       </details>` : ''}
@@ -1065,7 +1066,12 @@ function absorbMonthly(c, target, r, stamp) {
   missionsOf(c.id).filter((x) => x !== target && isOpen(x) && x.demandePieces && x.demandePieces.mode === 'mois' && sameExercice(x.demandePieces, r)).forEach((o) => {
     const wait = o.etapes.filter((e) => !e.done);
     const dup = (e) => target.etapes.some((t) => !t.done && ((e.keys && t.keys && e.keys.some((k) => t.keys.includes(k))) || normLab(t.label) === normLab(e.label)));
-    wait.filter((e) => !dup(e)).forEach((e) => target.etapes.push(Object.assign({}, e, { ym: stepYm(o, e) })));
+    // Les étapes reprises gardent leur date d'ajout et leur date d'envoi
+    wait.filter((e) => !dup(e)).forEach((e) => {
+      const at = e.at || o.createdAt || '';
+      const sent = e.sentAt || (o.relances || []).filter((t) => t >= at).sort()[0];
+      target.etapes.push(Object.assign({}, e, { ym: stepYm(o, e), at }, sent ? { sentAt: sent } : {}));
+    });
     o.etapes = o.etapes.filter((e) => e.done);
     Object.assign(o, { statut: 'termine', termineLe: todayStr(), updatedAt: stamp, notes: `${o.notes ? o.notes + '\n' : ''}Pièces encore attendues (${wait.length}) reprises le ${fmtDate(todayStr())} dans « ${target.titre} ».` });
     log(c.id, `Demande « ${o.titre} » regroupée dans « ${target.titre} » : ${wait.length} pièce(s) encore attendue(s) reprise(s).`, true);
@@ -1082,7 +1088,10 @@ function createPiecesRequest() {
   const st = piecesState();
   if (!c) return;
   const stamp = nowIso();
-  autoSolve(c, r, st, stamp);
+  const t0 = $('#toast').textContent;
+  const solved = autoSolve(c, r, st, stamp);
+  // (sauf si « Pièces reçues » vient d'être cochée dans une mission du mois : ce message-là reste affiché)
+  if (solved && $('#toast').textContent === t0) toast(`${solved} pièce(s) comptabilisée(s) depuis la demande cochée(s) reçue(s).`);
   adoptKeys(c, r, st);
   const all = computePieces(r, st.mode, st.arrete);
   const items = all.filter((i) => !st.excluded.has(i.id));
@@ -1144,7 +1153,8 @@ function exportPiecesXlsx() {
   const c = clientById(ui.fec.clientId);
   // Pièces à demander retenues, puis pièces déjà demandées et toujours attendues
   const v = piecesView(ui.fec.result, st);
-  const blob = XlsxWriter.build({ sheets: [piecesSheet(v.fresh.filter((i) => !st.excluded.has(i.id)).concat(v.pending.map(pendingItem)), st, c, v.pending.length)] });
+  const wait = v.pending.filter((x) => !x.comptab); // comptabilisées depuis la demande : plus attendues
+  const blob = XlsxWriter.build({ sheets: [piecesSheet(v.fresh.filter((i) => !st.excluded.has(i.id)).concat(wait.map(pendingItem)), st, c, wait.length)] });
   // Nom de fichier sans accent ni caractère interdit : certains navigateurs remplacent sinon le nom par « download ».
   const name = `Documents a fournir${c ? ` - ${c.nom}` : ''} - ${piecesLabel(st.mode, st.arrete)}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/\//g, '-').replace(/[\\:*?"<>|]+|[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim();
