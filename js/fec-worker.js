@@ -818,7 +818,8 @@ function analyse(buffer, fileName, until, docs) {
   chargeLines.forEach(([ek, compte, clib, elib, amt, date]) => {
     const en = opEntries.get(remap.get(ek) || ek);
     if (!en || !en.has5 || en.has4 || /^(627|6[3-9]|64|658|66|67|68|69)/.test(compte)) return;
-    directLines.push([date, compte, clib, elib, round2(amt), round2(Math.abs(en.p5 || amt))]); // bq : montant payé en banque (TTC)
+    // bq : montant payé en banque (TTC) ; référence de l'écriture (une opération bancaire répartie sur plusieurs charges)
+    directLines.push([date, compte, clib, elib, round2(amt), round2(Math.abs(en.p5 || amt)), remap.get(ek) || ek]);
     const key = compte + '|' + labelKey(elib);
     let gr = direct.get(key);
     if (!gr) direct.set(key, (gr = { compte, clib, label: elib, count: 0, total: 0, months: {}, first: date, last: date }));
@@ -1460,7 +1461,8 @@ function matchDocs(need, docs, attCol) {
     docs: docs.length, attCol: attCol || '', kinds, judged, ok,
     // Fiable si au moins une pièce sur cinq est retrouvée : sinon les noms de fichiers ne suivent pas les n° de pièce.
     reliable: judged > 0 && ok / judged >= 0.2,
-    missing: missing.slice(0, 3000), missingTotal: missing.length,
+    // Les 3 000 plus récents ; cut : date du plus ancien gardé quand la liste est tronquée
+    missing: missing.slice(-3000), missingTotal: missing.length, cut: missing.length > 3000 ? missing[missing.length - 3000].date : '',
     samples: { docs: docs.slice(0, 6).map((d) => d.base), pieces: need.filter((n) => n.piece).slice(0, 6).map((n) => n.piece) },
   };
 }

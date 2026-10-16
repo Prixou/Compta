@@ -111,6 +111,9 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   expect(v.pending.length === dm[0].etapes.length - 1 && v.pending.every((x) => x.badges.some((t) => /^demandée le \d\d\/\d\d\/\d{4}$/.test(t))), 'pièces de septembre : déjà demandées, avec la date d\'envoi', v.pending.map((x) => x.badges.join(',')).join(' | '));
   expect(has(v.fresh, /F-260190/) && has(v.fresh, /^Facture « WEB SCI EXEMPLE LOYER » du 05\/10\/2026/) && !has(v.fresh, /F-260159/), 'à demander : seulement les nouvelles pièces (loyer d\'octobre seul)');
   expect(/^Pièces manquantes \(\d+\)$/.test(v.tab) && Number(v.tab.match(/\d+/)[0]) === v.fresh.length + v.pending.length, 'onglet : à demander + déjà demandées', v.tab);
+  // Pièces toujours manquantes : jamais « comptabilisées », quel que soit l'espace (liste de la situation plafonnée, détecteurs différents)
+  const fauxPos = await p.evaluate(() => ['mois', 'situation', 'bilan'].map((mode) => piecesPending(ui.fec.result, mode, mode === 'bilan' ? '2027-08-31' : '2026-10-31').filter((x) => x.comptab).length).join(','));
+  expect(fauxPos === '0,0,0', 'aucune pièce manquante signalée comptabilisée (Mois, situation, bilan)', fauxPos);
 
   // ---------- 4. Demande d'octobre : la demande unique se complète, mail « Pour rappel », pièce écartée ----------
   const f190 = v.fresh.find((x) => /F-260190/.test(x.text));
@@ -157,9 +160,11 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   dm = await demandes(p);
   for (const e of dm[0].etapes.filter((x) => x.ym === '2026-09' && !x.done)) await p.evaluate((id) => { const m = data.missions.find((x) => x.demandePieces && x.statut !== 'termine'); toggleStep(m, id, true); }, e.id);
   expect(await tva() === '09/2026:reçue 10/2026:attente', 'pièces de septembre toutes reçues : « Pièces reçues » de la TVA de septembre seule', await tva());
+  // « Pièces reçues » de septembre décochée à la main : plus jamais recochée automatiquement
+  await p.evaluate(() => { const m = data.missions.find((x) => x.type === 'tva' && x.exercice === '09/2026'); toggleStep(m, m.etapes[0].id, false); });
   for (const e of dm[0].etapes.filter((x) => x.ym === '2026-10' && !x.done)) await p.evaluate((id) => { const m = data.missions.find((x) => x.demandePieces && x.statut !== 'termine'); if (m) toggleStep(m, id, true); }, e.id);
   dm = await demandes(p);
-  expect(await tva() === '09/2026:reçue 10/2026:reçue' && dm[0].statut === 'termine', 'toutes reçues : TVA d\'octobre cochée, demande terminée', `${await tva()} ${dm[0].statut}`);
+  expect(await tva() === '09/2026:attente 10/2026:reçue' && dm[0].statut === 'termine', 'toutes reçues : TVA d\'octobre cochée, celle de septembre décochée à la main reste décochée, demande terminée', `${await tva()} ${dm[0].statut}`);
   await p.close();
 
   // ---------- 6. Demandes antérieures (sans clés) reprises, comptabilisées depuis, coche annulée ----------
@@ -171,7 +176,9 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
       demandePieces: { mode: 'mois', arrete }, etapes: etapes.map(([label, done]) => ({ id: uid(), label, cat: 'Ventes et encaissements', done, doneAt: done ? '2026-10-03T09:00:00.000Z' : null })) });
     data.missions.push(old('Demande de pièces — mois de septembre 2026', '2026-09-30', [
       ['Facture de vente n° F-260159 (septembre 2026) : copie, ou confirmation de son annulation', false],
-      ['Facture de vente n° F-260181 (septembre 2026) : copie, ou confirmation de son annulation', true]]));
+      ['Facture de vente n° F-260181 (septembre 2026) : copie, ou confirmation de son annulation', true],
+      // Libellé d'avant la version 45 pour une opération en compte d'attente
+      ["Justificatif de l'opération « CARTE X1111 PARKING CENTRE » du 29/09/2026 : paiement de 4,60 €", false]]));
     data.missions.push(old("Demande de pièces — mois d'octobre 2026", '2026-10-31', [['Facture de vente n° F-260182 (septembre 2026) : copie, ou confirmation de son annulation', false]]));
     data.missions.push({ id: uid(), clientId: c.id, type: 'tva', titre: 'TVA 09/2026', exercice: '09/2026', echeance: '', statut: 'en_cours', priorite: 'normale', responsable: '', recurrence: 'aucune', notes: '',
       suiteCreee: false, termineLe: null, createdAt: nowIso(), updatedAt: nowIso(), etapes: [{ id: uid(), label: 'Pièces reçues', done: false, doneAt: null }] });
@@ -180,6 +187,7 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   await load(q, FEC, '2026-10');
   v = await view(q);
   expect(!has(v.fresh, /F-260159|F-260181|F-260182/) && has(v.pending, /F-260159/) && has(v.pending, /F-260182/), 'anciennes demandes reconnues au libellé : reçue absente, en attente listées comme déjà demandées');
+  expect(!has(v.fresh, /PARKING CENTRE/) && has(v.pending, /^Justificatif de l'opération « CARTE X1111 PARKING CENTRE »/), "libellé d'avant la version 45 : opération reconnue, pas redemandée");
   await q.click('button[data-action=pieces-demande]'); await q.waitForSelector('#msg-body');
   await q.click('#modal [data-action=close-modal]');
   dm = await demandes(q);
@@ -189,6 +197,8 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   expect(closed && closed.statut === 'termine' && closed.etapes.every((e) => e.done), 'demande de septembre close, pièces attendues reprises');
   const f159 = open[0].etapes.find((e) => /F-260159/.test(e.label));
   expect(f159 && !f159.done && f159.keys.length && f159.ym === '2026-09', 'pièce reprise : clés retrouvées, mois de septembre', JSON.stringify(f159));
+  const park = open[0].etapes.find((e) => /PARKING CENTRE/.test(e.label));
+  expect(park && park.keys.some((k) => k.startsWith('att|')) && open[0].etapes.filter((e) => /PARKING CENTRE/.test(e.label)).length === 1, 'opération en attente reprise une seule fois, avec ses clés');
   expect(await q.evaluate(() => data.missions.find((m) => m.type === 'tva').etapes[0].done) === false, 'reprise sans valoir réception : TVA de septembre non cochée');
   // Facture F-260159 saisie depuis la demande : signalée, cochée à la demande de l'utilisateur
   await load(q, FEC2, '2026-10');
@@ -209,6 +219,21 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   v = await view(q);
   expect(!v.pending.some((x) => x.badges.includes('comptabilisée depuis la demande')), 'FEC où la facture manque toujours : aucune pièce signalée comptabilisée');
   await q.screenshot({ path: O + 'cumul-2.png', fullPage: true });
+
+  // ---------- 7. Demande du bilan pendant la demande mensuelle : le mail porte sur le bilan ----------
+  await fecTab(q, 'pieces', 0);
+  await q.click('button[data-action=pieces-mode][data-mode=bilan]');
+  await q.click('button[data-action=pieces-demande]'); await q.waitForSelector('#msg-body');
+  const prim = await q.evaluate(() => { const m = missionById(ui.msg.primary); return m && m.demandePieces ? m.demandePieces.mode : ''; });
+  const subj = await q.inputValue('#msg-subject');
+  console.log('mail du bilan :', prim, '—', subj);
+  const corps = await q.inputValue('#msg-body');
+  expect(prim === 'bilan' && subj === 'EXEMPLE CONSEIL — pièces nécessaires pour votre bilan au 31/08/2027' && /^Afin d'établir votre bilan au 31\/08\/2027, nous avons besoin/m.test(corps) && /Pour rappel/.test(corps),
+    'mail ouvert depuis la demande du bilan : objet du bilan, demande mensuelle en rappel', `${prim} — ${subj}`);
+  await q.click('#modal [data-action=close-modal]');
+  // Série de plus de 6 000 factures (sans séquence détaillée) : numéros manquants d'après les trous transmis
+  const miss = await q.evaluate(() => JSON.stringify(seriesMissing({ seq: null, gaps: [[5, 8, '2026-09-01', '2026-09-03'], [20, 22, '2026-10-01', '2026-10-05']] }, '2026-09-01', '2026-09-30')));
+  expect(miss === '[[6,"2026-09-03"],[7,"2026-09-03"]]', 'numérotation sans séquence : trous du moteur', miss);
 
   console.log(ko ? `${ko} écart(s)` : 'Pièces manquantes cumulées : tous les contrôles sont conformes');
   console.log('erreurs', errors);

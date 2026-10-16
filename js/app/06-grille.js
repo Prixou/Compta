@@ -288,7 +288,7 @@ function setGrilleStep(m, i) {
   const et = m.etapes;
   const count = data.missions.length;
   const check = (e) => { if (!e.done) Object.assign(e, { done: true, doneAt: nowIso() }); };
-  const uncheck = (e) => { if (e.done) { Object.assign(e, { done: false, doneAt: null }); delete e.auto; } };
+  const uncheck = (e) => { if (e.done) { if (e.auto) e.noAuto = true; Object.assign(e, { done: false, doneAt: null }); delete e.auto; } };
   let msg;
   if (i === -1) { et.forEach(uncheck); msg = 'à faire'; }
   else if (i === 'all' || !et[i]) { et.forEach(check); msg = 'terminée'; }

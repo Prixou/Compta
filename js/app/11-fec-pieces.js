@@ -147,7 +147,14 @@ function pieceKeys(r) {
     // facture d'abonnement (ou du client facturé chaque mois) du même mois, déjà demandée ou reçue à ce titre.
     unm: each(p.unmatched, (u, k, o) => ({ keys: [k(`pay|${u.racine}|${u.num}|${u.date}|${u.brut || u.amt}`), o(opKey(u.date, u.brut || u.amt, u.label || u.lib))], alias: `${u.racine === '401' ? 'abo' : 'cli'}|${u.num}|${ymOf(u.date)}` })),
     att: each(p.attente, (l, k, o) => ['att|' + k(attenteKey(l)), o(opKey(l.date, l.c || l.d, l.lib))]),
-    dir: each(p.directLines, ([date, compte, , elib, amt, bq], k, o) => [k(`dir|${compte}|${date}|${amt}|${keyLib(elib)}`), o(opKey(date, bq || amt, elib))]),
+    // Une opération bancaire répartie sur plusieurs comptes de charges : même clé « op » pour toutes ses lignes
+    dir: (() => {
+      const k = keyer(), o = keyer(), byEntry = new Map();
+      return (p.directLines || []).map(([date, compte, , elib, amt, bq, ek]) => {
+        const op = ek ? byEntry.get(ek) || byEntry.set(ek, o(opKey(date, bq || amt, elib))).get(ek) : o(opKey(date, bq || amt, elib));
+        return [k(`dir|${compte}|${date}|${amt}|${keyLib(elib)}`), op];
+      });
+    })(),
     immo: each(p.immo, (l, k) => [k(`immo|${l.compte}|${l.date}|${l.montant}`)]),
     enc: each(cy.clients && cy.clients.directSales, ([date, amt, lib], k, o) => [k(`enc|${date}|${amt}|${keyLib(lib)}`), o(opKey(date, amt, lib))]),
     jus: each(cy.justif && cy.justif.missing, (x, k, o) => [k(`jus|${x.kind}|${x.num || ''}|${x.date}|${x.amt}|${x.piece || keyLib(x.lib || '')}`)]
@@ -370,20 +377,24 @@ function monthPieces(r, arrete, flt) {
 }
 
 // Dépenses payées directement (banque ou caisse → charge, sans facture fournisseur), regroupées par compte et libellé sur
-// la période. `opts.min` / `opts.max` : montant minimal d'un groupe et nombre de groupes (situation et bilan).
+// la période. `opts.min` / `opts.max` : montant minimal d'un groupe et nombre de groupes ; `opts.large` : groupes sur les
+// deux premiers mots significatifs du libellé (situation et bilan).
 function directPieces(r, push, from, to, flt, opts = {}) {
   if (justifOk(r)) return; // archive de justificatifs : liste exacte (justifPieces)
   const K = pieceKeys(r).dir;
+  const stop = new Set((r.labelIdx && r.labelIdx.stop) || []);
+  const words = (lib) => norm(lib).replace(/[^a-z ]+/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !stop.has(w)).slice(0, 2).join(' ');
   const groups = new Map();
   (r.pieces.directLines || []).forEach(([date, compte, clib, elib, amt], i) => {
     if (date < from || date > to || !flt.ok(K[i])) return;
     const lib = String(elib).replace(/\S*\d\S*/g, '').replace(/\s+/g, ' ').trim() || elib;
-    const k = compte + '|' + norm(lib);
-    const g = groups.get(k) || groups.set(k, { lib, clib, n: 0, total: 0, ops: [], keys: [] }).get(k);
+    const k = compte + '|' + (opts.large ? words(elib) || norm(lib) : norm(lib));
+    const g = groups.get(k) || groups.set(k, { lib, clib, n: 0, total: 0, ops: [], keys: [], last: '' }).get(k);
     g.n++;
     g.total = round2(g.total + amt);
     g.ops.push({ date, amt });
-    g.keys.push(...K[i]);
+    K[i].forEach((x) => { if (!g.keys.includes(x)) g.keys.push(x); });
+    if (opts.large && date >= g.last) Object.assign(g, { last: date, lib }); // libellé de la dernière opération
   });
   const docName = (lib) => (/amende|antai|contravention|\bpv\b|penalit/i.test(lib) ? 'Avis de contravention' : 'Facture');
   Array.from(groups.values()).filter((g) => g.total >= (opts.min || 0)).sort((a, b) => b.total - a.total).slice(0, opts.max || Infinity).forEach((g) => {
@@ -405,18 +416,23 @@ function immoPieces(r, push, from, to, flt) {
   });
 }
 
+// Numéros manquants d'une série dont la facture suivante est datée du `from` au `to` : [numéro, date de cette facture].
+// Série de plus de 6 000 factures (sans séquence détaillée) : d'après les trous transmis par le moteur.
+function seriesMissing(g, from, to) {
+  const out = [];
+  const add = (a, b, date) => { if (date && date >= from && date <= to) for (let n = a + 1; n < b && out.length < 5000; n++) out.push([n, date]); };
+  if (g.seq) for (let i = 1; i < g.seq.length; i++) add(g.seq[i - 1][0], g.seq[i][0], g.seq[i][1]);
+  else (g.gaps || []).forEach(([a, b, , date]) => add(a, b, date));
+  return out;
+}
+const numberingSeries = (r) => (r.cycles && ui.fecProfile !== 'pharmacie' ? r.cycles.clients.numbering.filter((g) => !g.sparse && (g.seq || g.gaps)) : []);
+
 // Numéros de facture de vente manquants : chaque trou de la numérotation est rattaché au mois de la facture qui le suit ;
 // une pièce par numéro (50 par série, puis une ligne pour le reste).
 function numberingPieces(r, push, from, to, flt) {
-  if (!r.cycles || ui.fecProfile === 'pharmacie') return;
-  r.cycles.clients.numbering.filter((g) => !g.sparse && g.seq).forEach((g) => {
-    const miss = [];
+  numberingSeries(r).forEach((g) => {
     const key = (n) => `num|${g.jc || ''}|${g.prefix}|${n}`;
-    for (let i = 1; i < g.seq.length && miss.length < 200; i++) {
-      const date = g.seq[i][1];
-      if (!date || date < from || date > to) continue;
-      for (let n = g.seq[i - 1][0] + 1; n < g.seq[i][0] && miss.length < 200; n++) if (flt.ok([key(n)])) miss.push([n, date]);
-    }
+    const miss = seriesMissing(g, from, to).filter(([n]) => flt.ok([key(n)])).slice(0, 200);
     if (!miss.length) return;
     const ref = (n) => g.prefix + String(n).padStart(g.w || 0, '0');
     miss.slice(0, 50).forEach(([n, date]) => push('ventes', `num:${g.jc || ''}:${g.prefix}:${n}`, `Facture de vente n° ${ref(n)} (${moisNom(date)}) : copie, ou confirmation de son annulation`, { keys: [key(n)], ym: ymOf(date) }));
@@ -471,9 +487,10 @@ function piecesSuivi(r) {
   let nRecues = 0;
   const ec = f && f.result === r ? ecartesStore() : {};
   if (c) missionsOf(c.id).filter((m) => m.demandePieces && sameExercice(m.demandePieces, r)).forEach((m) => m.etapes.forEach((e) => {
+    const keys = stepKeys(r, m, e) || [];
     const lab = e.keys && e.keys.length ? null : normLab(e.label);
-    if (e.done) { (e.keys || []).forEach((k) => recv.add(k)); if (lab) recvLab.add(lab); nRecues++; }
-    else if (isOpen(m)) { (e.keys || []).forEach((k) => pend.set(k, { m, e })); if (lab) pendLab.set(lab, { m, e }); }
+    if (e.done) { keys.forEach((k) => recv.add(k)); if (lab) recvLab.add(lab); nRecues++; }
+    else if (isOpen(m)) { keys.forEach((k) => pend.set(k, { m, e })); if (lab) pendLab.set(lab, { m, e }); }
   }));
   const gone = (k) => recv.has(k) || pend.has(k);
   return {
@@ -484,6 +501,54 @@ function piecesSuivi(r) {
     fltEc: { ok: (keys) => keys.every((k) => !gone(k)) && keys.some((k) => ec[k]), gone },
   };
 }
+
+// Libellés des demandes mensuelles antérieures à la version 46 pour le mois `ym` (une demande par mois, textes de l'époque)
+// → clés des opérations : leurs étapes sans clé sont ainsi reconnues opération par opération.
+function legacyIndex(r, ym) {
+  const memo = r._legacy || Object.defineProperty(r, '_legacy', { value: new Map() })._legacy;
+  if (memo.has(ym)) return memo.get(ym);
+  const idx = new Map();
+  const put = (text, keys) => { if (keys && keys.length) idx.set(normLab(text), keys); };
+  const from = `${ym}-01`, to = endOfMonth(from), mois = moisNom(from);
+  const p = r.pieces, cy = r.cycles, K = pieceKeys(r), d = fmtDate;
+  // Textes communs aux versions (opération seule, numéros, immobilisations, regroupements du mois)
+  const push = (cat, id, text, x) => put(text, x && x.keys);
+  unmatchedPieces(r, push, from, to, ALL_PIECES);
+  justifPieces(r, push, from, to, ALL_PIECES);
+  directPieces(r, push, from, to, ALL_PIECES);
+  immoPieces(r, push, from, to, ALL_PIECES);
+  numberingPieces(r, push, from, to, ALL_PIECES);
+  // Opérations en attente : texte d'avant la version 45, puis chaque rubrique
+  (p.attente || []).forEach((l, i) => {
+    if (l.date < from || l.date > to) return;
+    put(`Justificatif de l'opération « ${l.lib} » du ${d(l.date)} : ${l.c > 0 ? 'encaissement' : 'paiement'} de ${eur(l.c || l.d)} €`, K.att[i]);
+    ATTENTE_RUBRIQUES.forEach((cat) => put(`${attenteDoc(l, cat)} du ${d(l.date)} (${eur(l.c || l.d)} €)`, K.att[i]));
+  });
+  // Abonnements, clients facturés chaque mois, dépenses directes de plusieurs paiements, ventes sans TVA
+  (p.suppliers || []).forEach((sp) => { const med = stableMonthly(sp, ym); if (med !== null) put(`Facture ${sp.lib} de ${mois} (abonnement de ${eur(med)} € par mois)`, [`abo|${sp.num}|${ym}`]); });
+  if (cy) cy.clients.customers.forEach((c) => { const med = c.months && usuallyMonthly(c.months, ym); if (med !== null && med !== undefined) put(`Factures de vente à ${c.lib} pour ${mois} (facturé habituellement chaque mois, environ ${eur(med, 0)} € TTC)`, [`cli|${c.num}|${ym}`]); });
+  const groups = new Map();
+  if (!justifOk(r)) (p.directLines || []).forEach(([date, compte, clib, elib, amt], i) => {
+    if (date < from || date > to) return;
+    const lib = String(elib).replace(/\S*\d\S*/g, '').replace(/\s+/g, ' ').trim() || elib;
+    const g = groups.get(compte + '|' + norm(lib)) || groups.set(compte + '|' + norm(lib), { lib, clib, n: 0, total: 0, keys: [] }).get(compte + '|' + norm(lib));
+    g.n++;
+    g.total += amt;
+    g.keys.push(...K.dir[i]);
+  });
+  groups.forEach((g) => { if (g.n > 1) put(`Factures « ${g.lib.slice(0, 45)} » : ${g.n} paiements en ${mois}, total ${eur(g.total)} € — ${g.clib}`, g.keys); });
+  const nvIn = cy && cy.tva && cy.tva.nv ? cy.tva.nv.filter(([date]) => date >= from && date <= to) : [];
+  if (nvIn.length) {
+    const TM = tvaModel(r);
+    const nvM = nvIn.filter(([, , , , m]) => Object.keys(m).some((c) => c.startsWith('70') && TM.ca[c] && (typeof TM.ca[c].role === 'number' || TM.ca[c].role === 'sans')));
+    const base = nvM.reduce((t, [, , , , m]) => t - Object.values(m).reduce((x, v) => x + v, 0), 0);
+    if (nvM.length) put(`Ventes sans TVA de ${mois} (${nvM.length} facture(s), ${eur(base)} € HT) : nature des opérations (export, livraison intracommunautaire avec le n° de TVA du client, opération exonérée) ?`, [`tvanv|${ym}`]);
+  }
+  memo.set(ym, idx);
+  return idx;
+}
+// Clés d'une étape : les siennes, ou, pour une étape sans clé d'une demande mensuelle antérieure, celles de son libellé.
+const stepKeys = (r, m, e) => (e.keys && e.keys.length ? e.keys : m.demandePieces.mode === 'mois' ? legacyIndex(r, stepYm(m, e)).get(normLab(e.label)) || null : null);
 
 // Élément sans clé déjà reçu ou déjà demandé (reconnu à son libellé).
 const knownLab = (S, i) => S.recvLab.has(normLab(i.text)) || S.pendLab.has(normLab(i.text));
@@ -500,34 +565,57 @@ function computePiecesEcartes(r, mode, arrete, S = piecesSuivi(r)) {
   return ignoreFilter(computePiecesRaw(r, mode, arrete, S.fltEc).filter((i) => i.keys && i.keys.length && !knownLab(S, i)));
 }
 
-// Familles de pièces que l'analyse sait recalculer (une pièce absente de la liste est alors bien comptabilisée).
-function piecesCoverage(r, mode) {
+// Familles de pièces que l'analyse sait recalculer (une pièce absente des listes du FEC est alors bien comptabilisée).
+function piecesCoverage(r) {
   const cov = new Set(['att', 'immo', 'abo', justifOk(r) ? 'jus' : 'dir']);
   if (r.pieces.unmatched) cov.add('pay');
-  if (r.cycles && ui.fecProfile !== 'pharmacie') {
-    cov.add('num');
-    if (mode === 'mois') ['cli', 'tvanv', 'enc'].forEach((x) => cov.add(x));
-  }
+  if (r.cycles && ui.fecProfile !== 'pharmacie') ['num', 'cli', 'tvanv', 'enc'].forEach((x) => cov.add(x));
   return cov;
 }
-const TRUNC_OF = { pay: 'unm', att: 'att', dir: 'dir', immo: 'immo', enc: 'enc' };
+const TRUNC_OF = { pay: 'unm', att: 'att', dir: 'dir', immo: 'immo', enc: 'enc', jus: 'jus' };
 
-// Contexte du contrôle « comptabilisée depuis la demande » : clés et opérations (date, montant) encore listées dans la
-// liste brute (sans mémoire, avant le filtre des fournisseurs à ne jamais solliciter).
-function solveCtx(r, mode, arrete) {
-  const raw = computePiecesRaw(r, mode, arrete, ALL_PIECES);
+// Contexte du contrôle « comptabilisée depuis la demande » : clés et opérations (date, montant) encore présentes dans les
+// listes complètes du FEC sur l'exercice jusqu'à la date (sans plafond ni seuil d'affichage, quel que soit l'espace), séries
+// de numérotation suivies, factures saisies des abonnements et clients facturés chaque mois, ventes sans TVA restantes.
+function solveCtx(r, arrete) {
+  const p = r.pieces, cy = r.cycles || {}, K = pieceKeys(r);
+  const from = exStart(r, arrete);
+  const inP = (date) => date >= from && date <= arrete;
   const present = new Set(), weak = new Set();
-  raw.forEach((i) => {
-    (i.keys || []).forEach((k) => present.add(k));
-    (i.ops || []).forEach((o) => weak.add(`${o.date}|${Math.round(Math.abs(o.amt) * 100)}`));
+  const add = (keys) => keys.forEach((k) => present.add(k));
+  const w = (date, amt) => weak.add(`${date}|${Math.round(Math.abs(amt) * 100)}`);
+  (p.unmatched || []).forEach((u, i) => { if (inP(u.date)) { add(K.unm[i].keys); present.add(K.unm[i].alias); w(u.date, u.amt); w(u.date, u.brut || u.amt); } });
+  (p.attente || []).forEach((l, i) => { if (inP(l.date)) { add(K.att[i]); w(l.date, l.c || l.d); } });
+  (p.directLines || []).forEach((l, i) => { if (inP(l[0])) { add(K.dir[i]); w(l[0], l[4]); w(l[0], l[5] || l[4]); } });
+  (p.immo || []).forEach((l, i) => { if (inP(l.date)) { add(K.immo[i]); w(l.date, l.montant); } });
+  ((cy.clients && cy.clients.directSales) || []).forEach((x, i) => { if (inP(x[0])) { add(K.enc[i]); w(x[0], x[1]); } });
+  ((cy.justif && cy.justif.missing) || []).forEach((x, i) => { if (inP(x.date)) { add(K.jus[i]); w(x.date, x.amt); } });
+  const series = new Set();
+  numberingSeries(r).forEach((g) => {
+    series.add(`${g.jc || ''}|${g.prefix}`);
+    seriesMissing(g, '0000-00-00', arrete).forEach(([n]) => present.add(`num|${g.jc || ''}|${g.prefix}|${n}`));
   });
-  (r.pieces.unmatched || []).forEach((u, i) => present.add(pieceKeys(r).unm[i].alias));
-  return { present, weak, cov: piecesCoverage(r, mode), from: exStart(r, arrete), to: arrete, maxOp: r.pieces.maxOp || arrete, trunc: r.pieces.trunc || {} };
+  let nv = null;
+  // Mois où il reste des ventes sans TVA à qualifier (paramétrage de la TVA lu seulement s'il le faut)
+  const tvanv = () => {
+    if (nv) return nv;
+    nv = new Set();
+    const list = cy.tva && cy.tva.nv ? cy.tva.nv.filter(([date]) => inP(date)) : [];
+    if (list.length) {
+      const TM = tvaModel(r);
+      list.forEach(([date, , , , m]) => { if (Object.keys(m).some((c) => c.startsWith('70') && TM.ca[c] && (typeof TM.ca[c].role === 'number' || TM.ca[c].role === 'sans'))) nv.add(ymOf(date)); });
+    }
+    return nv;
+  };
+  const trunc = Object.assign({}, p.trunc || {}, { jus: (cy.justif && cy.justif.cut) || '' });
+  return { present, weak, series, tvanv, cov: piecesCoverage(r), from, to: arrete, maxOp: p.maxOp || arrete, trunc,
+    sup: new Map((p.suppliers || []).map((x) => [x.num, x])), cust: new Map(((cy.clients && cy.clients.customers) || []).map((x) => [x.num, x])) };
 }
 
 // Étape en attente dont la pièce a été comptabilisée depuis la demande : toutes ses opérations relèvent de familles
-// recalculées par l'analyse, sur sa période (ni tronquée, ni postérieure au FEC), et aucune n'est plus listée, même sous
-// une autre forme (même date et même montant). Jamais pour une étape décochée à la main après une coche automatique.
+// recalculées par l'analyse, sur sa période (ni tronquée, ni postérieure au FEC), et aucune n'est plus présente, même sous
+// une autre forme (même date et même montant). Abonnement ou client facturé chaque mois : seulement si la facture du mois
+// est désormais saisie. Jamais pour une étape décochée à la main après une coche automatique.
 function solvable(m, e, x) {
   if (e.done || e.noAuto || !e.keys || !e.keys.length) return false;
   if ((m.demandePieces.maxOp || '') > x.maxOp) return false;
@@ -536,11 +624,16 @@ function solvable(m, e, x) {
   for (const k of fam) {
     const f = k.split('|')[0];
     if (!x.cov.has(f) || (k.startsWith('pay|411') && ui.fecProfile === 'pharmacie')) return false;
+    if (f === 'num') { if (!x.series.has(k.split('|').slice(1, 3).join('|'))) return false; continue; }
     const dt = keyDate(k);
-    if (!dt) { if (f !== 'num') return false; continue; }
-    if (dt < x.from.slice(0, dt.length) || dt > x.to.slice(0, dt.length) || dt > x.maxOp.slice(0, dt.length)) return false;
+    if (!dt || dt < x.from.slice(0, dt.length) || dt > x.to.slice(0, dt.length) || dt > x.maxOp.slice(0, dt.length)) return false;
     const tr = x.trunc[TRUNC_OF[f]];
-    if (tr && dt < tr.slice(0, dt.length)) return false;
+    if (tr && dt <= tr.slice(0, dt.length)) return false;
+    if (f === 'abo' || f === 'cli') {
+      const t = (f === 'abo' ? x.sup : x.cust).get(k.split('|')[1]);
+      if (!t || !t.months || Math.abs(t.months[dt] || 0) < 0.01) return false;
+    }
+    if (f === 'tvanv' && x.tvanv().has(dt)) return false;
   }
   if (e.keys.some((k) => x.present.has(k))) return false;
   return !e.keys.some((k) => k.startsWith('op|') && x.weak.has(k.split('|').slice(1, 3).join('|')));
@@ -550,7 +643,7 @@ function solvable(m, e, x) {
 // jusqu'à celui de la liste. `sent` : date d'envoi (première relance ou envoi postérieur à l'ajout de l'étape).
 function piecesPending(r, mode, arrete, S = piecesSuivi(r)) {
   if (!S.c) return [];
-  const x = solveCtx(r, mode, arrete);
+  const x = solveCtx(r, arrete);
   const out = [];
   const seen = new Set();
   missionsOf(S.c.id).filter((m) => isOpen(m) && m.demandePieces && sameExercice(m.demandePieces, r)).forEach((m) => m.etapes.forEach((e) => {
@@ -630,7 +723,7 @@ function computePiecesRaw(r, mode, arrete, flt = ALL_PIECES) {
   }));
 
   // Dépenses payées directement (banque ou caisse → charge, sans compte fournisseur) : groupes de 30 € au moins
-  directPieces(r, push, '0000-00-00', arrete, flt, { min: 30, max: 120 });
+  directPieces(r, push, '0000-00-00', arrete, flt, { min: 30, max: 120, large: true });
 
   // Opérations en compte d'attente, chacune dans sa rubrique
   attentePieces(r, push, '0000-00-00', arrete, flt);
@@ -746,8 +839,8 @@ function piecesCopyText() {
 
 // Familles dont la liste du moteur est tronquée (fichier volumineux) à une date postérieure au début de la période.
 function truncNote(r, from) {
-  const t = r.pieces.trunc || {};
-  const names = { unm: 'paiements sans facture', dir: 'dépenses payées directement', att: "comptes d'attente", immo: 'immobilisations', enc: 'encaissements sans facture' };
+  const t = Object.assign({}, r.pieces.trunc || {}, { jus: (r.cycles && r.cycles.justif && r.cycles.justif.cut) || '' });
+  const names = { unm: 'paiements sans facture', dir: 'dépenses payées directement', att: "comptes d'attente", immo: 'immobilisations', enc: 'encaissements sans facture', jus: 'écritures sans justificatif' };
   const list = Object.keys(names).filter((k) => t[k] && t[k] > from);
   return list.length ? `<div class="banner warn"><span><strong>Liste partielle (fichier volumineux)</strong> : ${list.map((k) => `${names[k]} antérieur(e)s au ${fmtDate(t[k])}`).join(', ')} non examiné(e)s.</span></div>` : '';
 }
@@ -956,8 +1049,13 @@ const pieceStep = (i, st, stamp) => Object.assign({ id: uid(), label: i.text, ca
 function adoptKeys(c, r, st) {
   const byLab = new Map(computePiecesRaw(r, st.mode, st.arrete).filter((i) => i.keys && i.keys.length).map((i) => [normLab(i.text), i]));
   missionsOf(c.id).filter((m) => isOpen(m) && m.demandePieces && sameExercice(m.demandePieces, r)).forEach((m) => m.etapes.forEach((e) => {
-    const i = !e.done && !e.keys && byLab.get(normLab(e.label));
-    if (i) Object.assign(e, { keys: i.keys, ym: e.ym || stepYm(m, e) }, i.src === 'attente' ? { pid: i.id } : {});
+    if (e.done || e.keys) return;
+    const i = byLab.get(normLab(e.label));
+    const keys = (i && i.keys) || stepKeys(r, m, e);
+    if (!keys) return;
+    Object.assign(e, { keys, ym: e.ym || stepYm(m, e) });
+    const att = keys.find((k) => k.startsWith('att|'));
+    if (att) e.pid = 'attente:' + att.slice(4);
   }));
 }
 
@@ -1014,6 +1112,7 @@ function createPiecesRequest() {
     if (st.mode === 'mois') absorbMonthly(c, m, r, stamp);
   } else {
     const dp = m.demandePieces;
+    m.etapes.forEach((e) => { if (!e.ym) e.ym = stepYm(m, e); });
     const later = st.arrete > dp.arrete;
     m.demandePieces = Object.assign({}, dp, dpNew, {
       from: dp.from && dp.from < st.from ? dp.from : st.from,

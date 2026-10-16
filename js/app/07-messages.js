@@ -34,14 +34,15 @@ function relanceDue(m) {
   return !since || -daysUntil(since) >= (data.settings.relanceJours || 7);
 }
 
-function buildMessage(c, missions, modele) {
+// `primary` : mission depuis laquelle le message est ouvert (elle fixe l'objet d'une demande de pièces).
+function buildMessage(c, missions, modele, primary) {
   const s = data.settings;
   const salut = c.contact ? `Bonjour ${c.contact},` : 'Bonjour,';
   const signature = s.signature || [s.utilisateur, s.cabinet].filter(Boolean).join('\n');
   const titres = missions.map((m) => `« ${m.titre} »`).join(', ');
   const nextDue = missions.map((m) => m.echeance).filter(Boolean).sort()[0];
   const demandes = missions.filter((m) => m.demandePieces);
-  if (demandes.length) return buildPiecesMessage(c, demandes, modele, salut, signature);
+  if (demandes.length) return buildPiecesMessage(c, demandes, modele, salut, signature, primary);
   const pieces = [];
   missions.forEach((m) => piecesManquantes(m).forEach((p) => {
     const line = missions.length > 1 ? `${p} (${m.titre})` : p;
@@ -89,17 +90,25 @@ function buildMessage(c, missions, modele) {
 
 // Message des demandes de pièces issues du FEC : pièces non encore reçues, groupées par rubrique. Demande : les pièces
 // ajoutées depuis le dernier envoi, puis « Pour rappel » celles déjà demandées ; relance : toutes, en une liste.
-function buildPiecesMessage(c, demandes, modele, salut, signature) {
-  const main = demandes.filter((m) => m.demandePieces.mode === 'mois').sort((a, b) => b.demandePieces.arrete.localeCompare(a.demandePieces.arrete))[0] || demandes[0];
+// La demande depuis laquelle le message est ouvert fixe l'objet (situation, bilan) ; à défaut, la demande mensuelle la plus récente.
+function buildPiecesMessage(c, demandes, modele, salut, signature, primary) {
+  const main = demandes.find((m) => m.id === primary)
+    || demandes.filter((m) => m.demandePieces.mode === 'mois').sort((a, b) => b.demandePieces.arrete.localeCompare(a.demandePieces.arrete))[0] || demandes[0];
   const but = piecesBut(main.demandePieces);
   const order = Object.values(PIECES_CATS);
+  // Une pièce par étape ; une même pièce présente dans deux demandes (mêmes opérations, ou même libellé sans clé) n'est citée qu'une fois.
   const steps = [];
-  const seen = new Set();
-  demandes.forEach((m) => m.etapes.filter((e) => !e.done).forEach((e) => {
-    if (seen.has(e.label)) return;
-    seen.add(e.label);
-    steps.push({ m, e, sent: (m.relances || []).some((t) => t >= (e.at || m.createdAt || '')) });
-  }));
+  const keys = new Set(), labs = new Set();
+  demandes.forEach((m) => {
+    const own = new Set();
+    m.etapes.filter((e) => !e.done).forEach((e) => {
+      const k = e.keys && e.keys.length ? e.keys : null;
+      if (k ? k.some((x) => keys.has(x)) : labs.has(e.label) && !own.has(e.label)) return;
+      (k || []).forEach((x) => keys.add(x));
+      if (!k) { labs.add(e.label); own.add(e.label); }
+      steps.push({ m, e, sent: (m.relances || []).some((t) => t >= (e.at || m.createdAt || '')) });
+    });
+  });
   const list = (l) => {
     const groups = {};
     l.forEach(({ e }) => (groups[e.cat || 'Autres'] = groups[e.cat || 'Autres'] || []).push(e.label));
@@ -135,7 +144,7 @@ function openMessage(clientId, missionId, modele) {
   // Demande de pièces : les autres demandes ouvertes du dossier qui attendent des pièces partent dans le même message.
   if (first && first.demandePieces) open.filter((m) => m.demandePieces && m.etapes.some((e) => !e.done)).forEach((m) => { if (!selected.includes(m.id)) selected.push(m.id); });
   ui.msg = {
-    clientId, selected: new Set(selected),
+    clientId, selected: new Set(selected), primary: missionId || selected[0],
     modele: modele || (first && first.statut === 'attente_client' && lastRelance(first) ? 'relance' : first && first.statut === 'a_valider' ? 'validation' : 'pieces'),
   };
   renderMessage();
@@ -146,7 +155,7 @@ function renderMessage() {
   const c = clientById(st.clientId);
   const open = missionsOf(c.id).filter(isOpen).sort(byDue);
   const missions = open.filter((m) => st.selected.has(m.id));
-  const msg = buildMessage(c, missions.length ? missions : open.slice(0, 1), st.modele);
+  const msg = buildMessage(c, missions.length ? missions : open.slice(0, 1), st.modele, st.primary);
   modalRefresh = null;
   openModal(`
     <div class="sheet">

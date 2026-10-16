@@ -470,9 +470,10 @@ function setStatus(m, statut) {
 // Coche l'étape d'une mission du dossier quand le travail correspondant est fait ailleurs dans l'application
 // (demande de pièces soldée, révision signée). `periods` : exercices acceptés (« 2025 », « 08/2025 », '' pour une mission sans période).
 function autoStep(clientId, types, periods, re, why) {
-  const m = missionsOf(clientId).find((x) => isOpen(x) && types.includes(x.type) && periods.includes(x.exercice || '') && x.etapes.some((e) => !e.done && re.test(e.label)));
+  // (une étape décochée à la main après une coche automatique n'est plus cochée automatiquement)
+  const m = missionsOf(clientId).find((x) => isOpen(x) && types.includes(x.type) && periods.includes(x.exercice || '') && x.etapes.some((e) => !e.done && !e.noAuto && re.test(e.label)));
   if (!m) return '';
-  const e = m.etapes.find((x) => !x.done && re.test(x.label));
+  const e = m.etapes.find((x) => !x.done && !x.noAuto && re.test(x.label));
   Object.assign(e, { done: true, doneAt: nowIso(), auto: why });
   m.updatedAt = nowIso();
   if (m.etapes.every((x) => x.done)) setStatus(m, 'termine');
