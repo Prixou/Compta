@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '49';
+const ASSET_VERSION = '50';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -369,9 +369,8 @@ function viewFec() {
     const k = r.kpi;
     const tile = (label, value, cls) => `<div class="kpi ${cls || ''}"><strong>${value}</strong><span>${label}</span></div>`;
     const nbPieces = r.pieces ? computePieces(r, piecesState().mode, piecesState().arrete).length : 0;
-    const nbWait = r.pieces ? piecesPending(r, piecesState().mode, piecesState().arrete).length : 0;
     body = `
-      ${nbPieces || nbWait ? `<div class="banner info"><span><strong>${nbPieces} pièce(s) ou information(s)</strong> à demander au client pour ${piecesState().mode === 'bilan' ? 'le bilan' : 'la situation'} au ${fmtDate(piecesState().arrete)}${nbWait ? ` (et ${nbWait} déjà demandée(s), en attente)` : ''}.</span><button class="btn small" data-action="fec-tab" data-tab="pieces">Voir la liste</button></div>` : ''}
+      ${nbPieces ? `<div class="banner info"><span><strong>${nbPieces} pièce(s) ou information(s)</strong> à demander au client pour ${piecesState().mode === 'bilan' ? 'le bilan' : 'la situation'} au ${fmtDate(piecesState().arrete)}.</span><button class="btn small" data-action="fec-tab" data-tab="pieces">Voir la liste</button></div>` : ''}
       <div class="kpis fec-kpis">
         ${tile('Anomalies', errors, errors ? 'kpi-late' : '')}
         ${tile('Points à vérifier', warnings, warnings ? 'kpi-wait' : '')}

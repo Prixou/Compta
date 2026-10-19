@@ -88,8 +88,8 @@ function buildMessage(c, missions, modele, primary) {
   return { subject, body: body.join('\n') };
 }
 
-// Message des demandes de pièces issues du FEC : pièces non encore reçues, groupées par rubrique. Demande : les pièces
-// ajoutées depuis le dernier envoi, puis « Pour rappel » celles déjà demandées ; relance : toutes, en une liste.
+// Message des demandes de pièces issues du FEC : pièces non encore reçues, groupées par rubrique, en une seule liste (qu'elles
+// aient déjà été demandées ou non).
 // La demande depuis laquelle le message est ouvert fixe l'objet (situation, bilan) ; à défaut, la demande mensuelle la plus récente.
 function buildPiecesMessage(c, demandes, modele, salut, signature, primary) {
   const main = demandes.find((m) => m.id === primary)
@@ -106,7 +106,7 @@ function buildPiecesMessage(c, demandes, modele, salut, signature, primary) {
       if (k ? k.some((x) => keys.has(x)) : labs.has(e.label) && !own.has(e.label)) return;
       (k || []).forEach((x) => keys.add(x));
       if (!k) { labs.add(e.label); own.add(e.label); }
-      steps.push({ m, e, sent: !!e.sentAt || (m.relances || []).some((t) => t >= (e.at || m.createdAt || '')) });
+      steps.push({ m, e });
     });
   });
   const list = (l) => {
@@ -115,16 +115,14 @@ function buildPiecesMessage(c, demandes, modele, salut, signature, primary) {
     const rank = (k) => (order.includes(k) ? order.indexOf(k) : k === 'Opérations à identifier' ? order.indexOf(PIECES_CATS.divers) : order.length);
     return Object.keys(groups).sort((a, b) => rank(a) - rank(b)).map((cat) => `${cat} :\n${groups[cat].map((x) => `- ${x}`).join('\n')}`).join('\n\n');
   };
-  const fresh = steps.filter((x) => !x.sent), old = steps.filter((x) => x.sent);
-  const relance = modele === 'relance' || !fresh.length;
+  const relance = modele === 'relance' || !steps.length;
   const limit = main.echeance && main.echeance > todayStr() ? fmtDate(main.echeance) : null;
   // Une seule demande de situation ou de bilan : date de la demande rappelée
   const last = demandes.length === 1 && main.demandePieces.mode !== 'mois' ? lastRelance(main) : null;
   const body = relance
     ? [salut, '', `Sauf erreur de notre part, il nous manque encore les éléments suivants${last ? `, demandés le ${fmtDate(last.slice(0, 10))},` : ''} pour ${but} :`, '', list(steps), '',
       'Merci de nous les transmettre dans les meilleurs délais afin que nous puissions finaliser nos travaux.', '', 'Cordialement,', signature]
-    : [salut, '', `${afinDe(but)}, nous avons besoin des éléments suivants :`, '', list(fresh), '',
-      ...(old.length ? ['Pour rappel, nous restons dans l\'attente des éléments suivants, déjà demandés :', '', list(old), ''] : []),
+    : [salut, '', `${afinDe(but)}, nous avons besoin des éléments suivants :`, '', list(steps), '',
       limit ? `Nous vous remercions de nous les transmettre avant le ${limit}. Vous pouvez nous les envoyer au fur et à mesure.` : 'Nous vous remercions de nous les transmettre dès que possible.',
       '', 'Pour les questions, une réponse rapide par retour de mail nous suffit.', '', 'Nous restons à votre disposition.', '', 'Cordialement,', signature];
   return {

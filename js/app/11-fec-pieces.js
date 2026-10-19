@@ -528,13 +528,14 @@ function piecesSuivi(r) {
     if (e.done) { keys.forEach((k) => recv.add(k)); if (lab) recvLab.add(lab); nRecues++; }
     else if (isOpen(m)) { keys.forEach((k) => pend.set(k, { m, e })); if (lab) pendLab.set(lab, { m, e }); }
   }));
-  const gone = (k) => recv.has(k) || pend.has(k);
+  // Toute pièce encore manquante dans le FEC est à demander, déjà demandée ou non : seules les pièces écartées sont à part.
+  // `recv` / `pend` servent au suivi des demandes (étapes sans doublon, coche « comptabilisée »).
+  const gone = () => false;
   return {
     c, recv, pend, recvLab, pendLab, ec, nRecues,
-    // Nouvelles opérations : ni reçues, ni déjà demandées, ni écartées
-    flt: { ok: (keys) => keys.every((k) => !gone(k) && !ec[k]), gone },
+    flt: { ok: (keys) => keys.every((k) => !ec[k]), gone },
     // Opérations écartées (et seulement elles)
-    fltEc: { ok: (keys) => keys.every((k) => !gone(k)) && keys.some((k) => ec[k]), gone },
+    fltEc: { ok: (keys) => keys.some((k) => ec[k]), gone },
   };
 }
 
@@ -587,18 +588,17 @@ function legacyIndex(r, ym) {
 const stepKeys = (r, m, e) => (e.keys && e.keys.length ? e.keys : m.demandePieces.mode === 'mois' ? legacyIndex(r, stepYm(m, e)).get(normLab(e.label)) || null : null);
 
 // Élément sans clé déjà reçu ou déjà demandé (reconnu à son libellé).
-const knownLab = (S, i) => S.recvLab.has(normLab(i.text)) || S.pendLab.has(normLab(i.text));
 
 // Pièces à demander : opérations jamais demandées (ni reçues, ni en attente, ni écartées), hors fournisseurs à ne jamais
 // solliciter.
 function computePieces(r, mode, arrete, S = piecesSuivi(r)) {
-  return ignoreFilter(computePiecesRaw(r, mode, arrete, S.flt).filter((i) => !knownLab(S, i)));
+  return ignoreFilter(computePiecesRaw(r, mode, arrete, S.flt));
 }
 
 // Pièces écartées lors d'une demande précédente (décochées), toujours manquantes.
 function computePiecesEcartes(r, mode, arrete, S = piecesSuivi(r)) {
   if (!Object.keys(S.ec).length) return [];
-  return ignoreFilter(computePiecesRaw(r, mode, arrete, S.fltEc).filter((i) => i.keys && i.keys.length && !knownLab(S, i)));
+  return ignoreFilter(computePiecesRaw(r, mode, arrete, S.fltEc).filter((i) => i.keys && i.keys.length));
 }
 
 // Familles de pièces que l'analyse sait recalculer (une pièce absente des listes du FEC est alors bien comptabilisée).
@@ -846,12 +846,12 @@ function selectedPieces() {
 // Contenu de l'onglet : pièces à demander (jamais demandées), déjà demandées (en attente du client), écartées.
 function piecesView(r, st) {
   const S = piecesSuivi(r);
-  return { S, fresh: computePieces(r, st.mode, st.arrete, S), pending: piecesPending(r, st.mode, st.arrete, S), ecartes: computePiecesEcartes(r, st.mode, st.arrete, S) };
+  return { S, fresh: computePieces(r, st.mode, st.arrete, S), pending: [], ecartes: computePiecesEcartes(r, st.mode, st.arrete, S) };
 }
 // Pièces encore dues par le client à la date : à demander et déjà demandées (compteurs de l'onglet et du portefeuille).
 function piecesCount(r, mode, arrete) {
   const S = piecesSuivi(r);
-  return computePieces(r, mode, arrete, S).length + piecesPending(r, mode, arrete, S).length;
+  return computePieces(r, mode, arrete, S).length;
 }
 
 // Rubrique d'une étape (libellé enregistré) ; les « opérations à identifier » des premières demandes vont en opérations diverses.
@@ -922,8 +922,8 @@ function viewPieces() {
     <section class="card">
       <h2>${mois ? `Pièces manquantes au ${esc(dateLongue(st.arrete))}` : 'Pièces à demander au client'}</h2>
       <p class="muted small">${mois
-        ? `Exercice ouvert le ${esc(dateLongue(st.from))} : pièces des achats et des ventes encore manquantes jusqu'au ${esc(dateLongue(st.arrete))} (mois choisi et mois précédents), d'après le FEC actuel. Une pièce cochée « reçue » dans une demande n'est plus proposée ; une pièce déjà demandée reste listée avec la date de la demande, sans être redemandée. La demande mensuelle du dossier est unique : elle se complète de mois en mois.`
-        : "Liste établie à partir des écritures : relevés manquants, factures récurrentes absentes, paiements sans facture, opérations en compte d'attente… Une pièce cochée « reçue » dans une demande du dossier n'est plus proposée. Décochez ce qui ne s'applique pas, puis créez la demande."}</p>
+        ? `Exercice ouvert le ${esc(dateLongue(st.from))} : pièces des achats et des ventes encore manquantes jusqu'au ${esc(dateLongue(st.arrete))} (mois choisi et mois précédents), d'après le FEC actuel, qu'elles aient déjà été demandées ou non. La demande mensuelle du dossier est unique : elle se complète de mois en mois.`
+        : "Liste établie à partir des écritures : relevés manquants, factures récurrentes absentes, paiements sans facture, opérations en compte d'attente… Toute pièce encore manquante dans le FEC est proposée, qu'elle ait déjà été demandée ou non. Décochez ce qui ne s'applique pas, puis créez la demande."}</p>
       ${truncNote(r, st.from)}
       ${c ? '' : '<div class="banner info"><span>Rattachez l\'analyse à un dossier (en haut de page) : les pièces déjà demandées ou reçues seront reconnues et la demande pourra être créée.</span></div>'}
       ${nAttente ? `<p class="muted small">Opérations en compte d'attente (${nAttente}, repérées par leur n° de compte) : choisissez pour chacune la rubrique de la demande, <em>Ventes et encaissements</em>, <em>Factures fournisseurs</em> ou <em>Opérations diverses</em>. La rubrique proposée suit l'affectation déjà utilisée pour le même libellé, sinon le sens de l'opération ; votre choix est conservé dans le dossier.</p>` : ''}
@@ -946,7 +946,6 @@ function viewPieces() {
         ${v.ecartes.map((i) => `<label class="check piece"><input type="checkbox" data-ecarte="${esc(JSON.stringify(i.keys))}"><span>${esc(i.text)}</span></label>`).join('')}
       </details>` : ''}
       ${comptes411Html(r)}
-      ${v.S.nRecues ? `<p class="muted small">${v.S.nRecues} pièce(s) reçue(s) depuis le début de l'exercice ne sont plus proposées.</p>` : ''}
       <div class="pieces-actions">
         <button class="btn primary" data-action="pieces-demande"${c && (kept.length || v.pending.length) ? '' : ' disabled'}>${icon('mail')}${action}</button>
         <button class="btn" data-action="pieces-copy"${kept.length || v.pending.length ? '' : ' disabled'}>Copier la liste</button>
@@ -1145,7 +1144,9 @@ function createPiecesRequest() {
   const titre = `Demande de pièces — ${piecesLabel(st.mode, st.arrete)}`;
   const exercice = (r.meta.closing || st.arrete).slice(0, 4);
   const dpNew = { mode: st.mode, from: st.from, arrete: st.arrete, closing: r.meta.closing || '', maxOp: r.pieces.maxOp || '', v: 2 };
-  const steps = items.map((i) => pieceStep(i, st, stamp));
+  // Pièce déjà demandée et toujours attendue : son étape reste celle de la demande en cours (pas de doublon)
+  const S = piecesSuivi(r);
+  const steps = items.filter((i) => !(i.keys && i.keys.length ? i.keys.every((k) => S.pend.has(k)) : S.pendLab.has(normLab(i.text)))).map((i) => pieceStep(i, st, stamp));
   if (!m) {
     m = {
       id: uid(), clientId: c.id, type: 'libre', titre, exercice, echeance: addDays(todayStr(), 10),
@@ -1174,6 +1175,9 @@ function createPiecesRequest() {
     }
     m.updatedAt = stamp;
   }
+  // Pièce qui regroupe une opération déjà demandée avec de nouvelles (même tiers, même dépense) : elle remplace l'étape en attente
+  const added = new Set(steps);
+  m.etapes = m.etapes.filter((e) => added.has(e) || e.done || !e.keys || !e.keys.length || !steps.some((n) => n.keys && e.keys.every((k) => n.keys.includes(k))));
   if (off.length) setEcarte(off.flatMap((i) => i.keys), true);
   st.excluded.clear();
   if (m.etapes.every((e) => e.done)) setStatus(m, 'termine');
@@ -1190,24 +1194,7 @@ function exportPiecesXlsx() {
   const c = clientById(ui.fec.clientId);
   // Pièces à demander retenues, puis pièces déjà demandées et toujours attendues
   const v = piecesView(ui.fec.result, st);
-  const wait = v.pending.filter((x) => !x.comptab); // comptabilisées depuis la demande : plus attendues
-  // Pièce d'une demande antérieure à la version 48 (opérations sans libellé) : libellé de chaque écriture retrouvé par sa
-  // date et son montant dans l'analyse, document au singulier (une ligne par opération).
-  const p = ui.fec.result.pieces;
-  const libs = new Map();
-  const at = (date, amt) => `${date}|${Math.round(Math.abs(amt) * 100)}`;
-  const put = (date, amt, lib) => { if (lib) libs.set(at(date, amt), lib); };
-  (p.unmatched || []).forEach((u) => put(u.date, u.amt, u.label));
-  (p.directLines || []).forEach(([date, , , elib, amt]) => put(date, amt, elib));
-  (p.attente || []).forEach((l) => put(l.date, l.c || l.d, l.lib));
-  (p.immo || []).forEach((l) => put(l.date, l.montant, l.lib));
-  const ONE = { achats: 'Facture correspondant au paiement', ventes: "Facture ou avoir correspondant à l'encaissement", justif: 'Facture', immo: "Facture d'acquisition", divers: 'Justificatif' };
-  const old = (i) => {
-    if (!i.ops || !i.ops.length || i.ops.some((o) => o.lib)) return i;
-    const ops = i.ops.map((o) => Object.assign({}, o, { lib: libs.get(at(o.date, o.amt)) }));
-    return ops.some((o) => o.lib) ? Object.assign({}, i, { ops, doc: ONE[i.cat] || i.doc, doc1: ONE[i.cat] }) : i;
-  };
-  const blob = XlsxWriter.build({ sheets: [piecesSheet(v.fresh.filter((i) => !st.excluded.has(i.id)).concat(wait.map((x) => old(pendingItem(x)))), st, c, wait.length)] });
+  const blob = XlsxWriter.build({ sheets: [piecesSheet(v.fresh.filter((i) => !st.excluded.has(i.id)), st, c)] });
   // Nom de fichier sans accent ni caractère interdit : certains navigateurs remplacent sinon le nom par « download ».
   const name = `Documents a fournir${c ? ` - ${c.nom}` : ''} - ${piecesLabel(st.mode, st.arrete)}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/\//g, '-').replace(/[\\:*?"<>|]+|[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -1249,7 +1236,7 @@ function wrapLines(text, width) {
 // par bandeau. Une ligne numérotée par écriture (une demande qui regroupe plusieurs opérations est détaillée) : document,
 // libellé de l'écriture, date et montant dans leurs colonnes, et deux colonnes à remplir : « Transmis » (case ☐ à cocher
 // au menu de la cellule, ou « Sans objet ») et commentaires. Un document sans opération occupe les deux premières colonnes. À l'impression, un bandeau n'est jamais séparé de son premier document.
-function piecesSheet(items, st, c, nPending = 0) {
+function piecesSheet(items, st, c) {
   const s = data.settings;
   const W = [5, 36, 42, 11, 13, 11, 27];
   const PAGE = 500; // hauteur utile d'une page A4 paysage, en points (un peu moins que les 516 réels)
@@ -1275,7 +1262,7 @@ function piecesSheet(items, st, c, nPending = 0) {
   wide(c ? `${c.nom} — ${objet}` : objet, 14, 22);
   wide(`Liste établie le ${fmtDate(todayStr())}${s.cabinet ? ` par ${s.cabinet}` : ''}${limit ? ` · réponse souhaitée avant le ${limit}` : ''}`, 15, 18);
   add([], 8);
-  const intro = `${afinDe(but)}, merci de nous transmettre les documents ci-dessous${nPending ? ', y compris ceux déjà demandés et pas encore reçus' : ''}. Vous pouvez les envoyer au fur et à mesure : cochez la case ☑ de la colonne « Transmis » (menu de la cellule) pour chaque document envoyé, ou choisissez « Sans objet » s'il n'existe pas, en le précisant en commentaire.`;
+  const intro = `${afinDe(but)}, merci de nous transmettre les documents ci-dessous. Vous pouvez les envoyer au fur et à mesure : cochez la case ☑ de la colonne « Transmis » (menu de la cellule) pour chaque document envoyé, ou choisissez « Sans objet » s'il n'existe pas, en le précisant en commentaire.`;
   wide(intro, 16, lineH(wrapLines(intro, W.reduce((a, b) => a + b, 0) - 6)) + 8);
 
   // Une ligne numérotée par écriture : une demande qui regroupe plusieurs opérations (même tiers, même dépense) est
