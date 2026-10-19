@@ -171,26 +171,26 @@ const ALL_PIECES = { ok: () => true, gone: () => false };
 const itemYm = (i, fallback) => (i.ym || (i.ops && i.ops.length ? i.ops.map((o) => o.date).sort()[0].slice(0, 7) : '')
   || ((i.keys || []).map(keyDate).filter(Boolean).sort()[0] || '').slice(0, 7) || ymOf(fallback));
 
-// Officine : comptes clients écartés à la main dans le dossier (n° → nom), jamais demandés.
-function comptesEcartes(create) {
+// Officine : choix du cabinet pour chaque compte client 411 (n° → true : encaissements demandés, false : écartés),
+// conservé dans le dossier et prioritaire sur la reconnaissance automatique.
+function choix411(create) {
   const f = ui.fec || {};
   const o = clientById(f.clientId) || f;
-  return o.comptesEcartes || (create ? (o.comptesEcartes = {}) : {});
+  return o.comptes411 || (create ? (o.comptes411 = {}) : {});
 }
-// Officine : compte 411 d'un vrai client (établissement, professionnel…). Les organismes de tiers payant, les comptes
-// techniques (CTP, CCLIENT, comptoir, ventes comptant, carte bancaire, caisse), les patients et les comptes écartés ne
-// sont pas demandés.
+// Reconnaissance automatique d'un vrai client (établissement, professionnel…) : les organismes de tiers payant, les comptes
+// techniques (CTP, CCLIENT, comptoir, ventes comptant, carte bancaire, caisse) et les patients ne sont pas demandés.
 const RE_411_TECH = /(^|[^a-z])(ctp|cclient|tpe|cb)([^a-z]|$)|cclient|comptoir|comptant|carte banc|caisse|especes|tiers payant/;
+const auto411 = (num, lib) => { const txt = norm(`${lib} ${num}`); return !RE_PATIENT.test(txt) && !RE_411_TECH.test(txt) && !RE_AMO.test(txt) && !RE_AMC.test(txt); };
 function client411(num, lib) {
   if (ui.fecProfile !== 'pharmacie') return true;
-  const txt = norm(`${lib} ${num}`);
-  return !RE_PATIENT.test(txt) && !RE_411_TECH.test(txt) && !RE_AMO.test(txt) && !RE_AMC.test(txt) && !comptesEcartes()[num];
+  const v = choix411()[num];
+  return typeof v === 'boolean' ? v : auto411(num, lib);
 }
 
 // Règlements et encaissements non affectés à une facture, regroupés par tiers : une demande par tiers, chaque paiement daté.
 // `flt.ok(clés)` : opération à proposer ; `flt.gone(clé)` : facture déjà demandée ou reçue.
 function unmatchedPieces(r, push, from, to, flt) {
-  const pharma = ui.fecProfile === 'pharmacie';
   const d = fmtDate;
   const K = pieceKeys(r).unm;
   const ok411 = new Map();
@@ -213,7 +213,7 @@ function unmatchedPieces(r, push, from, to, flt) {
     else push('ventes', `ne:${u0.num}`, list.length === 1
       ? `Facture ou avoir ${u0.lib} correspondant à l'encaissement de ${eur(u0.amt)} € du ${d(u0.date)}`
       : `Factures ou avoirs ${u0.lib} correspondant aux encaissements ${det}`,
-    Object.assign({ doc: list.length === 1 ? "Facture ou avoir correspondant à l'encaissement" : `Factures ou avoirs correspondant aux ${list.length} encaissements` }, x, pharma ? { cpt: u0.num, cptLib: u0.lib } : {}));
+    Object.assign({ doc: list.length === 1 ? "Facture ou avoir correspondant à l'encaissement" : `Factures ou avoirs correspondant aux ${list.length} encaissements` }, x));
   });
 }
 
@@ -483,6 +483,21 @@ function sameExercice(dp, r) {
   return dp.arrete >= exStart(r, r.meta.closing || (r.pieces && r.pieces.maxOp) || dp.arrete) && dp.arrete <= to;
 }
 
+// Officine : comptes 411 ayant des encaissements sans facture, chacun coché s'il est à demander (choix du dossier, sinon
+// reconnaissance automatique).
+function comptes411Html(r) {
+  if (ui.fecProfile !== 'pharmacie') return '';
+  const m = new Map();
+  (r.pieces.unmatched || []).forEach((u) => { if (u.racine === '411') (m.get(u.num) || m.set(u.num, { num: u.num, lib: u.lib, n: 0 }).get(u.num)).n++; });
+  if (!m.size) return '';
+  const list = Array.from(m.values()).sort((a, b) => a.lib.localeCompare(b.lib));
+  const on = list.filter((x) => client411(x.num, x.lib)).length;
+  return `<details class="pieces-ecartes"${ui.fec.c411Open ? ' open' : ''}><summary>Comptes clients 411 <span class="count">${on} demandé(s) sur ${list.length}</span></summary>
+    <p class="muted small">Encaissements sans facture demandés pour les comptes cochés. Par défaut, les comptes de tiers payant, les comptes techniques (CTP, CCLIENT, comptoir…) et les patients sont décochés ; votre choix est conservé dans le dossier.</p>
+    ${list.map((x) => `<label class="check piece"><input type="checkbox" data-compte411="${esc(x.num)}"${client411(x.num, x.lib) ? ' checked' : ''}><span>${esc(x.lib)} (${esc(x.num)}) · ${x.n} encaissement(s)${typeof choix411()[x.num] === 'boolean' ? '' : ' · choix automatique'}</span></label>`).join('')}
+  </details>`;
+}
+
 // Pièces écartées volontairement (décochées lors d'une demande) : conservées par dossier, proposées à part.
 function ecartesStore(create) {
   const f = ui.fec;
@@ -720,7 +735,7 @@ function computePiecesRaw(r, mode, arrete, flt = ALL_PIECES) {
   if (p.unmatched) unmatchedPieces(r, push, '0000-00-00', arrete, flt);
   else p.tiers.forEach((t) => {
     if (t.racine === '401' && t.s > 0) push('achats', 'deb:' + t.num, `Facture ${t.lib} correspondant au paiement de ${eur(t.s)} € (compte fournisseur débiteur : payé mais non facturé)`);
-    if (t.racine === '411' && t.s < 0 && client411(t.num, t.lib)) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} : règlement de ${eur(-t.s)} € reçu sans facture correspondante`, pharma ? { cpt: t.num, cptLib: t.lib } : {});
+    if (t.racine === '411' && t.s < 0 && client411(t.num, t.lib)) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} : règlement de ${eur(-t.s)} € reçu sans facture correspondante`);
   });
 
   // Archive de justificatifs : écritures sans pièce (exact), à la place de la liste des dépenses payées directement
@@ -885,8 +900,6 @@ function viewPieces() {
   const rubSel = (key, cat) => `<select data-piece-rub="${esc(key)}" aria-label="Rubrique de la demande">${ATTENTE_RUBRIQUES.map((k) => `<option value="${k}"${k === cat ? ' selected' : ''}>${esc(PIECES_CATS[k])}</option>`).join('')}</select>`;
   const piece = (i) => {
     const box = `<label class="check piece"><input type="checkbox" data-piece="${esc(i.id)}"${st.excluded.has(i.id) ? '' : ' checked'}><span>${esc(i.text)}</span></label>`;
-    // Officine : compte client à écarter du dossier (compte technique non reconnu)
-    if (i.cpt) return `<div class="piece-row">${box}<span class="piece-rub"><button class="btn small" data-action="compte-ecarte" data-num="${esc(i.cpt)}" data-lib="${esc(i.cptLib || '')}" title="Compte technique ou organisme : ses encaissements ne seront plus demandés pour ce dossier">Écarter ce compte</button></span></div>`;
     if (i.src !== 'attente') return box;
     // Opération en compte d'attente : rubrique de la demande au choix
     return `<div class="piece-row">${box}<span class="piece-rub"><span class="badge" title="Opération en compte d'attente">${esc(i.compte)}</span>${rubSel(i.key, i.cat)}</span></div>`;
@@ -932,7 +945,7 @@ function viewPieces() {
         <p class="muted small">Pièces décochées lors d'une demande précédente : elles ne sont plus proposées. Cochez-en une pour la remettre dans les pièces à demander.</p>
         ${v.ecartes.map((i) => `<label class="check piece"><input type="checkbox" data-ecarte="${esc(JSON.stringify(i.keys))}"><span>${esc(i.text)}</span></label>`).join('')}
       </details>` : ''}
-      ${Object.keys(comptesEcartes()).length ? `<p class="muted small">Comptes clients écartés (encaissements jamais demandés) : ${Object.entries(comptesEcartes()).map(([num, lib]) => `${esc(lib || num)} (${esc(num)}) <button class="btn small" data-action="compte-retablir" data-num="${esc(num)}">Rétablir</button>`).join(' · ')}</p>` : ''}
+      ${comptes411Html(r)}
       ${v.S.nRecues ? `<p class="muted small">${v.S.nRecues} pièce(s) reçue(s) depuis le début de l'exercice ne sont plus proposées.</p>` : ''}
       <div class="pieces-actions">
         <button class="btn primary" data-action="pieces-demande"${c && (kept.length || v.pending.length) ? '' : ' disabled'}>${icon('mail')}${action}</button>

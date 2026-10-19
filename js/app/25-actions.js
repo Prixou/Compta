@@ -411,17 +411,6 @@ const actions = {
     toggleStep(m, el.dataset.step, true);
     refresh();
   },
-  // Officine : compte client écarté du dossier, ou rétabli
-  'compte-ecarte': (el) => {
-    comptesEcartes(true)[el.dataset.num] = el.dataset.lib || el.dataset.num;
-    if (clientById(ui.fec.clientId)) persist();
-    refresh();
-  },
-  'compte-retablir': (el) => {
-    delete comptesEcartes(true)[el.dataset.num];
-    if (clientById(ui.fec.clientId)) persist();
-    refresh();
-  },
   'pieces-sync': () => {
     const c = clientById(ui.fec.clientId);
     if (!c) return;
@@ -661,6 +650,12 @@ document.addEventListener('change', (e) => {
     refresh();
   } else if (t.dataset.pieceRub && ui.fec) {
     setRubrique(t.dataset.pieceRub, t.value);
+  } else if (t.dataset.compte411 && ui.fec) {
+    // Officine : compte client 411 demandé ou écarté (le bloc reste ouvert)
+    choix411(true)[t.dataset.compte411] = t.checked;
+    ui.fec.c411Open = true;
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
   } else if (t.dataset.ecarte && ui.fec) {
     // Pièce écartée remise dans les pièces à demander (le bloc reste ouvert)
     setEcarte(JSON.parse(t.dataset.ecarte), false);

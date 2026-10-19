@@ -32,6 +32,15 @@ const { fecTab, fecMonth } = require('./lib');
   await p.screenshot({ path: O + 'ph3-catva.png', fullPage: true });
   await fecTab(p, 'pieces', 0); await p.click('button[data-action=pieces-mode][data-mode=bilan]'); await p.waitForTimeout(100);
   console.log('Pièces (bilan) :\n  ' + (await p.$$eval('.pieces-group', (g) => g.map((x) => x.querySelector('h3').textContent.replace(/\s+/g, ' ').trim() + ' : ' + Array.from(x.querySelectorAll('.piece span')).map((s) => s.textContent).join(' / ')))).join('\n  '));
+  // Comptes clients 411 : une case par compte (tiers payant, techniques et patients décochés d'office), choix conservé
+  const c411 = () => p.locator('details.pieces-ecartes', { hasText: 'Comptes clients 411' });
+  if (await c411().count()) {
+    await c411().locator('summary').click();
+    const boxes = async () => c411().locator('label').evaluateAll((l) => l.map((x) => (x.querySelector('input').checked ? '[x] ' : '[ ] ') + x.textContent.trim()));
+    console.log('Comptes 411 :\n  ' + (await boxes()).join('\n  '));
+    await c411().locator('input[data-compte411]').first().click(); await p.waitForTimeout(150);
+    console.log('après clic sur le premier :', (await boxes())[0], '| liste ouverte :', (await c411().getAttribute('open')) !== null);
+  } else console.log('Comptes 411 : aucun encaissement sans facture');
   // 3. Profil changé à la main (sans dossier rattaché) : les onglets suivent
   await p.selectOption('select[data-fec=profile]', 'classique'); await p.waitForTimeout(150);
   console.log('forcé en classique — onglet Tiers payant ?', !!(await p.$('.fec-tabs button[data-tab=tp]')), '| profil :', await prof());
