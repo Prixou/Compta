@@ -78,14 +78,25 @@ function grilleModel() {
     .filter(([k]) => !k || counts[k] || k === g.regime)
     .map(([k, l]) => [k, `${l} (${k ? counts[k] || 0 : base.length})`]));
   const sort = grilleSort();
-  const clients = base
-    .filter((c) => !g.regime || regimeGroup(c) === g.regime)
+  const byRegime = base.filter((c) => !g.regime || regimeGroup(c) === g.regime);
+  // Colonne « Année » affichée seulement s'il existe des missions annuelles (ex. CA12 « 2026 »).
+  const cols = byRegime.some((c) => grid.get(c.id)[13]) ? 13 : 12;
+  // Avancement sur un mois : masque les dossiers dont la mission de ce mois est terminée (ou garde seulement celles-là).
+  const etat = GRILLE_ETATS[data.settings.grilleEtat] ? data.settings.grilleEtat || '' : '';
+  const mois = Math.min(cols, Number(g.mois) || grilleMoisDefaut(year));
+  const etatOf = (c) => { const m = grid.get(c.id)[mois]; return !m ? 'none' : !isOpen(m) ? 'fait' : isLate(m) ? 'retard' : 'reste'; };
+  const etats = byRegime.reduce((acc, c) => { acc[etatOf(c)]++; return acc; }, { reste: 0, retard: 0, fait: 0, none: 0 });
+  const keep = { '': () => true, reste: (e) => e === 'reste' || e === 'retard', retard: (e) => e === 'retard', fait: (e) => e === 'fait' }[etat];
+  const clients = byRegime
+    .filter((c) => keep(etatOf(c)))
     .sort((a, b) => sort.dir * grilleCompare(sort.key, a, b, grid) || (a.code || '').localeCompare(b.code || '', 'fr', { numeric: true }) || a.nom.localeCompare(b.nom, 'fr'));
   const resps = allResps();
-  // Colonne « Année » affichée seulement s'il existe des missions annuelles (ex. CA12 « 2026 »).
-  const cols = clients.some((c) => grid.get(c.id)[13]) ? 13 : 12;
-  return { g, year, grid, years, base, clients, resps, regimeOptions, cols, sort, tvaClient };
+  return { g, year, grid, years, base, byRegime, clients, resps, regimeOptions, cols, sort, tvaClient, etat, mois, etats };
 }
+const GRILLE_ETATS = { '': 'Tous les dossiers', reste: 'À terminer', retard: 'En retard', fait: 'Terminés' };
+// Mois proposé par défaut : celui dont la déclaration se fait maintenant (mois précédent) pour l'année en cours, sinon décembre.
+const grilleMoisDefaut = (year) => (year === new Date().getFullYear() ? Math.max(1, new Date().getMonth()) : 12);
+const grilleMoisNom = (col, year) => (col === 13 ? `l'année ${year}` : `${MOIS_LONGS[col - 1]} ${year}`);
 const TVA_TPLS = ['tva', 'ca12', 'acompte_ca12'];
 
 const GRILLE_TRIS = { code: 'N° de dossier', nom: 'Nom du dossier', tva: 'Régime de TVA', jour: 'Jour de dépôt TVA', cloture: 'Date de clôture', resp: 'Responsable', retard: 'Retards et avancement' };
@@ -324,7 +335,7 @@ function setGrilleStep(m, i) {
 }
 
 function viewGrille() {
-  const { g, year, grid, years, base, clients, resps, regimeOptions, cols, sort, tvaClient } = grilleModel();
+  const { g, year, grid, years, base, byRegime, clients, resps, regimeOptions, cols, sort, tvaClient, etat, mois, etats } = grilleModel();
   const mode = grilleMode();
   const totals = Array.from({ length: cols }, () => ({ done: 0, all: 0 }));
 
@@ -333,7 +344,7 @@ function viewGrille() {
     totals[col - 1].all++;
     if (!isOpen(m)) totals[col - 1].done++;
     const v = grilleCellView(m, mode);
-    return `<td class="${v.cls}${hasTvaAmount(m) && tvaNetSet(m) ? ' g-has-amt' : ''}" data-action="${GRILLE_ACTIONS[mode]}" data-id="${m.id}" data-col="${col}" role="button" tabindex="0" title="${esc(v.title)}">${v.html}</td>`;
+    return `<td class="${v.cls}${hasTvaAmount(m) && tvaNetSet(m) ? ' g-has-amt' : ''}${etat && col === mois ? ' g-sel' : ''}" data-action="${GRILLE_ACTIONS[mode]}" data-id="${m.id}" data-col="${col}" role="button" tabindex="0" title="${esc(v.title)}">${v.html}</td>`;
   };
 
   const body = clients.map((c) => {
@@ -367,18 +378,22 @@ function viewGrille() {
         <button class="${mode === 'pointage' ? 'on' : ''}" data-action="grille-mode" data-mode="pointage" title="Un clic pointe la case OK">Pointage rapide</button>
         <button class="${mode === 'fiche' ? 'on' : ''}" data-action="grille-mode" data-mode="fiche" title="Un clic ouvre la mission">Ouvrir</button>
       </div>
+      <label class="inline-label">Avancement <select data-grille-etat aria-label="Avancement des dossiers">${options(Object.fromEntries(Object.entries(GRILLE_ETATS).map(([k, l]) => [k, k ? `${l} (${k === 'reste' ? etats.reste + etats.retard : etats[k]})` : l])), etat)}</select></label>
+      ${etat ? `<label class="inline-label">en <select data-grille="mois" aria-label="Mois de l'avancement">${options(Object.fromEntries(Array.from({ length: cols }, (_, i) => [String(i + 1), i === 12 ? 'Année' : MOIS_LONGS[i].replace(/^./, (x) => x.toUpperCase())])), String(mois))}</select></label>` : ''}
       ${tvaClient ? `<button class="btn small${g.tvaClient ? ' on' : ''}" data-action="grille-tvaclient" aria-pressed="${!!g.tvaClient}" title="Dossiers soumis à TVA dont le client fait lui-même ses déclarations">${g.tvaClient ? 'Masquer' : 'Afficher'} les dossiers « TVA faite par le client » (${tvaClient})</button>` : ''}
       <span class="legend"><span class="g-ok">OK</span> terminée <span class="g-progress g-leg"><span class="g-step">Ventes</span><span class="g-frac">4/9</span></span> étape atteinte <span class="g-late">!</span> en retard <span class="g-wait">Att.</span> attente client <span class="g-todo">·</span> à faire</span>
     </div>
     ${clients.length ? `
     <div class="grid-wrap card flush">
       <table class="grille">
-        <thead><tr>${[['code', 'N°', '', 'N° de dossier'], ['nom', 'Dossier', 'g-name', 'Nom du dossier'], ['tva', 'TVA', '', 'Régime de TVA'], ['jour', 'Jour', '', 'Jour limite de dépôt']].map(([k, l, cls, t]) => `<th class="${cls} g-sort${sort.key === k ? ' on' : ''}" data-action="grille-sort" data-key="${k}" role="button" tabindex="0" title="Trier par ${t.toLowerCase()}" aria-sort="${sort.key === k ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}">${l}${sort.key === k ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}${MOIS_COURTS.map((m) => `<th>${m}</th>`).join('')}${cols === 13 ? '<th title="Déclaration annuelle de l\'exercice">Année</th>' : ''}</tr></thead>
+        <thead><tr>${[['code', 'N°', '', 'N° de dossier'], ['nom', 'Dossier', 'g-name', 'Nom du dossier'], ['tva', 'TVA', '', 'Régime de TVA'], ['jour', 'Jour', '', 'Jour limite de dépôt']].map(([k, l, cls, t]) => `<th class="${cls} g-sort${sort.key === k ? ' on' : ''}" data-action="grille-sort" data-key="${k}" role="button" tabindex="0" title="Trier par ${t.toLowerCase()}" aria-sort="${sort.key === k ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}">${l}${sort.key === k ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}${MOIS_COURTS.map((m, i) => `<th${etat && mois === i + 1 ? ' class="g-sel"' : ''}>${m}</th>`).join('')}${cols === 13 ? `<th${etat && mois === 13 ? ' class="g-sel"' : ''} title="Déclaration annuelle de l'exercice">Année</th>` : ''}</tr></thead>
         <tbody>${body}</tbody>
         <tfoot><tr><td class="g-code"></td><th class="g-name">Terminées</th><td class="g-meta"></td><td class="g-meta"></td>${totals.map((t) => `<td>${t.all ? `${t.done}/${t.all}` : ''}</td>`).join('')}</tr></tfoot>
       </table>
     </div>
-    <p class="muted small">${clients.length} dossier${clients.length > 1 ? 's' : ''}, triés par ${esc(GRILLE_TRIS[sort.key].toLowerCase())}${sort.dir > 0 ? '' : ' (ordre inverse)'} — cliquez sur un titre de colonne pour trier. ${mode === 'pointage' ? '<strong>Pointage rapide :</strong> un clic sur une case la passe à OK, un second clic annule.' : mode === 'etapes' ? '<strong>Étapes :</strong> un clic sur une case affiche les étapes de la mission ; cochez celle qui est faite (les précédentes le sont aussi ; banque importée, banque affectée, saisie des ventes et saisie des achats se cochent séparément ; la dernière étape termine la mission).' : 'Cliquez sur une case pour ouvrir la mission.'} Les missions mensuelles (« MM/AAAA »), trimestrielles (« T1 AAAA ») et annuelles (« AAAA ») de l'année choisie apparaissent ici.</p>`
+    <p class="muted small">${clients.length} dossier${clients.length > 1 ? 's' : ''}${etat ? ` ${etat === 'fait' ? `terminé${clients.length > 1 ? 's' : ''}` : etat === 'retard' ? 'en retard' : 'à terminer'} pour ${esc(grilleMoisNom(mois, year))} (${[etat !== 'fait' && etats.fait ? `${etats.fait} terminé${etats.fait > 1 ? 's' : ''}` : '', etat === 'retard' && etats.reste ? `${etats.reste} à terminer sans retard` : '', etat === 'fait' && etats.reste + etats.retard ? `${etats.reste + etats.retard} à terminer` : '', etats.none ? `${etats.none} sans mission ce mois-ci` : ''].filter(Boolean).join(', ') || 'aucun autre'} masqué${byRegime.length - clients.length > 1 ? 's' : ''})` : ''}, triés par ${esc(GRILLE_TRIS[sort.key].toLowerCase())}${sort.dir > 0 ? '' : ' (ordre inverse)'} — cliquez sur un titre de colonne pour trier. ${mode === 'pointage' ? '<strong>Pointage rapide :</strong> un clic sur une case la passe à OK, un second clic annule.' : mode === 'etapes' ? '<strong>Étapes :</strong> un clic sur une case affiche les étapes de la mission ; cochez celle qui est faite (les précédentes le sont aussi ; banque importée, banque affectée, saisie des ventes et saisie des achats se cochent séparément ; la dernière étape termine la mission).' : 'Cliquez sur une case pour ouvrir la mission.'} Les missions mensuelles (« MM/AAAA »), trimestrielles (« T1 AAAA ») et annuelles (« AAAA ») de l'année choisie apparaissent ici.</p>`
+    : byRegime.length && etat
+      ? emptyState(etat === 'fait' ? `Aucune mission terminée pour ${esc(grilleMoisNom(mois, year))}.` : etat === 'retard' ? `Aucune mission en retard pour ${esc(grilleMoisNom(mois, year))}.` : `Toutes les missions de ${esc(grilleMoisNom(mois, year))} sont terminées (${etats.fait}).`, '<button class="btn" data-action="grille-etat-reset">Afficher tous les dossiers</button>')
     : base.length
       ? emptyState(`Aucun dossier « ${esc(REGIME_FILTRES[g.regime])} » pour ces critères.`, '<button class="btn" data-action="grille-reset">Afficher tous les régimes</button>')
       : tvaClient

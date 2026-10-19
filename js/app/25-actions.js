@@ -433,6 +433,11 @@ const actions = {
     ui.grille.regime = '';
     refresh();
   },
+  'grille-etat-reset': () => {
+    data.settings.grilleEtat = '';
+    persist();
+    refresh();
+  },
   'apply-import': async () => {
     const res = applyImport();
     await persist();
@@ -674,6 +679,10 @@ document.addEventListener('change', (e) => {
     data.settings.dashResp = t.value;
     ui.mf.resp = t.value;
     ui.grille.resp = t.value;
+    persist();
+    refresh();
+  } else if (t.dataset.grilleEtat !== undefined && t.tagName === 'SELECT') {
+    data.settings.grilleEtat = t.value;
     persist();
     refresh();
   } else if (t.dataset.grilleSort !== undefined && t.tagName === 'SELECT') {
