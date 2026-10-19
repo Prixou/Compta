@@ -209,11 +209,11 @@ function unmatchedPieces(r, push, from, to, flt) {
     if (u0.racine === '401') push('achats', `nf:${u0.num}`, list.length === 1
       ? `Facture ${u0.lib} correspondant au paiement de ${eur(u0.amt)} € du ${d(u0.date)}`
       : `Factures ${u0.lib} correspondant aux paiements ${det}`,
-    Object.assign({ doc: list.length === 1 ? 'Facture correspondant au paiement' : `Factures correspondant aux ${list.length} paiements` }, x));
+    Object.assign({ doc: list.length === 1 ? 'Facture correspondant au paiement' : `Factures correspondant aux ${list.length} paiements`, doc1: 'Facture correspondant au paiement' }, x));
     else push('ventes', `ne:${u0.num}`, list.length === 1
       ? `Facture ou avoir ${u0.lib} correspondant à l'encaissement de ${eur(u0.amt)} € du ${d(u0.date)}`
       : `Factures ou avoirs ${u0.lib} correspondant aux encaissements ${det}`,
-    Object.assign({ doc: list.length === 1 ? "Facture ou avoir correspondant à l'encaissement" : `Factures ou avoirs correspondant aux ${list.length} encaissements` }, x));
+    Object.assign({ doc: list.length === 1 ? "Facture ou avoir correspondant à l'encaissement" : `Factures ou avoirs correspondant aux ${list.length} encaissements`, doc1: "Facture ou avoir correspondant à l'encaissement" }, x));
   });
 }
 
@@ -424,7 +424,7 @@ function directPieces(r, push, from, to, flt, opts = {}) {
     push('justif', 'dir:' + g.keys[0], g.n === 1
       ? `${docName(g.lib)} « ${lib} » du ${fmtDate(g.ops[0].date)} (${eur(g.total)} €) — ${g.clib}`
       : `Factures « ${lib} » : ${g.n} paiements (${fmtMonths(Array.from(new Set(g.ops.map((o) => ymOf(o.date)))))}), total ${eur(g.total)} € — ${g.clib}`,
-    { doc: g.n === 1 || docName(g.lib) !== 'Facture' ? docName(g.lib) : 'Factures', ops: g.ops, keys: g.keys });
+    { doc: g.n === 1 || docName(g.lib) !== 'Facture' ? docName(g.lib) : 'Factures', doc1: docName(g.lib), ops: g.ops, keys: g.keys });
   });
 }
 
@@ -857,7 +857,7 @@ function piecesCount(r, mode, arrete) {
 // Rubrique d'une étape (libellé enregistré) ; les « opérations à identifier » des premières demandes vont en opérations diverses.
 const CAT_OF_LABEL = Object.assign({ 'Opérations à identifier': 'divers' }, ...Object.entries(PIECES_CATS).map(([k, v]) => ({ [v]: k })));
 // Pièce déjà demandée présentée comme un élément de liste (Excel, texte copié), telle que le client l'a reçue.
-const pendingItem = ({ e }) => ({ cat: CAT_OF_LABEL[e.cat] || 'questions', id: 'step:' + e.id, text: e.label, doc: e.doc, ops: e.ops, total: e.total });
+const pendingItem = ({ e }) => ({ cat: CAT_OF_LABEL[e.cat] || 'questions', id: 'step:' + e.id, text: e.label, doc: e.doc, doc1: e.doc1, ops: e.ops, total: e.total });
 
 function piecesText(items, pending = []) {
   const block = (list) => {
@@ -1079,7 +1079,7 @@ function openRequest(c, st, r) {
 
 // Étape d'une demande pour un élément de la liste : clés et mois des opérations, document et opérations pour l'Excel.
 const pieceStep = (i, st, stamp) => Object.assign({ id: uid(), label: i.text, cat: PIECES_CATS[i.cat], done: false, doneAt: null, at: stamp, ym: itemYm(i, st.arrete) },
-  i.keys && i.keys.length ? { keys: i.keys } : {}, i.doc ? { doc: i.doc } : {}, i.ops && i.ops.length ? { ops: i.ops.slice(0, 30) } : {},
+  i.keys && i.keys.length ? { keys: i.keys } : {}, i.doc ? { doc: i.doc } : {}, i.doc1 ? { doc1: i.doc1 } : {}, i.ops && i.ops.length ? { ops: i.ops.slice(0, 30) } : {},
   typeof i.total === 'number' ? { total: i.total } : {}, i.src === 'attente' ? { pid: i.id } : {});
 
 // Étapes en attente des demandes antérieures à la version 46 (sans clé), reconnues à leur libellé : elles reçoivent les clés
@@ -1191,7 +1191,23 @@ function exportPiecesXlsx() {
   // Pièces à demander retenues, puis pièces déjà demandées et toujours attendues
   const v = piecesView(ui.fec.result, st);
   const wait = v.pending.filter((x) => !x.comptab); // comptabilisées depuis la demande : plus attendues
-  const blob = XlsxWriter.build({ sheets: [piecesSheet(v.fresh.filter((i) => !st.excluded.has(i.id)).concat(wait.map(pendingItem)), st, c, wait.length)] });
+  // Pièce d'une demande antérieure à la version 48 (opérations sans libellé) : libellé de chaque écriture retrouvé par sa
+  // date et son montant dans l'analyse, document au singulier (une ligne par opération).
+  const p = ui.fec.result.pieces;
+  const libs = new Map();
+  const at = (date, amt) => `${date}|${Math.round(Math.abs(amt) * 100)}`;
+  const put = (date, amt, lib) => { if (lib) libs.set(at(date, amt), lib); };
+  (p.unmatched || []).forEach((u) => put(u.date, u.amt, u.label));
+  (p.directLines || []).forEach(([date, , , elib, amt]) => put(date, amt, elib));
+  (p.attente || []).forEach((l) => put(l.date, l.c || l.d, l.lib));
+  (p.immo || []).forEach((l) => put(l.date, l.montant, l.lib));
+  const ONE = { achats: 'Facture correspondant au paiement', ventes: "Facture ou avoir correspondant à l'encaissement", justif: 'Facture', immo: "Facture d'acquisition", divers: 'Justificatif' };
+  const old = (i) => {
+    if (!i.ops || !i.ops.length || i.ops.some((o) => o.lib)) return i;
+    const ops = i.ops.map((o) => Object.assign({}, o, { lib: libs.get(at(o.date, o.amt)) }));
+    return ops.some((o) => o.lib) ? Object.assign({}, i, { ops, doc: ONE[i.cat] || i.doc, doc1: ONE[i.cat] }) : i;
+  };
+  const blob = XlsxWriter.build({ sheets: [piecesSheet(v.fresh.filter((i) => !st.excluded.has(i.id)).concat(wait.map((x) => old(pendingItem(x)))), st, c, wait.length)] });
   // Nom de fichier sans accent ni caractère interdit : certains navigateurs remplacent sinon le nom par « download ».
   const name = `Documents a fournir${c ? ` - ${c.nom}` : ''} - ${piecesLabel(st.mode, st.arrete)}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/\//g, '-').replace(/[\\:*?"<>|]+|[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -1230,10 +1246,9 @@ function wrapLines(text, width) {
 }
 
 // Liste remise au client, présentée comme un document du cabinet : en-tête, explication, récapitulatif, puis une rubrique
-// par bandeau. Une ligne par document, le libellé de l'écriture, sa date et son montant dans leurs colonnes (une ligne par
-// opération quand la demande en regroupe plusieurs), et deux colonnes à remplir : « Transmis » (menu Oui / Non / Sans
-// objet, colorée) et commentaires. Un document sans opération (ou d'une ancienne demande, sans libellé) occupe les deux
-// premières colonnes. À l'impression, un bandeau n'est jamais séparé de son premier document.
+// par bandeau. Une ligne numérotée par écriture (une demande qui regroupe plusieurs opérations est détaillée) : document,
+// libellé de l'écriture, date et montant dans leurs colonnes, et deux colonnes à remplir : « Transmis » (case ☐ à cocher
+// au menu de la cellule, ou « Sans objet ») et commentaires. Un document sans opération occupe les deux premières colonnes. À l'impression, un bandeau n'est jamais séparé de son premier document.
 function piecesSheet(items, st, c, nPending = 0) {
   const s = data.settings;
   const W = [5, 36, 42, 11, 13, 11, 27];
@@ -1260,12 +1275,25 @@ function piecesSheet(items, st, c, nPending = 0) {
   wide(c ? `${c.nom} — ${objet}` : objet, 14, 22);
   wide(`Liste établie le ${fmtDate(todayStr())}${s.cabinet ? ` par ${s.cabinet}` : ''}${limit ? ` · réponse souhaitée avant le ${limit}` : ''}`, 15, 18);
   add([], 8);
-  const intro = `${afinDe(but)}, merci de nous transmettre les documents ci-dessous${nPending ? ', y compris ceux déjà demandés et pas encore reçus' : ''}. Vous pouvez les envoyer au fur et à mesure : indiquez « Oui » dans la colonne « Transmis » pour chaque document envoyé, ou « Sans objet » s'il n'existe pas, en le précisant en commentaire.`;
+  const intro = `${afinDe(but)}, merci de nous transmettre les documents ci-dessous${nPending ? ', y compris ceux déjà demandés et pas encore reçus' : ''}. Vous pouvez les envoyer au fur et à mesure : cochez la case ☑ de la colonne « Transmis » (menu de la cellule) pour chaque document envoyé, ou choisissez « Sans objet » s'il n'existe pas, en le précisant en commentaire.`;
   wide(intro, 16, lineH(wrapLines(intro, W.reduce((a, b) => a + b, 0) - 6)) + 8);
+
+  // Une ligne numérotée par écriture : une demande qui regroupe plusieurs opérations (même tiers, même dépense) est
+  // détaillée, chacune avec son libellé et son document ; les rubriques comptent ainsi les documents attendus.
+  // Espaces insécables dans les guillemets : « et » ne restent jamais seuls en début de ligne.
+  const nb = (t) => t.replace(/« /g, '«\u00a0').replace(/ »/g, '\u00a0»');
+  const lines = items.flatMap((it) => {
+    const all = it.ops || [];
+    if (!all.length) return [{ cat: it.cat, doc: nb(it.doc || it.text), amt: typeof it.total === 'number' ? it.total : null }];
+    const ops = all.slice(0, 30);
+    const one = all.length > 1 && it.doc1 ? it.doc1 : it.doc || it.text;
+    return ops.map((op, j) => ({ cat: it.cat, doc: nb(op.doc || one) + (j === ops.length - 1 && all.length > ops.length ? ` (et ${all.length - ops.length} autre(s) opération(s))` : ''),
+      lib: op.lib, date: op.date, amt: op.amt }));
+  });
 
   // Récapitulatif par rubrique
   const groups = {};
-  items.forEach((i) => (groups[i.cat] = groups[i.cat] || []).push(i));
+  lines.forEach((l) => (groups[l.cat] = groups[l.cat] || []).push(l));
   const cats = Object.keys(PIECES_CATS).filter((k) => groups[k]);
   add([], 10);
   keep(20 * (cats.length + 1));
@@ -1277,40 +1305,20 @@ function piecesSheet(items, st, c, nPending = 0) {
   let n = 0;
   cats.forEach((k) => {
     const q = k === 'questions';
-    const blocks = groups[k].map((it) => {
-      const all = it.ops || [];
-      const ops = all.slice(0, 30);
-      const lib = ops.some((o) => o.lib); // libellé de chaque écriture dans sa colonne
-      // Espaces insécables dans les guillemets : « et » ne restent jamais seuls en début de ligne.
-      const doc = (it.doc || it.text).replace(/« /g, '«\u00a0').replace(/ »/g, '\u00a0»') + (all.length > ops.length ? ` (${ops.length} premières opérations sur ${all.length})` : '');
-      const lines = Math.max(1, ops.length);
-      const per = Math.max(20, Math.ceil((wrapLines(doc, (lib ? W[1] : W[1] + W[2]) - 2) * 15 + 5) / lines));
-      const hs = Array.from({ length: lines }, (_, j) => (lib && ops[j].lib ? Math.max(per, wrapLines(ops[j].lib, W[2] - 2) * 15 + 5) : per));
-      return { it, ops, lib, doc, lines, hs, h: hs.reduce((a, b) => a + b, 0) };
-    });
-    // Colonne du libellé seulement si un document de la rubrique en a un
-    const libCol = blocks.some((x) => x.lib);
+    const list = groups[k].map((l) => Object.assign(l, { h: Math.max(20, wrapLines(l.doc, (l.lib ? W[1] : W[1] + W[2]) - 2) * 15 + 5, l.lib ? wrapLines(l.lib, W[2] - 2) * 15 + 5 : 0) }));
+    // Colonne du libellé seulement si une ligne de la rubrique en a un
+    const libCol = list.some((l) => l.lib);
     add([], 14);
-    keep(24 + 22 + blocks[0].h);
-    wide(`${PIECES_CATS[k].toUpperCase()}  ·  ${groups[k].length} ${q ? 'question' : 'document'}${groups[k].length > 1 ? 's' : ''}`, 17, 24);
+    keep(24 + 22 + list[0].h);
+    wide(`${PIECES_CATS[k].toUpperCase()}  ·  ${list.length} ${q ? 'question' : 'document'}${list.length > 1 ? 's' : ''}`, 17, 24);
     const head = add([{ v: 'N°', s: 18 }, { v: q ? 'Question' : 'Document demandé', s: 18 }, libCol ? { v: "Libellé de l'écriture", s: 18 } : { s: 18 }, { v: 'Date', s: 18 },
       { v: 'Montant', s: 18 }, { v: q ? 'Répondu' : 'Transmis', s: 18 }, { v: q ? 'Votre réponse' : 'Vos commentaires', s: 18 }], 22);
     if (!libCol) merges.push(`B${head}:C${head}`);
     const first = rows.length + 1;
-    blocks.forEach(({ it, ops, lib, doc, lines, hs, h }) => {
-      n++;
-      if (lines > 1) keep(h);
-      const r0 = rows.length + 1, r1 = r0 + lines - 1;
-      for (let j = 0; j < lines; j++) {
-        const op = ops[j];
-        const amt = op ? op.amt : !j && typeof it.total === 'number' ? it.total : null;
-        add([j ? { s: 20 } : { v: n, s: 20 }, j ? { s: 19 } : { v: doc, s: 19 }, lib && op.lib ? { v: op.lib, s: 19 } : { s: 19 },
-          op ? { v: XlsxWriter.serial(op.date), s: 21 } : { s: 21 }, amt === null ? { s: 22 } : { v: Math.round(amt * 100) / 100, s: 22 },
-          { s: 23 }, { s: 24 }], hs[j]);
-      }
-      if (lines > 1) merges.push(`A${r0}:A${r1}`);
-      if (!lib) merges.push(`B${r0}:C${r1}`);
-      else if (lines > 1) merges.push(`B${r0}:B${r1}`);
+    list.forEach((l) => {
+      const row = add([{ v: ++n, s: 20 }, { v: l.doc, s: 19 }, l.lib ? { v: l.lib, s: 19 } : { s: 19 }, l.date ? { v: XlsxWriter.serial(l.date), s: 21 } : { s: 21 },
+        l.amt === null || l.amt === undefined ? { s: 22 } : { v: Math.round(l.amt * 100) / 100, s: 22 }, { v: '☐', s: 23 }, { s: 24 }], l.h);
+      if (!l.lib) merges.push(`B${row}:C${row}`);
     });
     fillRefs.push(`F${first}:F${rows.length}`);
   });
@@ -1327,8 +1335,9 @@ function piecesSheet(items, st, c, nPending = 0) {
   const amp = (x) => String(x || '').replace(/&/g, '&&');
   return {
     name: 'Documents à fournir', rows, widths: W, heights, merges, breaks, grid: false, filter: false,
-    lists: ref ? [{ ref, values: ['Oui', 'Non', 'Sans objet'] }] : [],
-    colors: ref ? [{ ref, equals: 'Oui', style: 0 }, { ref, equals: 'Non', style: 1 }, { ref, equals: 'Sans objet', style: 2 }] : [],
+    // « Transmis » : case ☐ à cocher (☑) au menu de la cellule, verte une fois cochée
+    lists: ref ? [{ ref, values: ['☑', '☐', 'Sans objet'] }] : [],
+    colors: ref ? [{ ref, equals: '☑', style: 0 }, { ref, equals: 'Sans objet', style: 2 }] : [],
     page: { landscape: true, footer: `&L${amp(s.cabinet)}&C${amp(c ? `${c.nom} — ${objet}` : objet)}&RPage &P / &N` },
   };
 }
