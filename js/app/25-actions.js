@@ -411,6 +411,17 @@ const actions = {
     toggleStep(m, el.dataset.step, true);
     refresh();
   },
+  // Officine : compte client écarté du dossier, ou rétabli
+  'compte-ecarte': (el) => {
+    comptesEcartes(true)[el.dataset.num] = el.dataset.lib || el.dataset.num;
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
+  },
+  'compte-retablir': (el) => {
+    delete comptesEcartes(true)[el.dataset.num];
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
+  },
   'pieces-sync': () => {
     const c = clientById(ui.fec.clientId);
     if (!c) return;
