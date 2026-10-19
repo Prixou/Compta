@@ -267,6 +267,10 @@ function syncAttenteStep(key, cat) {
   }));
 }
 
+// Officine : encaissement du tiers payant (Assurance maladie, complémentaires), justifié par les relevés de paiement de
+// l'organisme et non par une facture : jamais demandé au client.
+const tiersPayantEnc = (lib, amt) => amt > 0 && ui.fecProfile === 'pharmacie' && (RE_AMO.test(norm(lib)) || RE_AMC.test(norm(lib)));
+
 // Une demande par opération de banque ou de caisse restée en attente, rangée dans sa rubrique : le client reçoit des
 // factures, des ventes ou des opérations diverses à justifier, et non des « opérations à identifier ». Les OD et factures
 // passées en attente ne sont pas demandées (à reclasser au cabinet), ni les encaissements qui citent une facture client.
@@ -274,7 +278,7 @@ function attentePieces(r, push, from, to, flt) {
   const store = ui.fec && ui.fec.result === r ? rubriquesStore() : {};
   const K = pieceKeys(r).att;
   (r.pieces.attente || []).forEach((l, i) => {
-    if (l.date < from || l.date > to || l.lettre || Math.abs(l.soldeCompte) < 0.01 || l.bank === false || (l.sug && l.sug[7]) || !flt.ok(K[i])) return;
+    if (l.date < from || l.date > to || l.lettre || Math.abs(l.soldeCompte) < 0.01 || l.bank === false || (l.sug && l.sug[7]) || tiersPayantEnc(l.lib, l.c) || !flt.ok(K[i])) return;
     const key = K[i][0].slice(4);
     const cat = ATTENTE_RUBRIQUES.includes(store[key]) ? store[key] : attenteDefaut(l);
     const amt = l.c || l.d;
@@ -750,7 +754,7 @@ function computePiecesRaw(r, mode, arrete, flt = ALL_PIECES) {
   const rkey = keyer();
   if (rappro) rappro.bankOnly.filter((o) => o.date <= arrete).forEach((o) => {
     const keys = [rkey(`rel|${o.date}|${o.amount}|${keyLib(o.label)}`), opKey(o.date, o.amount, o.label)];
-    if (!flt.ok(keys)) return;
+    if (!flt.ok(keys) || tiersPayantEnc(o.label, o.amount)) return;
     push('releve', keys[0], `Justificatif de l'opération bancaire « ${o.label} » du ${d(o.date)} (${o.amount > 0 ? 'encaissement' : 'paiement'} de ${eur(Math.abs(o.amount))} €), non comptabilisée`,
       { doc: `Justificatif ${o.amount > 0 ? "de l'encaissement" : 'du paiement'} (opération du relevé non comptabilisée)`, ops: [{ date: o.date, amt: Math.abs(o.amount), lib: o.label }], keys });
   });
