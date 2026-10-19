@@ -209,11 +209,11 @@ function unmatchedPieces(r, push, from, to, flt) {
     if (u0.racine === '401') push('achats', `nf:${u0.num}`, list.length === 1
       ? `Facture ${u0.lib} correspondant au paiement de ${eur(u0.amt)} € du ${d(u0.date)}`
       : `Factures ${u0.lib} correspondant aux paiements ${det}`,
-    Object.assign({ doc: list.length === 1 ? 'Facture correspondant au paiement' : `Factures correspondant aux ${list.length} paiements`, doc1: 'Facture correspondant au paiement' }, x));
+    Object.assign({ doc: list.length === 1 ? 'Facture' : 'Factures', doc1: 'Facture' }, x));
     else push('ventes', `ne:${u0.num}`, list.length === 1
       ? `Facture ou avoir ${u0.lib} correspondant à l'encaissement de ${eur(u0.amt)} € du ${d(u0.date)}`
       : `Factures ou avoirs ${u0.lib} correspondant aux encaissements ${det}`,
-    Object.assign({ doc: list.length === 1 ? "Facture ou avoir correspondant à l'encaissement" : `Factures ou avoirs correspondant aux ${list.length} encaissements`, doc1: "Facture ou avoir correspondant à l'encaissement" }, x));
+    Object.assign({ doc: list.length === 1 ? 'Facture' : 'Factures', doc1: 'Facture' }, x));
   });
 }
 
@@ -259,10 +259,12 @@ function setRubrique(key, cat) {
   refresh();
 }
 
-// Pièce demandée pour une opération en compte d'attente, selon sa rubrique ; `lib: false` : sans le libellé de l'opération
-// (liste Excel, où il a sa colonne).
+// Pièce demandée pour une opération en compte d'attente, selon sa rubrique ; `lib: false` : type de pièce seul (liste Excel,
+// où le libellé a sa colonne) : factures fournisseurs, facture d'un paiement et avoir d'un encaissement ; ventes et
+// encaissements, l'inverse ; opérations diverses, justificatif.
 function attenteDoc(l, cat, lib = true) {
   const enc = l.c > 0;
+  if (!lib) return cat === 'achats' ? (enc ? 'Avoir' : 'Facture') : cat === 'ventes' ? (enc ? 'Facture' : 'Avoir') : 'Justificatif';
   const op = lib ? ` « ${l.lib} »` : '';
   return cat === 'achats' ? (enc ? `Avoir fournisseur correspondant à l'encaissement${op}` : `Facture correspondant au paiement${op}`)
     : cat === 'ventes' ? (enc ? `Facture de vente correspondant à l'encaissement${op}` : `Avoir client correspondant au paiement${op}`)
@@ -390,7 +392,7 @@ function monthPieces(r, arrete, flt) {
       (cy.clients.directSales || []).forEach(([date, amt, lib], i) => {
         if (!inP(date) || !flt.ok(K[i]) || (perM[ymOf(date)] = (perM[ymOf(date)] || 0) + 1) > 15) return;
         push('ventes', 'enc:' + K[i][0], `Facture de vente correspondant à l'encaissement « ${lib} » du ${fmtDate(date)} (${eur(amt)} €)`,
-          { doc: "Facture de vente correspondant à l'encaissement", ops: [{ date, amt, lib }], keys: K[i] });
+          { doc: 'Facture', ops: [{ date, amt, lib }], keys: K[i] });
       });
     }
   }
@@ -1234,8 +1236,9 @@ function wrapLines(text, width) {
 
 // Liste remise au client, présentée comme un document du cabinet : en-tête, explication, récapitulatif, puis une rubrique
 // par bandeau. Une ligne numérotée par écriture (une demande qui regroupe plusieurs opérations est détaillée) : document,
-// libellé de l'écriture, date et montant dans leurs colonnes, et deux colonnes à remplir : « Transmis » (case ☐ à cocher
-// au menu de la cellule, ou « Sans objet ») et commentaires. Un document sans opération occupe les deux premières colonnes. À l'impression, un bandeau n'est jamais séparé de son premier document.
+// libellé de l'écriture, date et montant dans leurs colonnes, et deux colonnes à remplir : « Transmis » (case à cocher) et
+// commentaires. Un document sans opération occupe les deux premières colonnes. Puis un tableau « Autres documents » vide.
+// À l'impression, un bandeau n'est jamais séparé de son premier document.
 function piecesSheet(items, st, c) {
   const s = data.settings;
   const W = [5, 36, 42, 11, 13, 11, 27];
@@ -1262,7 +1265,7 @@ function piecesSheet(items, st, c) {
   wide(c ? `${c.nom} — ${objet}` : objet, 14, 22);
   wide(`Liste établie le ${fmtDate(todayStr())}${s.cabinet ? ` par ${s.cabinet}` : ''}${limit ? ` · réponse souhaitée avant le ${limit}` : ''}`, 15, 18);
   add([], 8);
-  const intro = `${afinDe(but)}, merci de nous transmettre les documents ci-dessous. Vous pouvez les envoyer au fur et à mesure : cochez la case ☑ de la colonne « Transmis » (menu de la cellule) pour chaque document envoyé, ou choisissez « Sans objet » s'il n'existe pas, en le précisant en commentaire.`;
+  const intro = `${afinDe(but)}, merci de nous transmettre les documents ci-dessous. Vous pouvez les envoyer au fur et à mesure : cochez la case de la colonne « Transmis » pour chaque document envoyé ; si un document n'existe pas, indiquez-le dans vos commentaires.`;
   wide(intro, 16, lineH(wrapLines(intro, W.reduce((a, b) => a + b, 0) - 6)) + 8);
 
   // Une ligne numérotée par écriture : une demande qui regroupe plusieurs opérations (même tiers, même dépense) est
@@ -1304,11 +1307,21 @@ function piecesSheet(items, st, c) {
     const first = rows.length + 1;
     list.forEach((l) => {
       const row = add([{ v: ++n, s: 20 }, { v: l.doc, s: 19 }, l.lib ? { v: l.lib, s: 19 } : { s: 19 }, l.date ? { v: XlsxWriter.serial(l.date), s: 21 } : { s: 21 },
-        l.amt === null || l.amt === undefined ? { s: 22 } : { v: Math.round(l.amt * 100) / 100, s: 22 }, { v: '☐', s: 23 }, { s: 24 }], l.h);
+        l.amt === null || l.amt === undefined ? { s: 22 } : { v: Math.round(l.amt * 100) / 100, s: 22 }, { v: false, s: 28 }, { s: 24 }], l.h);
       if (!l.lib) merges.push(`B${row}:C${row}`);
     });
     fillRefs.push(`F${first}:F${rows.length}`);
   });
+
+  // Autres documents : trois lignes vides à compléter au cabinet (tableau d'emprunt, attestation d'assurance…), à masquer
+  // dans Excel si elles ne servent pas
+  add([], 14);
+  keep(24 + 22 + 3 * 22);
+  wide('AUTRES DOCUMENTS', 17, 24);
+  add([{ v: 'N°', s: 18 }, { v: 'Document demandé', s: 18 }, { v: 'Précisions', s: 18 }, { v: 'Date', s: 18 }, { v: 'Montant', s: 18 }, { v: 'Transmis', s: 18 }, { v: 'Vos commentaires', s: 18 }], 22);
+  const other = rows.length + 1;
+  for (let j = 0; j < 3; j++) add([{ s: 20 }, { s: 19 }, { s: 19 }, { s: 21 }, { s: 22 }, { v: false, s: 28 }, { s: 24 }], 22);
+  fillRefs.push(`F${other}:F${rows.length}`);
 
   // Pied de page
   const sig = s.signature || [s.utilisateur, s.cabinet].filter(Boolean).join('\n');
@@ -1322,9 +1335,8 @@ function piecesSheet(items, st, c) {
   const amp = (x) => String(x || '').replace(/&/g, '&&');
   return {
     name: 'Documents à fournir', rows, widths: W, heights, merges, breaks, grid: false, filter: false,
-    // « Transmis » : case ☐ à cocher (☑) au menu de la cellule, verte une fois cochée
-    lists: ref ? [{ ref, values: ['☑', '☐', 'Sans objet'] }] : [],
-    colors: ref ? [{ ref, equals: '☑', style: 0 }, { ref, equals: 'Sans objet', style: 2 }] : [],
+    // « Transmis » : case à cocher, verte une fois cochée
+    colors: ref ? [{ ref, equals: true, style: 0 }] : [],
     page: { landscape: true, footer: `&L${amp(s.cabinet)}&C${amp(c ? `${c.nom} — ${objet}` : objet)}&RPage &P / &N` },
   };
 }

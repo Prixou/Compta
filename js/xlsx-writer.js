@@ -10,12 +10,13 @@
  *   Document remis au client (13 à 27) : 13 grand titre, 14 sous-titre, 15 mention discrète, 16 encadré d'explication,
  *            17 bandeau de rubrique, 18 en-tête de colonne, 19 texte de tableau, 20 n° de ligne, 21 date de tableau,
  *            22 montant de tableau (# ##0,00 €), 23 case à remplir centrée, 24 case à remplir (texte),
- *            25 libellé de récapitulatif, 26 nombre de récapitulatif, 27 texte de pied de page
+ *            25 libellé de récapitulatif, 26 nombre de récapitulatif, 27 texte de pied de page,
+ *            28 case à cocher (valeur true / false : case cochable d'un clic dans Excel 365, VRAI / FAUX ailleurs)
  *   Une date s'écrit { v: numéro de série Excel, s: 11 } (voir XlsxWriter.serial).
  * Plusieurs feuilles : XlsxWriter.build({ sheets: [{ name, rows, widths, freeze }, …] })
  * Options d'une feuille : heights { n° de ligne (0…) : hauteur en points }, merges ['A1:F1', …], grid: false (sans quadrillage),
  *   lists [{ ref: 'E5:E9 E12:E14', values: ['Oui', 'Non'] }] (menu déroulant),
- *   colors [{ ref, equals: 'Oui', style: 0 vert | 1 orange | 2 gris }] (couleur selon la valeur),
+ *   colors [{ ref, equals: 'Oui' (ou true), style: 0 vert | 1 orange | 2 gris }] (couleur selon la valeur),
  *   page { landscape, footer } (mise en page : une page de large, pied de page au format Excel &L &C &R),
  *   breaks [n° de la première ligne (0…) de chaque nouvelle page] (sauts de page).
  */
@@ -113,7 +114,7 @@
 <border><left/><right/><top/><bottom style="medium"><color rgb="FF1F3A5F"/></bottom><diagonal/></border>
 <border><left style="thin"><color rgb="FFE3D3A0"/></left><right style="thin"><color rgb="FFE3D3A0"/></right><top style="thin"><color rgb="FFE3D3A0"/></top><bottom style="thin"><color rgb="FFE3D3A0"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="28">
+<cellXfs count="29">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 <xf numFmtId="49" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/>
@@ -142,6 +143,7 @@
 <xf numFmtId="0" fontId="9" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" indent="1"/></xf>
 <xf numFmtId="0" fontId="11" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 <xf numFmtId="0" fontId="10" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="9" fillId="10" borderId="4" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/><extLst><ext uri="{C7286773-470A-42A8-94C5-96B5CB345126}" xmlns:xfpb="http://schemas.microsoft.com/office/spreadsheetml/2022/featurepropertybag"><xfpb:xfComplement i="0"/></ext></extLst></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 <dxfs count="3"><dxf><font><b/><color rgb="FF006100"/></font><fill><patternFill><bgColor rgb="FFC6EFCE"/></patternFill></fill></dxf><dxf><font><color rgb="FF9C5700"/></font><fill><patternFill><bgColor rgb="FFFFEB9C"/></patternFill></fill></dxf><dxf><font><color rgb="FF7F8C9A"/></font><fill><patternFill><bgColor rgb="FFF2F2F2"/></patternFill></fill></dxf></dxfs>
@@ -155,6 +157,7 @@
       const ref = colName(c) + (r + 1);
       const s = cell.s ? ` s="${cell.s}"` : '';
       if (cell.v === undefined || cell.v === null || cell.v === '') return `<c r="${ref}"${s}/>`;
+      if (typeof cell.v === 'boolean') return `<c r="${ref}"${s} t="b"><v>${cell.v ? 1 : 0}</v></c>`;
       if (typeof cell.v === 'number') return Number.isFinite(cell.v) ? `<c r="${ref}"${s}><v>${cell.v}</v></c>` : `<c r="${ref}"${s}/>`;
       return `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(cell.v)}</t></is></c>`;
     }).join('')}</row>`).join('');
@@ -163,7 +166,7 @@
     const lastRef = colName(Math.max(0, ...rows.map((r) => r.length - 1))) + rows.length;
     const auto = filter !== false && rows.length > 1 ? `<autoFilter ref="A${(filter && filter.row) || 1}:${lastRef}"/>` : '';
     const merged = merges && merges.length ? `<mergeCells count="${merges.length}">${merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
-    const cf = (colors || []).map((x, i) => `<conditionalFormatting sqref="${x.ref}"><cfRule type="cellIs" dxfId="${x.style || 0}" priority="${i + 1}" operator="equal"><formula>"${xmlEsc(x.equals)}"</formula></cfRule></conditionalFormatting>`).join('');
+    const cf = (colors || []).map((x, i) => `<conditionalFormatting sqref="${x.ref}"><cfRule type="cellIs" dxfId="${x.style || 0}" priority="${i + 1}" operator="equal"><formula>${typeof x.equals === 'boolean' ? String(x.equals).toUpperCase() : `"${xmlEsc(x.equals)}"`}</formula></cfRule></conditionalFormatting>`).join('');
     const dv = lists && lists.length ? `<dataValidations count="${lists.length}">${lists.map((x) => `<dataValidation type="list" allowBlank="1" showErrorMessage="1" sqref="${x.ref}"><formula1>"${xmlEsc(x.values.join(','))}"</formula1></dataValidation>`).join('')}</dataValidations>` : '';
     const setup = page ? `<printOptions horizontalCentered="1"/><pageMargins left="0.4" right="0.4" top="0.5" bottom="0.6" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="${page.landscape ? 'landscape' : 'portrait'}" fitToWidth="1" fitToHeight="0"/>${page.footer ? `<headerFooter><oddFooter>${xmlEsc(page.footer)}</oddFooter></headerFooter>` : ''}` : '';
     const brk = breaks && breaks.length ? `<rowBreaks count="${breaks.length}" manualBreakCount="${breaks.length}">${breaks.map((r) => `<brk id="${r}" max="16383" man="1"/>`).join('')}</rowBreaks>` : '';
@@ -177,17 +180,20 @@
     }));
     const n = sheets.length;
     const idx = Array.from({ length: n }, (_, i) => i + 1);
+    // Cases à cocher (style 28) : propriétés de la fonctionnalité « case à cocher » d'Excel 365
+    const fpb = sheets.some((sh) => sh.rows.some((row) => row.some((cell) => cell && cell.s === 28)));
     return zip([
       { name: '[Content_Types].xml', content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${idx.map((i) => `<Override PartName="/xl/worksheets/sheet${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${idx.map((i) => `<Override PartName="/xl/worksheets/sheet${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${fpb ? '<Override PartName="/xl/featurePropertyBag/featurePropertyBag.xml" ContentType="application/vnd.ms-excel.featurepropertybag+xml"/>' : ''}</Types>` },
       { name: '_rels/.rels', content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
       { name: 'xl/workbook.xml', content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((sh, i) => `<sheet name="${sh.name}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>` },
       { name: 'xl/_rels/workbook.xml.rels', content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${idx.map((i) => `<Relationship Id="rId${i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i}.xml"/>`).join('')}<Relationship Id="rId${n + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${idx.map((i) => `<Relationship Id="rId${i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i}.xml"/>`).join('')}<Relationship Id="rId${n + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${fpb ? `<Relationship Id="rId${n + 2}" Type="http://schemas.microsoft.com/office/2022/11/relationships/FeaturePropertyBag" Target="featurePropertyBag/featurePropertyBag.xml"/>` : ''}</Relationships>` },
       { name: 'xl/styles.xml', content: STYLES },
-    ].concat(sheets.map((sh, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, content: sheetXml(sh) }))));
+    ].concat(fpb ? [{ name: 'xl/featurePropertyBag/featurePropertyBag.xml', content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<FeaturePropertyBags xmlns="http://schemas.microsoft.com/office/spreadsheetml/2022/featurepropertybag"><bag type="Checkbox"/><bag type="XFControls"><bagId k="CellControl">0</bagId></bag><bag type="XFComplement"><bagId k="XFControls">1</bagId></bag><bag type="XFComplements" extRef="XFComplementsMapperExtRef"><a k="MappedFeaturePropertyBags"><bagId>2</bagId></a></bag></FeaturePropertyBags>` }] : []).concat(sheets.map((sh, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, content: sheetXml(sh) }))));
   }
 
   // Numéro de série Excel d'une date AAAA-MM-JJ (jours depuis le 30/12/1899).
