@@ -188,15 +188,15 @@ function unmatchedPieces(r, push, from, to, flt) {
     const u0 = list[0];
     const total = list.reduce((s2, u) => s2 + u.amt, 0);
     const det = list.slice(0, 8).map((u) => `du ${d(u.date)} (${eur(u.amt)} €)`).join(', ') + (list.length > 8 ? ` et ${list.length - 8} autre(s), total ${eur(total)} €` : '');
-    const x = { ops: list.map((u) => ({ date: u.date, amt: u.amt })), keys: g.flatMap((y) => y.keys) };
+    const x = { ops: list.map((u) => ({ date: u.date, amt: u.amt, lib: u.label || u.lib })), keys: g.flatMap((y) => y.keys) };
     if (u0.racine === '401') push('achats', `nf:${u0.num}`, list.length === 1
       ? `Facture ${u0.lib} correspondant au paiement de ${eur(u0.amt)} € du ${d(u0.date)}`
       : `Factures ${u0.lib} correspondant aux paiements ${det}`,
-    Object.assign({ doc: list.length === 1 ? `Facture ${u0.lib} correspondant au paiement` : `Factures ${u0.lib} correspondant aux ${list.length} paiements` }, x));
+    Object.assign({ doc: list.length === 1 ? 'Facture correspondant au paiement' : `Factures correspondant aux ${list.length} paiements` }, x));
     else push('ventes', `ne:${u0.num}`, list.length === 1
       ? `Facture ou avoir ${u0.lib} correspondant à l'encaissement de ${eur(u0.amt)} € du ${d(u0.date)}`
       : `Factures ou avoirs ${u0.lib} correspondant aux encaissements ${det}`,
-    Object.assign({ doc: list.length === 1 ? `Facture ou avoir ${u0.lib} correspondant à l'encaissement` : `Factures ou avoirs ${u0.lib} correspondant aux ${list.length} encaissements` }, x));
+    Object.assign({ doc: list.length === 1 ? "Facture ou avoir correspondant à l'encaissement" : `Factures ou avoirs correspondant aux ${list.length} encaissements` }, x));
   });
 }
 
@@ -242,13 +242,14 @@ function setRubrique(key, cat) {
   refresh();
 }
 
-// Pièce demandée pour une opération en compte d'attente, selon sa rubrique.
-function attenteDoc(l, cat) {
+// Pièce demandée pour une opération en compte d'attente, selon sa rubrique ; `lib: false` : sans le libellé de l'opération
+// (liste Excel, où il a sa colonne).
+function attenteDoc(l, cat, lib = true) {
   const enc = l.c > 0;
-  const op = `« ${l.lib} »`;
-  return cat === 'achats' ? (enc ? `Avoir fournisseur correspondant à l'encaissement ${op}` : `Facture correspondant au paiement ${op}`)
-    : cat === 'ventes' ? (enc ? `Facture de vente correspondant à l'encaissement ${op}` : `Avoir client correspondant au paiement ${op}`)
-    : `Justificatif ${enc ? "de l'encaissement" : 'du paiement'} ${op}`;
+  const op = lib ? ` « ${l.lib} »` : '';
+  return cat === 'achats' ? (enc ? `Avoir fournisseur correspondant à l'encaissement${op}` : `Facture correspondant au paiement${op}`)
+    : cat === 'ventes' ? (enc ? `Facture de vente correspondant à l'encaissement${op}` : `Avoir client correspondant au paiement${op}`)
+    : `Justificatif ${enc ? "de l'encaissement" : 'du paiement'}${op}`;
 }
 
 // Opération déjà demandée dont on change la rubrique : l'étape en attente de la demande suit (libellé et rubrique).
@@ -261,8 +262,7 @@ function syncAttenteStep(key, cat) {
   if (!l) return;
   missionsOf(c.id).filter((m) => isOpen(m) && m.demandePieces).forEach((m) => m.etapes.forEach((e) => {
     if (e.done || e.pid !== 'attente:' + key) return;
-    const doc = attenteDoc(l, cat);
-    Object.assign(e, { label: `${doc} du ${fmtDate(l.date)} (${eur(l.c || l.d)} €)`, doc, cat: PIECES_CATS[cat] });
+    Object.assign(e, { label: `${attenteDoc(l, cat)} du ${fmtDate(l.date)} (${eur(l.c || l.d)} €)`, doc: attenteDoc(l, cat, false), cat: PIECES_CATS[cat] });
     m.updatedAt = nowIso();
   }));
 }
@@ -278,8 +278,8 @@ function attentePieces(r, push, from, to, flt) {
     const key = K[i][0].slice(4);
     const cat = ATTENTE_RUBRIQUES.includes(store[key]) ? store[key] : attenteDefaut(l);
     const amt = l.c || l.d;
-    const doc = attenteDoc(l, cat);
-    push(cat, key, `${doc} du ${fmtDate(l.date)} (${eur(amt)} €)`, { id: 'attente:' + key, src: 'attente', key, compte: l.compte, doc, ops: [{ date: l.date, amt }], keys: K[i] });
+    push(cat, key, `${attenteDoc(l, cat)} du ${fmtDate(l.date)} (${eur(amt)} €)`,
+      { id: 'attente:' + key, src: 'attente', key, compte: l.compte, doc: attenteDoc(l, cat, false), ops: [{ date: l.date, amt, lib: l.lib }], keys: K[i] });
   });
 }
 
@@ -369,7 +369,7 @@ function monthPieces(r, arrete, flt) {
       (cy.clients.directSales || []).forEach(([date, amt, lib], i) => {
         if (!inP(date) || !flt.ok(K[i]) || (perM[ymOf(date)] = (perM[ymOf(date)] || 0) + 1) > 15) return;
         push('ventes', 'enc:' + K[i][0], `Facture de vente correspondant à l'encaissement « ${lib} » du ${fmtDate(date)} (${eur(amt)} €)`,
-          { doc: `Facture de vente correspondant à l'encaissement « ${lib} »`, ops: [{ date, amt }], keys: K[i] });
+          { doc: "Facture de vente correspondant à l'encaissement", ops: [{ date, amt, lib }], keys: K[i] });
       });
     }
   }
@@ -392,7 +392,7 @@ function directPieces(r, push, from, to, flt, opts = {}) {
     const g = groups.get(k) || groups.set(k, { lib, clib, n: 0, total: 0, ops: [], keys: [], last: '' }).get(k);
     g.n++;
     g.total = round2(g.total + amt);
-    g.ops.push({ date, amt });
+    g.ops.push({ date, amt, lib: elib });
     K[i].forEach((x) => { if (!g.keys.includes(x)) g.keys.push(x); });
     if (opts.large && date >= g.last) Object.assign(g, { last: date, lib }); // libellé de la dernière opération
   });
@@ -403,7 +403,7 @@ function directPieces(r, push, from, to, flt, opts = {}) {
     push('justif', 'dir:' + g.keys[0], g.n === 1
       ? `${docName(g.lib)} « ${lib} » du ${fmtDate(g.ops[0].date)} (${eur(g.total)} €) — ${g.clib}`
       : `Factures « ${lib} » : ${g.n} paiements (${fmtMonths(Array.from(new Set(g.ops.map((o) => ymOf(o.date)))))}), total ${eur(g.total)} € — ${g.clib}`,
-    { doc: `${g.n === 1 ? docName(g.lib) : 'Factures'} « ${lib} » — ${g.clib}`, ops: g.ops, keys: g.keys });
+    { doc: g.n === 1 || docName(g.lib) !== 'Facture' ? docName(g.lib) : 'Factures', ops: g.ops, keys: g.keys });
   });
 }
 
@@ -412,7 +412,7 @@ function immoPieces(r, push, from, to, flt) {
   const K = pieceKeys(r).immo;
   r.pieces.immo.forEach((l, i) => {
     if (l.date >= from && l.date <= to && flt.ok(K[i])) push('immo', K[i][0], `Facture d'acquisition « ${l.lib} » du ${fmtDate(l.date)} (${eur(l.montant)} €, ${l.clib})`,
-      { doc: `Facture d'acquisition « ${l.lib} » (${l.clib})`, ops: [{ date: l.date, amt: l.montant }], keys: K[i] });
+      { doc: "Facture d'acquisition", ops: [{ date: l.date, amt: l.montant, lib: l.lib }], keys: K[i] });
   });
 }
 
@@ -752,7 +752,7 @@ function computePiecesRaw(r, mode, arrete, flt = ALL_PIECES) {
     const keys = [rkey(`rel|${o.date}|${o.amount}|${keyLib(o.label)}`), opKey(o.date, o.amount, o.label)];
     if (!flt.ok(keys)) return;
     push('releve', keys[0], `Justificatif de l'opération bancaire « ${o.label} » du ${d(o.date)} (${o.amount > 0 ? 'encaissement' : 'paiement'} de ${eur(Math.abs(o.amount))} €), non comptabilisée`,
-      { doc: `Justificatif ${o.amount > 0 ? "de l'encaissement" : 'du paiement'} « ${o.label} », non comptabilisé`, ops: [{ date: o.date, amt: Math.abs(o.amount) }], keys });
+      { doc: `Justificatif ${o.amount > 0 ? "de l'encaissement" : 'du paiement'} (opération du relevé non comptabilisée)`, ops: [{ date: o.date, amt: Math.abs(o.amount), lib: o.label }], keys });
   });
 
   // Caisse
@@ -1193,12 +1193,13 @@ function wrapLines(text, width) {
 }
 
 // Liste remise au client, présentée comme un document du cabinet : en-tête, explication, récapitulatif, puis une rubrique
-// par bandeau. Une ligne par document, sa date et son montant dans leurs colonnes (une ligne par opération quand la demande
-// en regroupe plusieurs), et deux colonnes à remplir : « Transmis » (menu Oui / Non / Sans objet, colorée) et commentaires.
-// À l'impression, un bandeau n'est jamais séparé de son premier document.
+// par bandeau. Une ligne par document, le libellé de l'écriture, sa date et son montant dans leurs colonnes (une ligne par
+// opération quand la demande en regroupe plusieurs), et deux colonnes à remplir : « Transmis » (menu Oui / Non / Sans
+// objet, colorée) et commentaires. Un document sans opération (ou d'une ancienne demande, sans libellé) occupe les deux
+// premières colonnes. À l'impression, un bandeau n'est jamais séparé de son premier document.
 function piecesSheet(items, st, c, nPending = 0) {
   const s = data.settings;
-  const W = [6, 62, 13, 15, 12, 36];
+  const W = [5, 36, 42, 11, 13, 11, 27];
   const PAGE = 500; // hauteur utile d'une page A4 paysage, en points (un peu moins que les 516 réels)
   const rows = [], heights = {}, merges = [], fillRefs = [], breaks = [];
   let used = 0;
@@ -1210,7 +1211,7 @@ function piecesSheet(items, st, c, nPending = 0) {
   };
   // Saut de page avant les `h` points qui suivent s'ils ne tiennent plus sur la page.
   const keep = (h) => { if (used && used + h > PAGE && h <= PAGE) { breaks.push(rows.length); used = 0; } };
-  const wide = (v, style, h) => { const n = add([{ v, s: style }].concat([1, 2, 3, 4, 5].map(() => ({ s: style }))), h); merges.push(`A${n}:F${n}`); };
+  const wide = (v, style, h) => { const n = add([{ v, s: style }].concat([1, 2, 3, 4, 5, 6].map(() => ({ s: style }))), h); merges.push(`A${n}:G${n}`); };
   const lineH = (n) => Math.max(20, n * 15 + 5);
   const but = piecesBut(st);
   const objet = st.mode === 'mois' ? `Comptabilité au ${dateLongue(st.arrete)}` : `${st.mode === 'bilan' ? 'Bilan' : 'Situation'} au ${fmtDate(st.arrete)}`;
@@ -1231,8 +1232,9 @@ function piecesSheet(items, st, c, nPending = 0) {
   const cats = Object.keys(PIECES_CATS).filter((k) => groups[k]);
   add([], 10);
   keep(20 * (cats.length + 1));
-  add([{ s: 0 }, { v: 'Rubrique', s: 18 }, { v: 'Documents', s: 18 }], 20);
-  cats.forEach((k) => add([{ s: 0 }, { v: PIECES_CATS[k], s: 25 }, { v: groups[k].length, s: 26 }], 20));
+  const recap = (a, b, sa, sb) => { const r = add([{ s: 0 }, { v: a, s: sa }, { s: sa }, { v: b, s: sb }], 20); merges.push(`B${r}:C${r}`); };
+  recap('Rubrique', 'Documents', 18, 18);
+  cats.forEach((k) => recap(PIECES_CATS[k], groups[k].length, 25, 26));
 
   // Une rubrique par bandeau, un document par ligne
   let n = 0;
@@ -1241,31 +1243,39 @@ function piecesSheet(items, st, c, nPending = 0) {
     const blocks = groups[k].map((it) => {
       const all = it.ops || [];
       const ops = all.slice(0, 30);
+      const lib = ops.some((o) => o.lib); // libellé de chaque écriture dans sa colonne
       // Espaces insécables dans les guillemets : « et » ne restent jamais seuls en début de ligne.
       const doc = (it.doc || it.text).replace(/« /g, '«\u00a0').replace(/ »/g, '\u00a0»') + (all.length > ops.length ? ` (${ops.length} premières opérations sur ${all.length})` : '');
       const lines = Math.max(1, ops.length);
-      const h = Math.max(20, Math.ceil((wrapLines(doc, W[1] - 2) * 15 + 5) / lines));
-      return { it, ops, doc, lines, h };
+      const per = Math.max(20, Math.ceil((wrapLines(doc, (lib ? W[1] : W[1] + W[2]) - 2) * 15 + 5) / lines));
+      const hs = Array.from({ length: lines }, (_, j) => (lib && ops[j].lib ? Math.max(per, wrapLines(ops[j].lib, W[2] - 2) * 15 + 5) : per));
+      return { it, ops, lib, doc, lines, hs, h: hs.reduce((a, b) => a + b, 0) };
     });
+    // Colonne du libellé seulement si un document de la rubrique en a un
+    const libCol = blocks.some((x) => x.lib);
     add([], 14);
-    keep(24 + 22 + blocks[0].h * blocks[0].lines);
+    keep(24 + 22 + blocks[0].h);
     wide(`${PIECES_CATS[k].toUpperCase()}  ·  ${groups[k].length} ${q ? 'question' : 'document'}${groups[k].length > 1 ? 's' : ''}`, 17, 24);
-    add([{ v: 'N°', s: 18 }, { v: q ? 'Question' : 'Document demandé', s: 18 }, { v: 'Date', s: 18 }, { v: 'Montant', s: 18 }, { v: q ? 'Répondu' : 'Transmis', s: 18 }, { v: q ? 'Votre réponse' : 'Vos commentaires', s: 18 }], 22);
+    const head = add([{ v: 'N°', s: 18 }, { v: q ? 'Question' : 'Document demandé', s: 18 }, libCol ? { v: "Libellé de l'écriture", s: 18 } : { s: 18 }, { v: 'Date', s: 18 },
+      { v: 'Montant', s: 18 }, { v: q ? 'Répondu' : 'Transmis', s: 18 }, { v: q ? 'Votre réponse' : 'Vos commentaires', s: 18 }], 22);
+    if (!libCol) merges.push(`B${head}:C${head}`);
     const first = rows.length + 1;
-    blocks.forEach(({ it, ops, doc, lines, h }) => {
+    blocks.forEach(({ it, ops, lib, doc, lines, hs, h }) => {
       n++;
-      if (lines > 1) keep(h * lines);
-      const r0 = rows.length + 1;
+      if (lines > 1) keep(h);
+      const r0 = rows.length + 1, r1 = r0 + lines - 1;
       for (let j = 0; j < lines; j++) {
         const op = ops[j];
         const amt = op ? op.amt : !j && typeof it.total === 'number' ? it.total : null;
-        add([j ? { s: 20 } : { v: n, s: 20 }, j ? { s: 19 } : { v: doc, s: 19 },
+        add([j ? { s: 20 } : { v: n, s: 20 }, j ? { s: 19 } : { v: doc, s: 19 }, lib && op.lib ? { v: op.lib, s: 19 } : { s: 19 },
           op ? { v: XlsxWriter.serial(op.date), s: 21 } : { s: 21 }, amt === null ? { s: 22 } : { v: Math.round(amt * 100) / 100, s: 22 },
-          { s: 23 }, { s: 24 }], h);
+          { s: 23 }, { s: 24 }], hs[j]);
       }
-      if (lines > 1) merges.push(`A${r0}:A${r0 + lines - 1}`, `B${r0}:B${r0 + lines - 1}`);
+      if (lines > 1) merges.push(`A${r0}:A${r1}`);
+      if (!lib) merges.push(`B${r0}:C${r1}`);
+      else if (lines > 1) merges.push(`B${r0}:B${r1}`);
     });
-    fillRefs.push(`E${first}:E${rows.length}`);
+    fillRefs.push(`F${first}:F${rows.length}`);
   });
 
   // Pied de page
