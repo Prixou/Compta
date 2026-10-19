@@ -58,6 +58,29 @@ const O = path.join(__dirname, '../out/');
   await p.goto('http://localhost:8765/#/grille'); await p.waitForSelector('.grille');
   console.log('tri après rechargement :', await p.$eval('select[data-grille-sort]', (s) => s.value));
   await p.screenshot({ path: O + 'grille.png', fullPage: false });
+  // Avancement d'un mois : masquer les dossiers dont la mission du mois est terminée
+  const nRows = () => p.$$eval('.grille tbody tr', (t) => t.length);
+  const all = await nRows();
+  const setup = await p.evaluate(() => {
+    const M = grilleModel();
+    const col = [M.mois].concat(Array.from({ length: 12 }, (_, i) => i + 1)).find((k) => M.clients.filter((c) => M.grid.get(c.id)[k]).length >= 2);
+    const withM = M.clients.filter((c) => M.grid.get(c.id)[col]);
+    const done = withM[0];
+    setStatus(M.grid.get(done.id)[col], 'termine'); persist();
+    return { col, withM: withM.length, open: withM.filter((c) => isOpen(M.grid.get(c.id)[col])).length, done: clientLabel(done) };
+  });
+  await p.selectOption('select[data-grille-etat]', 'reste'); await p.waitForSelector('select[data-grille=mois]');
+  await p.selectOption('select[data-grille=mois]', String(setup.col)); await p.waitForTimeout(150);
+  const reste = await p.$$eval('.grille tbody th.g-name', (t) => t.map((x) => x.textContent.trim()));
+  const ok1 = reste.length === setup.open && !reste.includes(setup.done);
+  console.log(ok1 ? 'OK' : 'KO', `« À terminer » : ${reste.length} dossier(s) sur ${all}, ${setup.withM - setup.open} terminé(s) masqué(s)`, ok1 ? '' : JSON.stringify(setup));
+  console.log((await p.$$eval('.grille thead th.g-sel', (t) => t.length)) === 1 ? 'OK' : 'KO', 'colonne du mois mise en évidence');
+  await p.selectOption('select[data-grille-etat]', 'fait'); await p.waitForTimeout(150);
+  const fait = await p.$$eval('.grille tbody th.g-name', (t) => t.map((x) => x.textContent.trim()));
+  console.log(fait.includes(setup.done) ? 'OK' : 'KO', '« Terminés » : le dossier terminé apparaît', fait.length);
+  console.log((await p.evaluate(() => data.settings.grilleEtat)) === 'fait' ? 'OK' : 'KO', 'choix conservé dans les paramètres');
+  await p.selectOption('select[data-grille-etat]', ''); await p.waitForTimeout(150);
+  console.log((await nRows()) === all && !(await p.$('select[data-grille=mois]')) ? 'OK' : 'KO', '« Tous les dossiers » : toutes les lignes reviennent');
   // Mobile
   const m = await (await b.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, locale: 'fr-FR' })).newPage();
   await m.goto('http://localhost:8765/');
