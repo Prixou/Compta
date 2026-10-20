@@ -519,7 +519,7 @@ function justifPieces(r, push, from, to, flt = ALL_PIECES) {
     const av = l.filter(({ x }) => x.avoir).length;
     const pl = l.length > 1 ? 's' : '';
     const type = av === l.length ? `Avoir${pl}` : av ? 'Factures et avoirs' : `Facture${pl}`;
-    const extra = { keys: l.flatMap((y) => y.keys), doc: type,
+    const extra = { keys: l.flatMap((y) => y.keys), doc: type, tiers: `${x0.kind === 'achat' ? '401' : '411'}|${x0.num}`, tlib: x0.tlib,
       ops: l.map(({ x }) => ({ date: x.date, amt: Math.abs(x.amt), doc: x.avoir ? 'Avoir' : 'Facture', lib: x.piece && !String(x.lib).includes(x.piece) ? `${x.lib} (pièce n° ${x.piece})` : x.lib })) };
     if (x0.kind === 'achat') push('achats', `jm:${x0.num}`, `${l.length > 1 ? 'Factures' : 'Facture'} ${x0.tlib} : ${items}`, extra);
     else push('ventes', `jv:${x0.num}`, `${l.length > 1 ? 'Factures de vente' : 'Facture de vente'} à ${x0.tlib} : ${items}`, extra);

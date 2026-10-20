@@ -392,7 +392,10 @@ const actions = {
   'note-print': () => printNote(),
   // Pièces à demander : toutes, factures fournisseurs ou factures clients (comptes d'attente toujours compris)
   'pieces-tiers': (el) => {
-    piecesState().tiers = el.dataset.tiers;
+    // Choix conservé dans le dossier : repris à la prochaine demande
+    const c = clientById(ui.fec.clientId);
+    (c || ui.fec).piecesTiers = el.dataset.tiers;
+    if (c) persist();
     refresh();
   },
   'pieces-mode': (el) => {
@@ -660,10 +663,10 @@ document.addEventListener('change', (e) => {
     refresh();
   } else if (t.dataset.pieceRub && ui.fec) {
     setRubrique(t.dataset.pieceRub, t.value);
-  } else if (t.dataset.compte411 && ui.fec) {
-    // Officine : compte client 411 demandé ou écarté (le bloc reste ouvert)
-    choix411(true)[t.dataset.compte411] = t.checked;
-    ui.fec.c411Open = true;
+  } else if (t.dataset.compte && ui.fec) {
+    // Compte de tiers demandé ou écarté, conservé dans le dossier (le bloc reste ouvert)
+    choixComptes(clientById(ui.fec.clientId), true)[t.dataset.compte] = t.checked;
+    ui.fec.comptesOpen = true;
     if (clientById(ui.fec.clientId)) persist();
     refresh();
   } else if (t.dataset.ecarte && ui.fec) {

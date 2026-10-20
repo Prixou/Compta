@@ -129,10 +129,24 @@ const { fecTab, fecMonth } = require('./lib');
   expect(!/autoFilter/.test(sheet), 'pas de filtre automatique sur le document client');
   // Filtre des pièces : factures fournisseurs ou clients seules, comptes d'attente toujours demandés
   const liste = async (t) => { await p.click(`button[data-action=pieces-tiers][data-tiers="${t}"]`); await p.waitForTimeout(150); return (await p.$$eval('.piece span', (l) => l.map((x) => x.textContent))).join('\n'); };
-  const lF = await liste('fournisseurs'), lC = await liste('clients'), lT = await liste('');
+  const lF = await liste('fournisseurs');
+  const garde = await p.evaluate(() => clientById(ui.fec.clientId).piecesTiers);
+  const lC = await liste('clients'), lT = await liste('');
+  expect(garde === 'fournisseurs', 'choix « Factures fournisseurs » conservé dans le dossier', garde);
   expect(/ASSURANCES EXEMPLE/.test(lF) && !/Facture de vente n° F-260159/.test(lF) && /PARKING CENTRE/.test(lF), 'filtre « Factures fournisseurs » : factures clients écartées, compte d\'attente gardé');
   expect(!/WEB SCI EXEMPLE LOYER/.test(lC) && /Facture de vente n° F-260159/.test(lC) && /PARKING CENTRE/.test(lC) && /ASSURANCES EXEMPLE/.test(lC), 'filtre « Factures clients » : autres pièces écartées, comptes d\'attente gardés (toutes rubriques)');
   expect(/WEB SCI EXEMPLE LOYER/.test(lT) && /F-260159/.test(lT), 'retour à « Toutes »');
+  // Compte de tiers écarté : choix conservé dans le dossier, ses pièces ne sont plus demandées
+  const cpt = () => p.locator('details.pieces-ecartes', { hasText: 'Comptes de tiers' });
+  if (await cpt().count()) {
+    await cpt().locator('summary').click();
+    const k = await cpt().locator('input[data-compte]').first().getAttribute('data-compte');
+    const avant = await p.locator('.piece span').count();
+    await cpt().locator('input[data-compte]').first().click(); await p.waitForTimeout(150);
+    const saved = await p.evaluate((x) => clientById(ui.fec.clientId).comptesTiers[x], k);
+    expect(saved === false && (await p.locator('.piece span').count()) < avant, 'compte de tiers écarté : conservé dans le dossier, pièces retirées', k);
+    await cpt().locator('input[data-compte]').first().click(); await p.waitForTimeout(150);
+  } else console.log('(aucun compte de tiers dans ce FEC)');
   console.log(ko ? `${ko} écart(s)` : 'Rubriques des opérations en attente et liste Excel : tous les contrôles sont conformes');
   console.log('erreurs', errors);
   await b.close();

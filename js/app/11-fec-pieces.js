@@ -171,21 +171,25 @@ const ALL_PIECES = { ok: () => true, gone: () => false };
 const itemYm = (i, fallback) => (i.ym || (i.ops && i.ops.length ? i.ops.map((o) => o.date).sort()[0].slice(0, 7) : '')
   || ((i.keys || []).map(keyDate).filter(Boolean).sort()[0] || '').slice(0, 7) || ymOf(fallback));
 
-// Officine : choix du cabinet pour chaque compte client 411 (n° → true : encaissements demandés, false : écartés),
-// conservé dans le dossier et prioritaire sur la reconnaissance automatique.
-function choix411(create) {
-  const f = ui.fec || {};
-  const o = clientById(f.clientId) || f;
-  return o.comptes411 || (create ? (o.comptes411 = {}) : {});
+// Choix du cabinet pour chaque compte de tiers (« 401|n° » ou « 411|n° » → true : pièces demandées, false : compte écarté),
+// conservé dans le dossier. `c` : dossier de l'analyse (à défaut, l'analyse en cours sans dossier).
+function choixComptes(c, create) {
+  const o = c || ui.fec || {};
+  // Choix des versions 48 à 52 (comptes clients des officines, par n°)
+  if (o.comptes411) { o.comptesTiers = Object.assign(Object.fromEntries(Object.entries(o.comptes411).map(([k, v]) => [`411|${k}`, v])), o.comptesTiers); delete o.comptes411; }
+  return o.comptesTiers || (create ? (o.comptesTiers = {}) : {});
 }
-// Reconnaissance automatique d'un vrai client (établissement, professionnel…) : les organismes de tiers payant, les comptes
-// techniques (CTP, CCLIENT, comptoir, ventes comptant, carte bancaire, caisse) et les patients ne sont pas demandés.
+// Officine : reconnaissance automatique d'un vrai client (établissement, professionnel…) : les organismes de tiers payant,
+// les comptes techniques (CTP, CCLIENT, comptoir, ventes comptant, carte bancaire, caisse) et les patients sont écartés
+// d'office.
 const RE_411_TECH = /(^|[^a-z])(ctp|cclient|tpe|cb)([^a-z]|$)|cclient|comptoir|comptant|carte banc|caisse|especes|tiers payant/;
 const auto411 = (num, lib) => { const txt = norm(`${lib} ${num}`); return !RE_PATIENT.test(txt) && !RE_411_TECH.test(txt) && !RE_AMO.test(txt) && !RE_AMC.test(txt); };
-function client411(num, lib) {
-  if (ui.fecProfile !== 'pharmacie') return true;
-  const v = choix411()[num];
-  return typeof v === 'boolean' ? v : auto411(num, lib);
+// Compte de tiers dont les pièces sont demandées : choix du dossier, sinon oui (en officine, d'après la reconnaissance
+// automatique pour les comptes clients).
+function compteDemande(c, key, lib) {
+  const v = choixComptes(c)[key];
+  if (typeof v === 'boolean') return v;
+  return !key.startsWith('411|') || ui.fecProfile !== 'pharmacie' || auto411(key.slice(4), lib);
 }
 
 // Règlements et encaissements non affectés à une facture, regroupés par tiers : une demande par tiers, chaque paiement daté.
@@ -193,10 +197,9 @@ function client411(num, lib) {
 function unmatchedPieces(r, push, from, to, flt) {
   const d = fmtDate;
   const K = pieceKeys(r).unm;
-  const ok411 = new Map();
   const groups = new Map();
   (r.pieces.unmatched || []).forEach((u, i) => {
-    if (u.date < from || u.date > to || (u.racine !== '401' && !(ok411.has(u.num) ? ok411 : ok411.set(u.num, client411(u.num, u.lib))).get(u.num)) || !flt.ok(K[i].keys) || flt.gone(K[i].alias)) return;
+    if (u.date < from || u.date > to || !flt.ok(K[i].keys) || flt.gone(K[i].alias)) return;
     const k = u.racine + '|' + u.num;
     (groups.get(k) || groups.set(k, []).get(k)).push({ u, keys: K[i].keys });
   });
@@ -209,11 +212,11 @@ function unmatchedPieces(r, push, from, to, flt) {
     if (u0.racine === '401') push('achats', `nf:${u0.num}`, list.length === 1
       ? `Facture ${u0.lib} correspondant au paiement de ${eur(u0.amt)} € du ${d(u0.date)}`
       : `Factures ${u0.lib} correspondant aux paiements ${det}`,
-    Object.assign({ doc: list.length === 1 ? 'Facture' : 'Factures', doc1: 'Facture' }, x));
+    Object.assign({ doc: list.length === 1 ? 'Facture' : 'Factures', doc1: 'Facture', tiers: `${u0.racine}|${u0.num}`, tlib: u0.lib }, x));
     else push('ventes', `ne:${u0.num}`, list.length === 1
       ? `Facture ou avoir ${u0.lib} correspondant à l'encaissement de ${eur(u0.amt)} € du ${d(u0.date)}`
       : `Factures ou avoirs ${u0.lib} correspondant aux encaissements ${det}`,
-    Object.assign({ doc: list.length === 1 ? 'Facture' : 'Factures', doc1: 'Facture' }, x));
+    Object.assign({ doc: list.length === 1 ? 'Facture' : 'Factures', doc1: 'Facture', tiers: `${u0.racine}|${u0.num}`, tlib: u0.lib }, x));
   });
 }
 
@@ -348,7 +351,7 @@ function monthPieces(r, arrete, flt) {
       if (v !== null) med = v;
       return v !== null;
     });
-    if (miss.length) push('achats', 'rec:' + sp.num, `${miss.length > 1 ? 'Factures' : 'Facture'} ${sp.lib} : ${fmtMonths(miss)} (abonnement de ${eur(med)} € par mois)`, { keys: miss.map((m) => `abo|${sp.num}|${m}`) });
+    if (miss.length) push('achats', 'rec:' + sp.num, `${miss.length > 1 ? 'Factures' : 'Facture'} ${sp.lib} : ${fmtMonths(miss)} (abonnement de ${eur(med)} € par mois)`, { keys: miss.map((m) => `abo|${sp.num}|${m}`), tiers: `401|${sp.num}`, tlib: sp.lib });
   });
   // Dépenses payées directement, acquisitions d'immobilisations, opérations en compte d'attente
   directPieces(r, push, from, end, flt);
@@ -366,7 +369,7 @@ function monthPieces(r, arrete, flt) {
         if (v !== null) med = v;
         return v !== null;
       });
-      if (miss.length) push('ventes', 'mcli:' + c.num, `Factures de vente à ${c.lib} : ${fmtMonths(miss)} (facturé habituellement chaque mois, environ ${eur(med, 0)} € TTC)`, { keys: miss.map((m) => `cli|${c.num}|${m}`) });
+      if (miss.length) push('ventes', 'mcli:' + c.num, `Factures de vente à ${c.lib} : ${fmtMonths(miss)} (facturé habituellement chaque mois, environ ${eur(med, 0)} € TTC)`, { keys: miss.map((m) => `cli|${c.num}|${m}`), tiers: `411|${c.num}`, tlib: c.lib });
     });
     numberingPieces(r, push, from, end, flt);
     // Ventes sans TVA sur des comptes taxables ou non qualifiés (contrôle de la TVA), regroupées par mois ; le paramétrage
@@ -485,18 +488,21 @@ function sameExercice(dp, r) {
   return dp.arrete >= exStart(r, r.meta.closing || (r.pieces && r.pieces.maxOp) || dp.arrete) && dp.arrete <= to;
 }
 
-// Officine : comptes 411 ayant des encaissements sans facture, chacun coché s'il est à demander (choix du dossier, sinon
-// reconnaissance automatique).
-function comptes411Html(r) {
-  if (ui.fecProfile !== 'pharmacie') return '';
+// Comptes de tiers ayant des pièces à demander, chacun coché si ses pièces sont demandées (choix conservé dans le dossier).
+function comptesHtml(all, c) {
   const m = new Map();
-  (r.pieces.unmatched || []).forEach((u) => { if (u.racine === '411') (m.get(u.num) || m.set(u.num, { num: u.num, lib: u.lib, n: 0 }).get(u.num)).n++; });
+  all.forEach((i) => (m.get(i.tiers) || m.set(i.tiers, { key: i.tiers, lib: i.tlib || i.tiers.slice(4), n: 0 }).get(i.tiers)).n++);
   if (!m.size) return '';
-  const list = Array.from(m.values()).sort((a, b) => a.lib.localeCompare(b.lib));
-  const on = list.filter((x) => client411(x.num, x.lib)).length;
-  return `<details class="pieces-ecartes"${ui.fec.c411Open ? ' open' : ''}><summary>Comptes clients 411 <span class="count">${on} demandé(s) sur ${list.length}</span></summary>
-    <p class="muted small">Encaissements sans facture demandés pour les comptes cochés. Par défaut, les comptes de tiers payant, les comptes techniques (CTP, CCLIENT, comptoir…) et les patients sont décochés ; votre choix est conservé dans le dossier.</p>
-    ${list.map((x) => `<label class="check piece"><input type="checkbox" data-compte411="${esc(x.num)}"${client411(x.num, x.lib) ? ' checked' : ''}><span>${esc(x.lib)} (${esc(x.num)}) · ${x.n} encaissement(s)${typeof choix411()[x.num] === 'boolean' ? '' : ' · choix automatique'}</span></label>`).join('')}
+  const list = Array.from(m.values()).sort((a, b) => a.key.slice(0, 3).localeCompare(b.key.slice(0, 3)) || a.lib.localeCompare(b.lib));
+  const on = list.filter((x) => compteDemande(c, x.key, x.lib)).length;
+  const ch = choixComptes(c);
+  const group = (racine, titre) => {
+    const l = list.filter((x) => x.key.startsWith(racine + '|'));
+    return l.length ? `<p class="small"><strong>${titre}</strong></p>${l.map((x) => `<label class="check piece"><input type="checkbox" data-compte="${esc(x.key)}"${compteDemande(c, x.key, x.lib) ? ' checked' : ''}><span>${esc(x.lib)} (${esc(x.key.slice(4))}) · ${x.n} pièce(s)${typeof ch[x.key] !== 'boolean' && racine === '411' && ui.fecProfile === 'pharmacie' ? ' · choix automatique' : ''}</span></label>`).join('')}` : '';
+  };
+  return `<details class="pieces-ecartes"${ui.fec.comptesOpen ? ' open' : ''}><summary>Comptes de tiers <span class="count">${on} demandé(s) sur ${list.length}</span></summary>
+    <p class="muted small">Pièces demandées pour les comptes cochés ; un compte décoché est écarté de la demande. Votre choix est conservé dans le dossier.${ui.fecProfile === 'pharmacie' ? ' En officine, les comptes de tiers payant, les comptes techniques (CTP, CCLIENT, comptoir…) et les patients sont décochés d\'office.' : ''}</p>
+    ${group('401', 'Comptes fournisseurs')}${group('411', 'Comptes clients')}
   </details>`;
 }
 
@@ -593,14 +599,19 @@ const stepKeys = (r, m, e) => (e.keys && e.keys.length ? e.keys : m.demandePiece
 
 // Pièces à demander : opérations jamais demandées (ni reçues, ni en attente, ni écartées), hors fournisseurs à ne jamais
 // solliciter.
+// Pièces à demander : sans celles des comptes de tiers écartés du dossier ; `comptes` : pièces de tous les comptes de tiers,
+// écartés compris (liste des comptes).
 function computePieces(r, mode, arrete, S = piecesSuivi(r)) {
-  return ignoreFilter(computePiecesRaw(r, mode, arrete, S.flt));
+  const all = ignoreFilter(computePiecesRaw(r, mode, arrete, S.flt));
+  const ok = new Map();
+  const keep = (i) => !i.tiers || (ok.has(i.tiers) ? ok : ok.set(i.tiers, compteDemande(S.c, i.tiers, i.tlib))).get(i.tiers);
+  return Object.assign(all.filter(keep), { comptes: all.filter((i) => i.tiers) });
 }
 
 // Pièces écartées lors d'une demande précédente (décochées), toujours manquantes.
 function computePiecesEcartes(r, mode, arrete, S = piecesSuivi(r)) {
   if (!Object.keys(S.ec).length) return [];
-  return ignoreFilter(computePiecesRaw(r, mode, arrete, S.fltEc).filter((i) => i.keys && i.keys.length));
+  return ignoreFilter(computePiecesRaw(r, mode, arrete, S.fltEc).filter((i) => i.keys && i.keys.length && (!i.tiers || compteDemande(S.c, i.tiers, i.tlib))));
 }
 
 // Familles de pièces que l'analyse sait recalculer (une pièce absente des listes du FEC est alors bien comptabilisée).
@@ -736,8 +747,8 @@ function computePiecesRaw(r, mode, arrete, flt = ALL_PIECES) {
   const pharma = ui.fecProfile === 'pharmacie';
   if (p.unmatched) unmatchedPieces(r, push, '0000-00-00', arrete, flt);
   else p.tiers.forEach((t) => {
-    if (t.racine === '401' && t.s > 0) push('achats', 'deb:' + t.num, `Facture ${t.lib} correspondant au paiement de ${eur(t.s)} € (compte fournisseur débiteur : payé mais non facturé)`);
-    if (t.racine === '411' && t.s < 0 && client411(t.num, t.lib)) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} : règlement de ${eur(-t.s)} € reçu sans facture correspondante`);
+    if (t.racine === '401' && t.s > 0) push('achats', 'deb:' + t.num, `Facture ${t.lib} correspondant au paiement de ${eur(t.s)} € (compte fournisseur débiteur : payé mais non facturé)`, { tiers: `${t.racine}|${t.num}`, tlib: t.lib });
+    if (t.racine === '411' && t.s < 0) push('ventes', 'cred:' + t.num, `Facture ou avoir ${t.lib} : règlement de ${eur(-t.s)} € reçu sans facture correspondante`, { tiers: `${t.racine}|${t.num}`, tlib: t.lib });
   });
 
   // Archive de justificatifs : écritures sans pièce (exact), à la place de la liste des dépenses payées directement
@@ -748,7 +759,7 @@ function computePiecesRaw(r, mode, arrete, flt = ALL_PIECES) {
   p.suppliers.forEach((sp) => {
     const sub = !askedT.has('401|' + sp.num) && subscriptionGaps(sp, endYm);
     const miss = sub ? sub.missing.filter((m) => flt.ok([`abo|${sp.num}|${m}`])) : [];
-    if (miss.length) push('achats', 'rec:' + sp.num, `Factures ${sp.lib} : ${fmtMonths(miss)} (abonnement de ${eur(sub.med)} € par mois)`, { keys: miss.map((m) => `abo|${sp.num}|${m}`) });
+    if (miss.length) push('achats', 'rec:' + sp.num, `Factures ${sp.lib} : ${fmtMonths(miss)} (abonnement de ${eur(sub.med)} € par mois)`, { keys: miss.map((m) => `abo|${sp.num}|${m}`), tiers: `401|${sp.num}`, tlib: sp.lib });
   });
   if (pharma && r.aging) pharmaPieces(r, mode, arrete, push);
   numberingPieces(r, push, '0000-00-00', arrete, flt);
@@ -849,10 +860,13 @@ function selectedPieces() {
 // Pièces demandées au choix : toutes, factures fournisseurs seules ou ventes et encaissements seuls ; les opérations en
 // compte d'attente (non affectées) restent toujours demandées.
 const TIERS_FILTRES = { fournisseurs: 'achats', clients: 'ventes' };
-const tiersFilter = (st, list) => (TIERS_FILTRES[st.tiers] ? list.filter((i) => i.src === 'attente' || i.cat === TIERS_FILTRES[st.tiers]) : list);
+// Choix conservé dans le dossier (à défaut, dans l'analyse en cours).
+const tiersMode = () => { const f = ui.fec || {}; return (clientById(f.clientId) || f).piecesTiers || ''; };
+const tiersFilter = (st, list) => (TIERS_FILTRES[tiersMode()] ? list.filter((i) => i.src === 'attente' || i.cat === TIERS_FILTRES[tiersMode()]) : list);
 function piecesView(r, st) {
   const S = piecesSuivi(r);
-  return { S, fresh: tiersFilter(st, computePieces(r, st.mode, st.arrete, S)), pending: [], ecartes: tiersFilter(st, computePiecesEcartes(r, st.mode, st.arrete, S)) };
+  const all = computePieces(r, st.mode, st.arrete, S);
+  return { S, fresh: tiersFilter(st, all), comptes: tiersFilter(st, all.comptes), pending: [], ecartes: tiersFilter(st, computePiecesEcartes(r, st.mode, st.arrete, S)) };
 }
 // Pièces encore dues par le client à la date : à demander et déjà demandées (compteurs de l'onglet et du portefeuille).
 function piecesCount(r, mode, arrete) {
@@ -940,7 +954,7 @@ function viewPieces() {
         </div>
         <label class="inline-label">Arrêté au <input type="date" data-pieces="arrete" value="${esc(st.arrete)}"></label>`}
         <div class="seg" role="group" aria-label="Pièces à demander">
-          ${[['', 'Toutes'], ['fournisseurs', 'Factures fournisseurs'], ['clients', 'Factures clients']].map(([k, l]) => `<button class="${(st.tiers || '') === k ? 'on' : ''}" data-action="pieces-tiers" data-tiers="${k}" title="${k ? 'Les opérations en compte d\'attente restent demandées' : ''}">${l}</button>`).join('')}
+          ${[['', 'Toutes'], ['fournisseurs', 'Factures fournisseurs'], ['clients', 'Factures clients']].map(([k, l]) => `<button class="${tiersMode() === k ? 'on' : ''}" data-action="pieces-tiers" data-tiers="${k}" title="${k ? 'Les opérations en compte d\'attente restent demandées' : ''}">${l}</button>`).join('')}
         </div>
         <span class="muted small">${kept.length} élément(s) retenu(s) sur ${items.length}${v.pending.length ? ` · ${v.pending.length} déjà demandé(s)` : ''}</span>
       </div>
@@ -954,7 +968,7 @@ function viewPieces() {
         <p class="muted small">Pièces décochées lors d'une demande précédente : elles ne sont plus proposées. Cochez-en une pour la remettre dans les pièces à demander.</p>
         ${v.ecartes.map((i) => `<label class="check piece"><input type="checkbox" data-ecarte="${esc(JSON.stringify(i.keys))}"><span>${esc(i.text)}</span></label>`).join('')}
       </details>` : ''}
-      ${comptes411Html(r)}
+      ${comptesHtml(v.comptes, c)}
       <div class="pieces-actions">
         <button class="btn primary" data-action="pieces-demande"${c && (kept.length || v.pending.length) ? '' : ' disabled'}>${icon('mail')}${action}</button>
         <button class="btn" data-action="pieces-copy"${kept.length || v.pending.length ? '' : ' disabled'}>Copier la liste</button>
