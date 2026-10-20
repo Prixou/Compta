@@ -390,6 +390,11 @@ const actions = {
   },
   'rappro-xlsx': () => exportRappro(),
   'note-print': () => printNote(),
+  // Pièces à demander : toutes, factures fournisseurs ou factures clients (comptes d'attente toujours compris)
+  'pieces-tiers': (el) => {
+    piecesState().tiers = el.dataset.tiers;
+    refresh();
+  },
   'pieces-mode': (el) => {
     const st = piecesState();
     st.mode = el.dataset.mode;

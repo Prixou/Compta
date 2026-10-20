@@ -846,9 +846,13 @@ function selectedPieces() {
 }
 
 // Contenu de l'onglet : pièces à demander (jamais demandées), déjà demandées (en attente du client), écartées.
+// Pièces demandées au choix : toutes, factures fournisseurs seules ou ventes et encaissements seuls ; les opérations en
+// compte d'attente (non affectées) restent toujours demandées.
+const TIERS_FILTRES = { fournisseurs: 'achats', clients: 'ventes' };
+const tiersFilter = (st, list) => (TIERS_FILTRES[st.tiers] ? list.filter((i) => i.src === 'attente' || i.cat === TIERS_FILTRES[st.tiers]) : list);
 function piecesView(r, st) {
   const S = piecesSuivi(r);
-  return { S, fresh: computePieces(r, st.mode, st.arrete, S), pending: [], ecartes: computePiecesEcartes(r, st.mode, st.arrete, S) };
+  return { S, fresh: tiersFilter(st, computePieces(r, st.mode, st.arrete, S)), pending: [], ecartes: tiersFilter(st, computePiecesEcartes(r, st.mode, st.arrete, S)) };
 }
 // Pièces encore dues par le client à la date : à demander et déjà demandées (compteurs de l'onglet et du portefeuille).
 function piecesCount(r, mode, arrete) {
@@ -935,6 +939,9 @@ function viewPieces() {
           <button class="${st.mode === 'bilan' ? 'on' : ''}" data-action="pieces-mode" data-mode="bilan">Bilan</button>
         </div>
         <label class="inline-label">Arrêté au <input type="date" data-pieces="arrete" value="${esc(st.arrete)}"></label>`}
+        <div class="seg" role="group" aria-label="Pièces à demander">
+          ${[['', 'Toutes'], ['fournisseurs', 'Factures fournisseurs'], ['clients', 'Factures clients']].map(([k, l]) => `<button class="${(st.tiers || '') === k ? 'on' : ''}" data-action="pieces-tiers" data-tiers="${k}" title="${k ? 'Les opérations en compte d\'attente restent demandées' : ''}">${l}</button>`).join('')}
+        </div>
         <span class="muted small">${kept.length} élément(s) retenu(s) sur ${items.length}${v.pending.length ? ` · ${v.pending.length} déjà demandé(s)` : ''}</span>
       </div>
       <h3 class="pieces-head">À demander <span class="count">${items.length}</span></h3>
@@ -1131,7 +1138,7 @@ function createPiecesRequest() {
   // (sauf si « Pièces reçues » vient d'être cochée dans une mission du mois : ce message-là reste affiché)
   if (solved && $('#toast').textContent === t0) toast(`${solved} pièce(s) comptabilisée(s) depuis la demande cochée(s) reçue(s).`);
   adoptKeys(c, r, st);
-  const all = computePieces(r, st.mode, st.arrete);
+  const all = tiersFilter(st, computePieces(r, st.mode, st.arrete));
   const items = all.filter((i) => !st.excluded.has(i.id));
   const off = all.filter((i) => st.excluded.has(i.id) && i.keys && i.keys.length);
   let m = openRequest(c, st, r);
