@@ -1,8 +1,10 @@
 # FEC de test (données inventées) d'un dossier qui numérote ses factures « n° + mois et année » : la facture 5108 de
-# janvier 2026 s'écrit « F51080126 ». Les ventes (VT) portent un n° interne « - P101 » et, rarement, le n° de facture ;
+# janvier 2026 porte le n° 51080126, repris dans la saisie avec ou sans F. Les ventes (VT) portent un n° interne
+# « - P101 » et, rarement, le n° de facture (« F51100126 », « Facture - 51300226 ») ;
 # les encaissements CB (BQ1) citent les n° de facture, souvent regroupés : « F5101-5102-5103-51040126 »,
-# « 5105-51060126 », « F5109+51100126 », « F5111,5112,51130126 », « F 51140126 », « F5126+127+51280226 », et un libellé
-# tronqué « F5116+5117+5118+5119+51200 ». N° jamais cités (factures manquantes) : 5107, 5121, 5142. Faute de frappe :
+# « 5105-51060126 », « F5109+51100126 », « F5111,5112,51130126 », « F 51140126 », « F5126+127+51280226 », « 51250226 »,
+# « 5143-5144-51450326 », et un libellé tronqué « F5116+5117+5118+5119+51200 » (mois déduit : 5116 à 5121 sont entre
+# 51150126 et 51220226). N° jamais cités (factures manquantes) : 5107, 5121, 5142. Faute de frappe :
 # « F 56890126 ». À ignorer : « CHQ 5113 » (achat), « F 30012026-1 », « F26000318 » (fournisseur).
 #   python3 genfactmmaa.py [dossier de sortie]   → 800000008FEC20261231.txt et 800000008-attendu.json
 import sys, os, json
@@ -38,7 +40,9 @@ for m, nums in MONTHS.items():
         date = f'2026-{m:02d}-{day:02d}'
         ht = 100 + (num % 7) * 25
         tva = round(ht * 0.1, 2)
-        lib = f'SEJOUR CLIENT {num - 2000}' + (f' F{num}{m:02d}26' if num in IN_SALE_LABEL else '') + f' - P{p}'
+        lib = f'SEJOUR CLIENT {num - 2000} - P{p}'
+        if num == 5110: lib = f'SEJOUR CLIENT {num - 2000} F{num}{m:02d}26 - P{p}'
+        if num == 5130: lib = f'Facture - {num}{m:02d}26 / SEJOUR CLIENT {num - 2000} - P{p}'
         entry('VT', 'Journal de vente', date, [('411', 'Clients', '411DIV', 'CLIENTS DIVERS', lib, ht + tva, 0),
                                               ('7063100008', 'Prestations hébergement (TVA 10%)', '', '', lib, 0, ht),
                                               ('44571008', 'TVA collectée à 10%', '', '', lib, 0, tva)])
@@ -50,11 +54,11 @@ receipts = [
     ('2026-01-15', 'REMISE CB DEMO 150126 F5111,5112,51130126'), ('2026-01-18', 'REMISE CB DEMO 180126 F 56890126'),
     ('2026-01-20', 'REMISE CB DEMO 200126 F 51140126'), ('2026-01-25', 'REMISE CB DEMO 250126 F51150126'),
     ('2026-02-05', 'REMISE CB DEMO 050226 F5116+5117+5118+5119+51200'), ('2026-02-10', 'REMISE CB DEMO 100226 F5122-5123-51240226'),
-    ('2026-02-11', 'VIR CLIENT DEMO F51250226'), ('2026-02-15', 'REMISE CB DEMO 150226 F5126+127+51280226'),
+    ('2026-02-11', 'VIR CLIENT DEMO 51250226'), ('2026-02-15', 'REMISE CB DEMO 150226 F5126+127+51280226'),
     ('2026-02-20', 'REMISE CB DEMO 200226 F5129,5130,51310226'), ('2026-02-25', 'REMISE CB DEMO 250226 F51320226'),
     ('2026-03-03', 'REMISE CB DEMO 030326 F5133-5134-5135-51360326'), ('2026-03-05', 'REMISE CB DEMO 050326 F5137+51380326'),
     ('2026-03-08', 'REMISE CB DEMO 080326 F51390326'), ('2026-03-12', 'REMISE CB DEMO 120326 F5140,51410326'),
-    ('2026-03-16', 'REMISE CB DEMO 160326 F5143-5144-51450326'), ('2026-03-20', 'REMISE CB DEMO 200326 F51460326+51470326'),
+    ('2026-03-16', 'REMISE CB DEMO 160326 5143-5144-51450326'), ('2026-03-20', 'REMISE CB DEMO 200326 F51460326+51470326'),
     ('2026-03-25', 'REMISE CB DEMO 250326 F5148+5149+51500326'), ('2026-03-30', 'VIR CLIENT DEMO SOLDE F 30012026-1'),
 ]
 for i, (date, lib) in enumerate(receipts):
@@ -73,7 +77,8 @@ with open(os.path.join(OUTDIR, '800000008FEC20261231.txt'), 'w', encoding='utf-8
         f.write('\t'.join(r) + '\r\n')
 present = sorted(x for m in MONTHS.values() for x in m if x not in MISSING)
 exp = {'first': 5101, 'last': 5150, 'count': len(present), 'missing': {'2026-01': [5107], '2026-02': [5121], '2026-03': [5142]},
-       'inSale': sorted(IN_SALE_LABEL), 'outliers': [2600, 5689]}
+       'inSale': sorted(IN_SALE_LABEL), 'outliers': [2600, 5689], 'outliersRaw': ['26000318', '56890126'],
+       'refs': {'5101': '51010126', '5107': '51070126', '5121': '51210126 ou 51210226', '5142': '51420326', '5150': '51500326'}}
 with open(os.path.join(OUTDIR, '800000008-attendu.json'), 'w', encoding='utf-8') as f:
     json.dump(exp, f, indent=1)
 print(json.dumps(exp))

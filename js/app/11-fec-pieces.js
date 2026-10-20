@@ -441,6 +441,13 @@ function immoPieces(r, push, from, to, flt) {
 
 // Numéros manquants d'une série dont la facture suivante est datée du `from` au `to` : [numéro, date de cette facture].
 // Série de plus de 6 000 factures (sans séquence détaillée) : d'après les trous transmis par le moteur.
+// N° d'une série tel qu'écrit sur la facture : préfixe et zéros de tête ; numérotation « n° + mois et année » : 51080126
+// (suffixe lu ou déduit des n° voisins, les deux s'ils diffèrent)
+function serieRef(g) {
+  if (g.src !== 'mmaa') return (n) => g.prefix + String(n).padStart(g.w || 0, '0');
+  const sfx = new Map(g.sfxL || []);
+  return (n) => (sfx.get(n) || '').split('|').map((x) => `${n}${x}`).join(' ou ');
+}
 function seriesMissing(g, from, to) {
   const out = [];
   const add = (a, b, date) => { if (date && date >= from && date <= to) for (let n = a + 1; n < b && out.length < 5000; n++) out.push([n, date]); };
@@ -464,7 +471,7 @@ function numberingPieces(r, push, from, to, flt) {
     const key = (n) => `num|${g.jc || ''}|${g.prefix}|${n}`;
     const miss = seriesMissing(g, from, to).filter(([n]) => flt.ok([key(n)])).slice(0, 200);
     if (!miss.length) return;
-    const ref = (n) => g.prefix + String(n).padStart(g.w || 0, '0');
+    const ref = serieRef(g);
     miss.slice(0, 50).forEach(([n, date]) => push('ventes', `num:${g.jc || ''}:${g.prefix}:${n}`, `Facture de vente n° ${ref(n)} (${moisNom(date)}) : copie, ou confirmation de son annulation`, { keys: [key(n)], ym: ymOf(date) }));
     const rest = miss.slice(50);
     if (rest.length) push('ventes', `num:${g.jc || ''}:${g.prefix}:+`, `Factures de vente n° ${rest.map(([n]) => ref(n)).join(', ')} : copies, ou confirmation de leur annulation`, { keys: rest.map(([n]) => key(n)), ym: ymOf(rest[0][1]) });

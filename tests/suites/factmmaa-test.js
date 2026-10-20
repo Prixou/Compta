@@ -5,8 +5,8 @@ const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
 const { fecTab, fecMonth } = require('./lib');
-// Numérotation « n° + mois et année » (F51080126 = facture 5108 de janvier 2026), citée surtout dans les encaissements,
-// en listes « F5101-5102-51040126 », « F5113+5114+… », « F5111,5112,51130126 » (tests/gen/genfactmmaa.py).
+// Numérotation « n° + mois et année » (51080126 = facture 5108 de janvier 2026), reprise avec ou sans F, citée surtout
+// dans les encaissements, en listes « F5101-5102-51040126 », « 5143-5144-… », « F5111,5112,51130126 » (tests/gen/genfactmmaa.py).
 let ko = 0;
 const expect = (cond, label, info) => { if (cond) console.log(`OK ${label}`); else { ko++; console.log(`KO ${label}${info ? ' : ' + info : ''}`); } };
 const EXP = JSON.parse(fs.readFileSync(D + '800000008-attendu.json', 'utf8'));
@@ -22,10 +22,12 @@ const analyse = (file) => {
   // 1. Moteur
   const r = analyse('800000008FEC20261231.txt');
   const sx = r.cycles.clients.numbering.find((g) => g.src === 'mmaa');
-  expect(sx && sx.first === 'F' + EXP.first && sx.last === 'F' + EXP.last && sx.count === EXP.count, `série F${EXP.first} → F${EXP.last} reconnue (${EXP.count} n°, listes et libellé tronqué compris)`, sx && `${sx.first} ${sx.last} ${sx.count}`);
+  const R = EXP.refs;
+  expect(sx && sx.first === R[EXP.first] && sx.last === R[EXP.last] && sx.count === EXP.count, `série ${R[EXP.first]} → ${R[EXP.last]} reconnue (${EXP.count} n°, avec ou sans F, listes et libellé tronqué compris)`, sx && `${sx.first} ${sx.last} ${sx.count}`);
   const miss = sx ? sx.gaps.flatMap(([a, b]) => Array.from({ length: b - a - 1 }, (_, k) => a + k + 1)) : [];
   expect(miss.join() === Object.values(EXP.missing).flat().join(), 'n° jamais cités : 5107, 5121, 5142', miss.join());
-  expect(sx && sx.outliers.map(([n]) => n).join() === EXP.outliers.join(), 'fautes de frappe et références fournisseur écartées de la suite', sx && JSON.stringify(sx.outliers));
+  expect(sx && sx.outliers.map(([n]) => n).join() === EXP.outliers.join() && sx.outliers.map((o) => o[2]).join() === EXP.outliersRaw.join(), 'fautes de frappe et références fournisseur écartées de la suite, affichées telles que lues', sx && JSON.stringify(sx.outliers));
+  expect(sx && sx.ranges.join() === Object.values(EXP.missing).flat().map((n) => R[n]).join(), 'n° manquants affichés XXXXMMAA, mois déduit des voisins (les deux s\'ils diffèrent)', sx && sx.ranges.join());
   expect(sx && sx.vente === EXP.inSale.length && sx.onlyEnc.length === EXP.count - EXP.inSale.length, 'n° lus dans les ventes (2) et seulement dans les encaissements (45)');
   const p = r.cycles.clients.numbering.find((g) => g.prefix === 'P');
   expect(p && p.missing === 0 && p.count === EXP.count, 'n° interne « - P147 » en fin de libellé préféré au n° de facture cité avant');
@@ -50,18 +52,20 @@ const analyse = (file) => {
   const items = async (ym) => { await fecMonth(pg, ym); await pg.waitForTimeout(100); return pg.evaluate((m) => saisieChecks(ui.fec.result, m).filter((x) => /numérotation|n° de facture/i.test(x.label)).map((x) => `${x.label} :: ${(x.examples || []).join(' / ')}`), ym); };
   for (const [ym, nums] of Object.entries(EXP.missing)) {
     const l = await items(ym);
-    expect(l.some((x) => /^Factures de vente manquantes/.test(x) && nums.every((n) => x.includes(`F${n} : entre`))), `${ym} : F${nums.join(', F')} signalée manquante`, l.join(' | ').slice(0, 300));
+    expect(l.some((x) => /^Factures de vente manquantes/.test(x) && nums.every((n) => x.includes(`${R[n]} : entre`))), `${ym} : ${nums.map((n) => R[n]).join(', ')} signalée manquante`, l.join(' | ').slice(0, 300));
   }
   const jan = await items('2026-01');
-  expect(jan.some((x) => /^N° de facture cités seulement dans les encaissements :: .*F5101 \(encaissement/.test(x)), 'janvier : n° cités seulement dans les encaissements listés');
+  expect(jan.some((x) => /^N° de facture cités seulement dans les encaissements :: .*51010126 \(encaissement/.test(x)), 'janvier : n° cités seulement dans les encaissements listés');
   expect(await pg.$$eval('.ventes-series input[data-ventes-serie]', (x) => x.length) === 2, 'tableau des séries : case « Contrôler » par série');
   const pieces = await pg.evaluate(() => { const out = []; numberingPieces(ui.fec.result, (cat, key, label) => out.push(label), '2026-01-01', '2026-03-31', { ok: () => true }); return out; });
-  expect(pieces.some((x) => /F5107 \(janvier 2026\)/.test(x)), 'pièces à demander : facture F5107 de janvier', pieces.join(' | ').slice(0, 200));
+  expect(pieces.some((x) => /n° 51070126 \(janvier 2026\)/.test(x)), 'pièces à demander : facture 51070126 de janvier', pieces.join(' | ').slice(0, 200));
+  const card = await pg.textContent('.ventes-series');
+  expect(/51010126/.test(card) && !/F5101/.test(card), 'tableau des séries : n° du mois affichés XXXXMMAA', card.slice(0, 200));
   await pg.screenshot({ path: O + 'factures-mmaa.png', fullPage: true });
   // Série décochée : plus contrôlée, choix conservé dans le dossier
-  await pg.uncheck('.ventes-series input[data-ventes-serie^="F + mois"]'); await pg.waitForTimeout(150);
+  await pg.uncheck('.ventes-series input[data-ventes-serie^="N° + mois"]'); await pg.waitForTimeout(150);
   const after = await items('2026-01');
-  expect(!after.some((x) => /F5107/.test(x)), 'série décochée : F5107 n\'est plus signalée');
+  expect(!after.some((x) => /51070126/.test(x)), 'série décochée : 51070126 n\'est plus signalée');
   expect(await pg.evaluate(() => data.clients[0].ventesSeries && Object.values(data.clients[0].ventesSeries).includes(false)), 'choix enregistré dans la fiche du dossier');
   console.log(ko ? `${ko} écart(s)` : 'numérotation « mois et année » conforme');
   console.log('erreurs', errors);

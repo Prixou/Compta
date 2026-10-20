@@ -163,7 +163,7 @@ function chkCharges(r, ref, prev) {
 
 // Numéros de facture de vente manquants, un par ligne, avec les factures qui encadrent chaque trou.
 function missingInvoices(g, keep, tag = '', max = 1000) {
-  const ref = (n) => g.prefix + String(n).padStart(g.w, '0');
+  const ref = serieRef(g);
   const list = [];
   let n = 0;
   (g.gaps || []).filter(keep || (() => true)).forEach(([a, b, da, db]) => {
