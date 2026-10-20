@@ -448,7 +448,14 @@ function seriesMissing(g, from, to) {
   else (g.gaps || []).forEach(([a, b, , date]) => add(a, b, date));
   return out;
 }
-const numberingSeries = (r) => (r.cycles && ui.fecProfile !== 'pharmacie' ? r.cycles.clients.numbering.filter((g) => !g.sparse && (g.seq || g.gaps)) : []);
+// Séries de numérotation suivies : toutes, sauf celles que l'utilisateur a décochées pour ce dossier (onglet Factures de vente)
+function ventesSeriesStore() {
+  const c = ui.fec && clientById(ui.fec.clientId);
+  if (c) return (c.ventesSeries = c.ventesSeries || {});
+  return (ui.fec.ventesSeries = ui.fec.ventesSeries || {});
+}
+const serieOn = (g) => ventesSeriesStore()[g.label] !== false;
+const numberingSeries = (r) => (r.cycles && ui.fecProfile !== 'pharmacie' ? r.cycles.clients.numbering.filter((g) => !g.sparse && (g.seq || g.gaps) && serieOn(g)) : []);
 
 // Numéros de facture de vente manquants : chaque trou de la numérotation est rattaché au mois de la facture qui le suit ;
 // une pièce par numéro (50 par série, puis une ligne pour le reste).

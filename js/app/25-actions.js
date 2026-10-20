@@ -557,6 +557,10 @@ document.addEventListener('change', (e) => {
     onCalChange(t);
   } else if (t.dataset.anon && ui.anon) {
     onAnonChange(t);
+  } else if (t.dataset.ventesSerie !== undefined && ui.fec) {
+    ventesSeriesStore()[t.dataset.ventesSerie] = t.checked;
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
   } else if (t.dataset.rel && ui.rel) {
     onRelChange(t);
   } else if (t.dataset.brap && ui.brap) {

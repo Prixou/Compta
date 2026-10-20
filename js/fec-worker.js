@@ -211,6 +211,7 @@ function analyse(buffer, fileName, until, docs) {
   const payroll = {};
   const attenteLines = [], immoLines = [], ccaLines = [], chargeLines = [];
   const bankLines = {}; // lignes des comptes 51 (hors à-nouveaux) pour le rapprochement bancaire
+  const sfxOcc = new Map(); // n° de facture « F5108 0126 » → écritures qui le citent
   const flags = {};
   // Cycles de révision
   const auxNames = new Map();
@@ -400,6 +401,8 @@ function analyse(buffer, fileName, until, docs) {
       if (date < minOp) minOp = date;
       if (date > maxOp) maxOp = date;
       // Comptes bancaires (512 et suivants) ; les 511 « valeurs à l'encaissement » (CB, chèques) sont des comptes de transit.
+      // N° de facture « n° + mois et année » cités dans les libellés (ventes, encaissements) : voir sfxSeries
+      if (elib && RE_SFX_PRE.test(elib)) sfxScan(sfxOcc, elib, date, compte[0] === '7' ? 'vente' : compte[0] === '5' ? 'encaissement' : '', ek0);
       if (/^51[2-9]/.test(compte)) {
         (bankLines[compte] = bankLines[compte] || []).push([date, round2(d - c), elib, piece, jc + ' ' + num]);
         let bk = bankMonths.get(compte);
@@ -648,7 +651,7 @@ function analyse(buffer, fileName, until, docs) {
   };
 
   perso.groups = Array.from(persoG.values()).sort((a, b) => b.total - a.total).slice(0, 30);
-  const cycles = buildCycles({ entries: opEntries, aux, auxNames, accounts, chAcc, tresoAcc, cut, perso, amendes, weekend, gifts, closing, start, months, maxOp, docs, attCol: attIdx >= 0 ? header[attIdx] : '' });
+  const cycles = buildCycles({ entries: opEntries, aux, auxNames, accounts, chAcc, tresoAcc, cut, perso, amendes, weekend, gifts, closing, start, months, maxOp, docs, attCol: attIdx >= 0 ? header[attIdx] : '', sfxOcc });
   cycles.tva = buildTva({ groups: [entries.values(), splits.values()], accounts, opEntries });
 
   // ---------- Mensuel ----------
@@ -1302,6 +1305,10 @@ function buildCycles(x) {
   const RE_LIBTOK = /(?:^|\s)([a-z]{1,5}[-/]?(?:20\d\d[-/])?\d{3,9})(?![\d/,.])/i;
   const libNum = (lib) => {
     const t = String(lib || '');
+    // Pennylane : le n° de facture termine le libellé (« Client X F51100126 - P147 » → « P147 »)
+    const tail = t.includes(' - ') ? t.slice(t.lastIndexOf(' - ') + 3).trim() : '';
+    const tm = /^([a-z]{1,5}[-/]?(?:20\d\d[-/])?)(\d{2,9})$/i.exec(tail);
+    if (tm) return [tm[1].toUpperCase(), tm[2]];
     const m = t.match(RE_LIBNUM) || t.match(RE_LIBTOK);
     if (!m) return null;
     const x = m[1].toUpperCase().match(/^(.*?)(\d+)$/);
@@ -1368,6 +1375,9 @@ function buildCycles(x) {
   const multiJ = new Set();
   numbering.forEach((g) => { if (numbering.some((h) => h !== g && h.prefix === g.prefix)) multiJ.add(g.prefix); });
   numbering.forEach((g) => { g.label = `${g.prefix || 'sans préfixe'}${multiJ.has(g.prefix) || !g.prefix ? ` (journal ${g.jc})` : ''}${g.src === 'libelle' ? ', n° lu dans le libellé' : ''}`; });
+  const sfx = sfxSeries(x.sfxOcc);
+  // Notation reconnue : les n° « F51080126 » lus tels quels dans les libellés de vente ne forment pas une série
+  if (sfx) numbering = numbering.filter((g) => !(g.src === 'libelle' && /^F$/i.test(g.prefix) && g.w === 8)).concat(sfx);
   const noNum = [];
   docs7.forEach(([date, piece, jc, num, amt, ek, lib, lib41]) => {
     if (noNum.length < 3000 && !pieceNum(piece) && !libNum(lib41) && !libNum(lib)) noNum.push([date, jc, num, piece, amt, lib]);
@@ -1583,6 +1593,87 @@ function buildTva({ groups, accounts, opEntries }) {
   });
   Object.values(chk).forEach((c) => Object.values(c).forEach((b) => { b.total = round2(b.total); delete b.items; }));
   return { accs, ca, g, nv, nvN, ca7, ca7r, months, chk };
+}
+
+// ---------- N° de facture « n° + mois et année » ----------
+// Certains logiciels de facturation (hôtellerie, location…) notent la facture 5108 de janvier 2026 « F51080126 », et en
+// regroupent plusieurs dans un libellé d'encaissement : « F5101-5102-5103-51040126 », « F5113+5114+51150226 »,
+// « F5175,5176,51770526 », « 5105-51060126 » (libellés parfois tronqués : « F5113+5114+51170 »). Ces n° sont lus dans
+// toutes les écritures (ventes, encaissements, hors à-nouveaux) pour contrôler la continuité de la numérotation quand
+// les écritures de vente ne portent pas le n° de facture.
+const RE_SFX_PRE = /F\s?\d{4}|\d{4}[,+/-]\d{4}|\d{8}/i;
+const RE_SFX_F = /(?:^|[^0-9A-Za-z])F\s?(\d[\d ,+/-]*\d|\d)/gi;
+const RE_SFX_S = /(?:^|[^0-9A-Za-z])((?:\d{4}[,+/-])*\d{4}(?:0[1-9]|1[0-2])\d{2})(?!\d)/g;
+function sfxScan(occ, lib, date, kind, ek) {
+  const y = Number(date.slice(0, 4));
+  const add = (n, sfx) => {
+    let list = occ.get(n);
+    if (!list) occ.set(n, (list = []));
+    if (list.length < 20 && !list.some((o) => o.ek === ek && o.kind === kind)) list.push({ date, kind, sfx, ek });
+  };
+  const run = (txt, atEnd, prefixed) => {
+    const toks = txt.match(/\d+/g) || [];
+    // Suffixe du dernier n° de la liste (mois et année), appliqué aux n° qui le précèdent
+    const lastT = toks[toks.length - 1];
+    const listSfx = lastT && lastT.length === 8 && +lastT.slice(4, 6) >= 1 && +lastT.slice(4, 6) <= 12 ? lastT.slice(4) : '';
+    if (!prefixed) { const yy = +lastT.slice(-2); if (Math.abs(2000 + yy - y) > 1) return; }
+    let prev = null;
+    toks.forEach((t, i) => {
+      let n = null, sfx = listSfx;
+      if (t.length === 8 && +t.slice(4, 6) >= 1 && +t.slice(4, 6) <= 12) { n = +t.slice(0, 4); sfx = t.slice(4); }
+      else if (t.length === 4) n = +t;
+      else if (t.length >= 5 && t.length <= 7 && i === toks.length - 1 && i > 0 && atEnd) n = +t.slice(0, 4); // libellé tronqué
+      else if (t.length === 3 && prev !== null && Math.abs(Math.floor(prev / 1000) * 1000 + +t - prev) <= 20) n = Math.floor(prev / 1000) * 1000 + +t; // « 5200+201 »
+      if (n === null) return;
+      add(n, sfx && Math.abs(2000 + +sfx.slice(2) - y) <= 1 ? sfx : '');
+      prev = n;
+    });
+  };
+  let m;
+  RE_SFX_F.lastIndex = 0;
+  while ((m = RE_SFX_F.exec(lib))) run(m[1], m.index + m[0].length >= lib.length - 1, true);
+  RE_SFX_S.lastIndex = 0;
+  while ((m = RE_SFX_S.exec(lib))) run(m[1], false, false);
+}
+function sfxSeries(occ) {
+  if (!occ || occ.size < 20) return null;
+  const nums = Array.from(occ.keys()).sort((a, b) => a - b);
+  // Suite principale : n° qui se suivent à moins de 50 d'écart ; les autres sont des fautes de frappe probables
+  const clusters = [[nums[0]]];
+  for (let i = 1; i < nums.length; i++) { if (nums[i] - nums[i - 1] > 50) clusters.push([]); clusters[clusters.length - 1].push(nums[i]); }
+  const main = clusters.reduce((a, b) => (b.length > a.length ? b : a));
+  const withSfx = main.filter((n) => occ.get(n).some((o) => o.sfx)).length;
+  if (main.length < 20 || main.length < 0.3 * (main[main.length - 1] - main[0] + 1) || withSfx < main.length * 0.5) return null;
+  // Date d'un n° : sa première mention dans le mois de la facture (suffixe), à défaut le 1er de ce mois, sinon la première mention
+  const info = (n) => {
+    const list = occ.get(n).slice().sort((a, b) => (a.date < b.date ? -1 : 1));
+    const sfx = (list.find((o) => o.sfx) || {}).sfx;
+    const ym = sfx ? `20${sfx.slice(2)}-${sfx.slice(0, 2)}` : '';
+    const inM = ym && list.find((o) => o.date.startsWith(ym));
+    return { date: inM ? inM.date : ym ? `${ym}-01` : list[0].date, vente: list.some((o) => o.kind === 'vente'), enc: list.some((o) => o.kind === 'encaissement') };
+  };
+  const ref = (n) => 'F' + n;
+  const seq = [], gaps = [], ranges = [], onlyEnc = [];
+  let missing = 0, vente = 0, enc = 0;
+  main.forEach((n, i) => {
+    const x = info(n);
+    seq.push([n, x.date, 0]);
+    if (x.vente) vente++;
+    if (x.enc) enc++;
+    if (x.enc && !x.vente && onlyEnc.length < 3000) onlyEnc.push([n, x.date]);
+    if (i) {
+      const p = main[i - 1], gap = n - p - 1;
+      if (gap > 0) {
+        missing += gap;
+        for (let k = p + 1; k < n && ranges.length < 300; k++) ranges.push(ref(k));
+        if (gaps.length < 2000) gaps.push([p, n, seq[i - 1][1], x.date]);
+      }
+    }
+  });
+  const outliers = nums.filter((n) => !main.includes(n)).slice(0, 50).map((n) => [n, info(n).date]);
+  return { prefix: 'F', jc: '', src: 'mmaa', w: 4, seq, count: main.length, first: ref(main[0]), last: ref(main[main.length - 1]), missing, ranges, gaps,
+    inversions: 0, invEx: [], invL: [], dups: [], dupL: [], ecriture: false, sparse: missing > main.length * 3, outliers, vente, enc, onlyEnc,
+    label: 'F + mois et année (F5108 0126), n° lus dans les ventes et les encaissements' };
 }
 
 // ---------- Affectations déjà faites, par libellé ----------

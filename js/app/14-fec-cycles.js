@@ -181,7 +181,7 @@ function chkClients(r, ref, prev, terme) {
   const { solde } = sums(r);
   linkedAlerts(r, out, ['Clients créditeurs']);
   mispostCheck(r, out, '411');
-  const nb = cl.numbering.filter((g) => !g.sparse);
+  const nb = cl.numbering.filter((g) => !g.sparse && serieOn(g));
   if (!cl.numbering.length && cl.invoices >= 10) out.add('info', 'Numérotation des factures de vente non contrôlable', 'Les n° de pièce des factures de vente ne se terminent pas par un numéro.');
   else if (cl.numbering.length && !nb.length) out.add('info', 'Numérotation des factures non exploitable', `Les n° de pièce (${cl.numbering[0].first}…) ${cl.numbering.some((g) => g.ecriture) ? 'sont les n° d\'écriture' : 'ne forment pas une suite'} : le n° de facture n'est pas repris dans le FEC.`);
   nb.forEach((g) => {
@@ -261,7 +261,7 @@ function cycleChecks(r) {
   const ref = pharmaRef(r);
   const prev = fecPrev();
   const terme = fecTerme();
-  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', terme, r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length].join('|');
+  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', terme, r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore())].join('|');
   if (r._cc && r._cc.key === key) return r._cc.val;
   const val = {
     achats: applyMemo(chkAchats(r, ref, prev, terme), 'achats'),
