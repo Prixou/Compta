@@ -147,6 +147,7 @@ function renderShell() {
           <a href="${fecHref()}" data-nav="fec">${icon('chart')}<span>Analyse FEC</span></a>
           <a href="#/calcul" data-nav="calcul">${icon('calc')}<span>Calcul TVA</span></a>
           <a href="#/releves" data-nav="releves">${icon('file')}<span>Relevés PDF</span></a>
+          <a href="#/rapprochement" data-nav="rapprochement">${icon('bank')}<span>Rapprochement</span></a>
           <a href="#/parametres" data-nav="parametres">${icon('gear')}<span>Paramètres</span></a>
         </nav>
         <div class="side-actions">
@@ -208,6 +209,7 @@ function route() {
     case 'anonymiser': main.innerHTML = viewAnon(); break;
     case 'comparer': main.innerHTML = viewCompare(); break;
     case 'releves': main.innerHTML = viewReleves(); break;
+    case 'rapprochement': main.innerHTML = viewBrap(); break;
     case 'calcul': main.innerHTML = viewCalc(); calcUpdate(); break;
     case 'parametres': main.innerHTML = viewSettings(); break;
     default: main.innerHTML = viewDashboard();

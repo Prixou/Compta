@@ -834,6 +834,21 @@ function analyse(buffer, fileName, until, docs) {
   trunc.enc = keepRecent(cycles.clients.directSales, 5000, (x) => x[0]);
   const soldeOf = (compte) => { const x = accounts.get(compte); return x ? round2(x.d - x.c) : 0; };
   const labelIdx = buildLabelIndex(opEntries, accounts, auxNames);
+  // Contrepartie de chaque écriture de banque (« BQ 12 » → compte, auxiliaire, libellé) : rapprochement d'un relevé
+  const bankCp = {};
+  opEntries.forEach((en) => {
+    if (en.an || !en.l || !en.date) return;
+    let bank = false, best = null, bestAmt = 0;
+    for (let i = 0; i < en.l.length; i += 4) {
+      const compte = en.l[i], amt = Math.abs(en.l[i + 2] - en.l[i + 3]);
+      if (/^51[2-9]/.test(compte)) { bank = true; continue; }
+      if (/^(445|51|58)/.test(compte)) continue;
+      if (amt > bestAmt) { bestAmt = amt; best = [compte, en.l[i + 1] || '']; }
+    }
+    if (!bank || !best) return;
+    const lib = best[1] ? auxNames.get(best[1]) || best[1] : (accounts.get(best[0]) || {}).lib || '';
+    bankCp[`${en.jc} ${en.num}`.trim()] = [best[0], best[1], lib];
+  });
   const invIdx = buildInvIndex(opEntries, auxNames, aux);
   // Comptes d'attente : lignes encore ouvertes, les plus récentes
   const attOpen = settleAttente(attenteLines, accounts, opEntries, remap);
@@ -901,6 +916,7 @@ function analyse(buffer, fileName, until, docs) {
     aging,
     misposted,
     labelIdx: { stop: Array.from(STOP), map: labelIdx },
+    bankCp,
     invIdx,
     cycles,
     kpi: {

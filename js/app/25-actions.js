@@ -251,6 +251,10 @@ const actions = {
   'batch-pick': async () => batchRun(await pickFiles('.txt,.csv,.tsv,.zip,text/plain,application/zip')),
   'anon-pick': async () => anonStart(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true)),
   'rel-pick': async () => relAdd(await pickFiles('.pdf,application/pdf')),
+  'brap-pick-rel': async () => brapAddStatements(await pickFiles('.pdf,.csv,.xlsx,.ofx,.qfx,.xml,.cfonb,.dat,.120,.txt')),
+  'brap-pick-fec': async () => brapSetFec(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true)),
+  'brap-clear': () => { ui.brap = null; refresh(); },
+  'brap-export': (el) => brapExport(el.dataset.kind),
   'cmp-pick': async (el) => { const f = await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true); if (f) cmpDrop([f], el.dataset.side); },
   'cmp-swap': () => { const st = cmpState(); [st.ref, st.cmp] = [st.cmp, st.ref]; cmpRun(); },
   'cmp-clear': () => { cmpStop(); ui.cmp = null; refresh(); },
@@ -555,6 +559,8 @@ document.addEventListener('change', (e) => {
     onAnonChange(t);
   } else if (t.dataset.rel && ui.rel) {
     onRelChange(t);
+  } else if (t.dataset.brap && ui.brap) {
+    onBrapChange(t);
   } else if (t.dataset.cmp && ui.cmp) {
     onCmpChange(t);
   } else if (t.dataset.msg === 'mission' && ui.msg) {

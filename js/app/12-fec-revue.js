@@ -447,7 +447,7 @@ function reconcile(ops, lines, tol, opening) {
   const matched = bank.filter((o) => o.match).length;
   // Solde comptable à une date (à-nouveaux + mouvements jusqu'à cette date).
   const balanceAt = (date) => Math.round((opening + lines.filter(([d]) => d <= date).reduce((t, l) => t + l[1], 0)) * 100) / 100;
-  return { start, end, bank, bankOnly, bookOnly, matched, balanceAt };
+  return { start, end, bank, book, bankOnly, bookOnly, matched, balanceAt };
 }
 
 function rapproState() {

@@ -4,7 +4,7 @@
  * et n'effectue aucune requête vers un autre domaine.
  */
 // À garder identique aux ?v= de index.html et à ASSET_VERSION dans js/app/10-fec.js.
-const VERSION = '51';
+const VERSION = '52';
 const CACHE = 'suivi-dossiers-v' + VERSION;
 const ASSETS = [
   './',
@@ -50,7 +50,8 @@ const ASSETS = [
   'js/app/28-releves.js?v=' + VERSION,
   'js/app/29-notes.js?v=' + VERSION,
   'js/app/30-comparer.js?v=' + VERSION,
-  'js/app/31-formulaires.js?v=' + VERSION,
+  'js/app/31-rapprochement.js?v=' + VERSION,
+  'js/app/32-formulaires.js?v=' + VERSION,
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',
