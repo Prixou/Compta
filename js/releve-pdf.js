@@ -27,13 +27,26 @@
   const isoOf = (s) => { const m = RE_DATE.exec(String(s || '').trim()); return m ? iso(m[1], m[2], m[3]) : null; };
   const fmt = (n) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  // En-têtes de colonnes reconnus
-  const H_DATE = /^DATES?( OPERATION| OPE\.?)?$/;
-  const H_DEB = /^(DEPENSES?|DEBITS?|SORTIES?|DEBIT EUROS?|MONTANT DEBIT)$/;
-  const H_CRE = /^(RECETTES?|CREDITS?|ENTREES?|CREDIT EUROS?|MONTANT CREDIT)$/;
-  const H_AMT = /^(MONTANTS?|MONTANT EUROS?)$/;
+  // Date sans année (« 05.10 », « 05/10 ») : relevés de banque, l'année se déduit de la période du relevé
+  const RE_DATE_NY = /^(\d{2})[/.](\d{2})(?![/.-]?\d)/;
+  const MONTHS = { JANVIER: 1, FEVRIER: 2, MARS: 3, AVRIL: 4, MAI: 5, JUIN: 6, JUILLET: 7, AOUT: 8, SEPTEMBRE: 9, OCTOBRE: 10, NOVEMBRE: 11, DECEMBRE: 12 };
+  const pad2 = (n) => String(n).padStart(2, '0');
+  // « 1er octobre 2025 », « 01/10/2025 », « 01.10.25 » → AAAA-MM-JJ
+  const isoAny = (d, m, y) => {
+    const mm = /^\d+$/.test(m) ? Number(m) : MONTHS[norm(m)];
+    if (!mm || mm > 12 || Number(d) < 1 || Number(d) > 31) return null;
+    return `${String(y).length === 2 ? '20' + y : y}-${pad2(mm)}-${pad2(d)}`;
+  };
+  const RE_PERIOD = /\bdu\s+(\d{1,2})(?:er)?[\s/.-]+(\d{1,2}|[a-zéûè]+)[\s/.-]+(\d{4}|\d{2})\s+au\s+(\d{1,2})(?:er)?[\s/.-]+(\d{1,2}|[a-zéûè]+)[\s/.-]+(\d{4}|\d{2})\b/i;
+  const RE_FULL = /\b(\d{2})[/.-](\d{2})[/.-](\d{4})\b/;
+
+  // En-têtes de colonnes reconnus (« Date opé. », « Date de l'opération », « Débit (€) », « Crédit euros »…)
+  const H_DATE = /^DATES?( D[E']? ?(L'?)?OPERATIONS?| OPERATIONS?| OPE\.?| COMPTABLES?| COMPTA\.?)?$/;
+  const H_DEB = /^(DEPENSES?|DEBITS?|SORTIES?|MONTANT DEBIT)\b/;
+  const H_CRE = /^(RECETTES?|CREDITS?|ENTREES?|MONTANT CREDIT)\b/;
+  const H_AMT = /^MONTANTS?\b(?! (DEBIT|CREDIT))/;
   const H_VAL = /^(DATE )?(DE )?VALEUR$|^(DATE )?VAL\.?$/;
-  const RE_DATE_ONLY = /^\d{2}[/.-]\d{2}[/.-](\d{4}|\d{2})$/;
+  const RE_DATE_ONLY = /^\d{2}[/.-]\d{2}([/.-](\d{4}|\d{2}))?$/;
 
   function parse(doc, P) {
     const meta = { titre: '', dossier: '', compte: '', du: null, au: null };
@@ -41,7 +54,17 @@
     const warnings = [];
     let soldeInitial = null, soldeFinal = null, soldeCalcule = null, totals = null;
     let cols = null; // { deb: {x0, x1}, cre: {x0, x1}, amt, val } (val : colonne « Valeur », date de valeur écartée)
-    let headerSeen = false;
+    let headerSeen = false, yearHint = null;
+    // Année d'une date sans année : celle qui la place dans la période du relevé (à 45 jours près), à défaut l'année
+    // d'une date complète lue en tête du relevé
+    const yearOf = (d, m) => {
+      if (meta.du && meta.au) {
+        const ys = Array.from(new Set([meta.du.slice(0, 4), meta.au.slice(0, 4)]));
+        const lo = Date.parse(meta.du) - 45 * 864e5, hi = Date.parse(meta.au) + 45 * 864e5;
+        return ys.find((y) => { const t = Date.parse(`${y}-${m}-${d}`); return t >= lo && t <= hi; }) || meta.au.slice(0, 4);
+      }
+      return yearHint;
+    };
     doc.pages.forEach((page, pi) => {
       const lines = P.lines(page);
       // En-tête du tableau sur cette page (sinon : colonnes de la page précédente)
@@ -53,22 +76,25 @@
         const deb = segs[names.findIndex((n) => H_DEB.test(n))];
         const cre = segs[names.findIndex((n) => H_CRE.test(n))];
         const amt = segs[names.findIndex((n) => H_AMT.test(n))];
-        if (names.some((n) => H_DATE.test(n)) && ((deb && cre) || amt)) {
+        // En-têtes serrés : « Date opé. Date valeur » peut former un seul morceau ; il suffit qu'il commence par « Date »
+        if (names.some((n) => H_DATE.test(n) || /^DATES?\b/.test(n)) && ((deb && cre) || amt)) {
           hi = i;
           cols = deb && cre ? { deb, cre } : { amt };
-          cols.val = segs[names.findIndex((n) => H_VAL.test(n))] || null;
+          cols.val = segs[names.findIndex((n) => H_VAL.test(n))] || segs[names.findIndex((n) => /\bVALEUR\b/.test(n))] || null;
           headerSeen = true;
         }
       });
       // Informations du relevé, au-dessus du tableau de la première page
       if (pi === 0) lines.slice(0, hi >= 0 ? hi : 8).forEach((l, i) => {
         const t = l.text;
-        const per = /\bdu\s+(\d{2}\/\d{2}\/\d{2,4})\s+au\s+(\d{2}\/\d{2}\/\d{2,4})/i.exec(t);
+        const per = RE_PERIOD.exec(t);
         const cpt = /\bcompte\s*n[°o]?\s*:?\s*(.+)$/i.exec(t);
-        if (per && !meta.du) { meta.du = isoOf(per[1]); meta.au = isoOf(per[2]); }
+        const full = RE_FULL.exec(t);
+        if (full && !yearHint) yearHint = full[3];
+        if (per && !meta.du) { meta.du = isoAny(per[1], per[2], per[3]); meta.au = isoAny(per[4], per[5], per[6]); }
         if (cpt && !meta.compte) meta.compte = cpt[1].trim();
         if (per || cpt) return;
-        if (/relev[eé]/i.test(t) && !meta.titre) meta.titre = t;
+        if (/relev[eé]|extrait de compte/i.test(t) && !meta.titre) meta.titre = t;
         else if (i === 0 && !meta.dossier) meta.dossier = t;
       });
       if (!cols) return;
@@ -76,9 +102,12 @@
       lines.slice(hi + 1).forEach((l) => {
         if (/\bpage\s*-?\s*\d+\b/i.test(l.text)) return; // pied de page
         const segs = P.segments(l, 1);
-        const amts = segs.filter((s) => RE_AMT.test(s.text));
+        // Montant : nombre qui finit dans les colonnes de montants (une date « 05.10 » à gauche n'en est pas un)
+        const amtX = cols.amt ? cols.amt.x0 : Math.min(cols.deb.x0, cols.cre.x0);
+        const isAmt = (s) => RE_AMT.test(s.text) && s.x1 >= amtX - 5;
+        const amts = segs.filter(isAmt);
         // Date de valeur : écartée du libellé
-        const texts = segs.filter((s, i) => !RE_AMT.test(s.text)
+        const texts = segs.filter((s, i) => !isAmt(s)
           && !(i && cols.val && RE_DATE_ONLY.test(s.text) && s.x1 > cols.val.x0 - 4 && s.x0 < cols.val.x1 + 4));
         let deb = 0, cre = 0;
         amts.forEach((s) => {
@@ -89,9 +118,14 @@
         });
         deb = round2(deb); cre = round2(cre);
         const first = texts[0] ? texts[0].text : '';
-        const d = RE_DATE.exec(first);
+        let d = RE_DATE.exec(first);
+        if (!d) {
+          const n = RE_DATE_NY.exec(first);
+          const y = n && yearOf(n[1], n[2]);
+          if (y) d = [n[0], n[1], n[2], y];
+        }
         let rest = (d ? first.slice(d[0].length) : first).trim();
-        if (d && cols.val) rest = rest.replace(/^\d{2}[/.-]\d{2}[/.-](\d{4}|\d{2})\b\s*/, '');
+        if (d && cols.val) rest = rest.replace(/^\d{2}[/.-]\d{2}([/.-](\d{4}|\d{2}))?(?![\d,])\s*/, '');
         const lib = [rest].concat(texts.slice(1).map((s) => s.text)).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
         const key = norm(lib);
         if (d && (!texts[0] || texts[0].x0 < (cols.deb ? cols.deb.x0 : cols.amt.x0))) {

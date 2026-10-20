@@ -70,6 +70,16 @@ const sorted = (a) => a.slice().sort((x, y) => x - y).join();
   await p.fill('input[data-brap=soldeReleve]', String(EXP.closing)); await p.press('input[data-brap=soldeReleve]', 'Enter'); await p.waitForTimeout(150);
   await p.fill('input[data-brap=soldeCompta]', String(EXP.compta)); await p.press('input[data-brap=soldeCompta]', 'Enter'); await p.waitForTimeout(150);
   expect(await p.evaluate(() => brapCalc(ui.brap).ecart) === 0, 'soldes saisis : écart inexpliqué nul');
+  // Relevé PDF au format des banques (dates sans année, date de valeur, libellés sur deux lignes, deux pages)
+  await p.click('button[data-action=brap-clear]');
+  await p.waitForSelector('[data-action=brap-pick-rel]');
+  [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('[data-action=brap-pick-rel]')]); await ch.setFiles(F + 'releve-octobre-2025.pdf');
+  await p.waitForFunction(() => ui.brap && (ui.brap.ops.length > 0 || ui.brap.errors.length > 0));
+  [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('[data-action=brap-pick-fec]')]); await ch.setFiles(F + 'journal-banque-900000011FEC20251031.txt');
+  await p.waitForSelector('.fec-kpis', { timeout: 15000 });
+  const P = await p.evaluate(() => { const K = brapCalc(ui.brap); return { n: ui.brap.ops.length, errors: ui.brap.errors, r: [K.bankRest.length, K.bookRest.length, K.ecarts.length + K.sens.length, K.doublons.length].join(), releve: K.releve, attendu: K.attendu, labels: ui.brap.ops.map((o) => o.label) }; });
+  expect(P.n === EXP.stmtOps && P.r === '3,2,3,1' && P.releve === EXP.closing && P.attendu === EXP.compta, 'relevé PDF de banque : mêmes différences, solde de fin lu sur le relevé', JSON.stringify(P).slice(0, 300));
+  expect(P.labels.includes('PRLV SEPA SCI DU PARC LOYER OCTOBRE') && P.labels.includes('REMBOURSEMENT TROP PERCU ENERGIE DU SUD'), 'relevé PDF : libellés sur deux lignes réunis');
   // Mobile, verrouillage
   await p.setViewportSize({ width: 390, height: 844 }); await p.waitForTimeout(200);
   expect(!(await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)), 'mobile : pas de débordement horizontal');

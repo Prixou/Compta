@@ -113,6 +113,78 @@ with open(os.path.join(OUTDIR, 'releve-octobre-2025.ofx'), 'w', encoding='utf-8'
     for i, (d, l, a) in enumerate(stmt):
         f.write(f'<STMTTRN><TRNTYPE>{"CREDIT" if a > 0 else "DEBIT"}<DTPOSTED>{d.replace("-", "")}<TRNAMT>{a:.2f}<FITID>OCT{i:03d}<NAME>{l}</STMTTRN>\r\n')
     f.write(f'</BANKTRANLIST><LEDGERBAL><BALAMT>{closing:.2f}<DTASOF>20251031</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>\r\n')
+
+# Relevé PDF au format courant des banques : dates sans année (« 01.10 »), date de valeur, libellés sur deux lignes,
+# en-têtes « Date opé. / Date valeur / Libellé de l'opération / Débit (€) / Crédit (€) », période en toutes lettres, deux pages
+# (« A reporter » / « Report »), ancien et nouveau solde datés.
+def pdf_statement(path):
+    W = {c: 556 for c in '0123456789'}
+    W.update({' ': 278, ',': 278, '.': 278, '-': 333})
+    def esc(t):
+        return t.encode('cp1252').replace(b'\\', b'\\\\').replace(b'(', b'\\(').replace(b')', b'\\)').decode('latin-1')
+    def txt(x, top, t, size=9, bold=False, right=False):
+        w = sum(W.get(ch, 556) for ch in t) * size / 1000
+        x0 = x - w if right else x
+        return f'BT /{"F2" if bold else "F1"} {size} Tf 1 0 0 1 {x0:.2f} {842 - top - size * 0.75:.2f} Tm ({esc(t)}) Tj ET'
+    def money(v):
+        return f'{abs(v):,.2f}'.replace(',', ' ').replace('.', ',')
+    def head(top):
+        return [txt(40, top, 'Date opé.', 8, True), txt(80, top, 'Date valeur', 8, True), txt(135, top, "Libellé de l'opération", 8, True),
+                txt(470, top, 'Débit (€)', 8, True, True), txt(550, top, 'Crédit (€)', 8, True, True)]
+    pages, ops_left = [], list(stmt)
+    deb_t = sum(-a for _, _, a in stmt if a < 0); cre_t = sum(a for _, _, a in stmt if a > 0)
+    run_d = run_c = 0
+    for pn in (1, 2):
+        s = [txt(40, 40, 'BANQUE FICTIVE - AGENCE DE DEMO', 10, True), txt(40, 58, 'EXTRAIT DE COMPTE', 13, True),
+             txt(40, 76, 'Relevé du 1er octobre 2025 au 31 octobre 2025'), txt(330, 76, 'Compte n° 99999 00000 00000000099')]
+        s += head(104)
+        top = 120
+        if pn == 1:
+            s += [txt(135, top, 'SOLDE CREDITEUR AU 30.09.2025', 9, True), txt(550, top, money(opening), 9, True, True)]
+        else:
+            s += [txt(135, top, 'REPORT', 9, True), txt(470, top, money(run_d), 9, True, True), txt(550, top, money(run_c), 9, True, True)]
+        chunk = ops_left[:12] if pn == 1 else ops_left
+        ops_left = ops_left[12:]
+        for d, l, a in chunk:
+            top += 14
+            dd = d[8:10] + '.' + d[5:7]
+            cut = l.rfind(' ', 0, 30) if len(l) > 30 else -1
+            parts = [l[:cut], l[cut + 1:]] if cut > 0 else [l]
+            s += [txt(40, top, dd), txt(80, top, dd), txt(135, top, parts[0])]
+            s.append(txt(470 if a < 0 else 550, top, money(a), 9, False, True))
+            if len(parts) > 1 and parts[1].strip():
+                top += 11
+                s.append(txt(135, top, parts[1].strip()))
+            if a < 0: run_d += -a
+            else: run_c += a
+        top += 18
+        if pn == 1:
+            s += [txt(135, top, 'A REPORTER', 9, True), txt(470, top, money(run_d), 9, True, True), txt(550, top, money(run_c), 9, True, True)]
+        else:
+            s += [txt(135, top, 'TOTAL DES MOUVEMENTS', 9, True), txt(470, top, money(deb_t), 9, True, True), txt(550, top, money(cre_t), 9, True, True)]
+            top += 14
+            s += [txt(135, top, 'NOUVEAU SOLDE CREDITEUR AU 31.10.2025', 9, True), txt(550, top, money(closing), 9, True, True)]
+        s.append(txt(500, 810, f'Page {pn}/2', 8))
+        pages.append('\n'.join(s).encode('latin-1'))
+    objs = {1: b'<< /Type /Catalog /Pages 2 0 R >>', 2: b'<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',
+            5: b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+            6: b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>'}
+    for i, content in enumerate(pages):
+        objs[3 + i] = f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents {7 + i} 0 R >>'.encode()
+        objs[7 + i] = f'<< /Length {len(content)} >>\nstream\n'.encode() + content + b'\nendstream'
+    out = bytearray(b'%PDF-1.4\n')
+    offs = {}
+    for k in sorted(objs):
+        offs[k] = len(out)
+        out += f'{k} 0 obj\n'.encode() + objs[k] + b'\nendobj\n'
+    x = len(out)
+    out += f'xref\n0 {max(offs) + 1}\n0000000000 65535 f \n'.encode() + b''.join(f'{offs[k]:010d} 00000 n \n'.encode() for k in sorted(offs))
+    out += f'trailer\n<< /Size {max(offs) + 1} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n'.encode()
+    with open(path, 'wb') as f:
+        f.write(out)
+
+
+pdf_statement(os.path.join(OUTDIR, 'releve-octobre-2025.pdf'))
 exp = {'closing': closing, 'compta': compta, 'stmtOps': len(stmt), 'bankOnly': [-145.20, 1200.00, -12.50], 'bookOnly': [-450.00, 380.00],
        'transp': [-1243.50, -1234.50], 'ecart': [-560.00, -565.00], 'sens': [89.90, -89.90], 'doublon': -62.40, 'remise': 900.00}
 with open(os.path.join(OUTDIR, 'rappro-attendu.json'), 'w', encoding='utf-8') as f:
