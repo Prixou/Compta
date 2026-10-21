@@ -192,10 +192,9 @@ function compteDemande(c, key, lib) {
   return !key.startsWith('411|') || ui.fecProfile !== 'pharmacie' || auto411(key.slice(4), lib);
 }
 
-// Montant demandé d'un règlement : celui de la ligne de banque (`brut`), avec la part restée sans facture quand une facture
-// en couvre une partie (`amt`) ; `old` : textes d'avant la version 57 (part sans facture seule), pour les anciennes demandes.
+// Montant demandé d'un règlement : celui de la ligne de banque (`brut`), même si une facture en couvre une partie ; `old` :
+// textes d'avant la version 57 (part sans facture seule), pour reconnaître les anciennes demandes.
 const payMt = (u, old) => (old || !u.brut ? u.amt : u.brut);
-const payReste = (u, old) => (!old && u.brut && Math.abs(u.brut - u.amt) >= 0.01 ? `, dont ${eur(u.amt)} € sans facture` : '');
 
 // Règlements et encaissements non affectés à une facture, regroupés par tiers : une demande par tiers, chaque paiement daté.
 // `flt.ok(clés)` : opération à proposer ; `flt.gone(clé)` : facture déjà demandée ou reçue.
@@ -212,10 +211,9 @@ function unmatchedPieces(r, push, from, to, flt, old = false) {
     const list = g.map((x) => x.u);
     const u0 = list[0];
     const total = list.reduce((s2, u) => s2 + payMt(u, old), 0);
-    const det = list.slice(0, 8).map((u) => `du ${d(u.date)} (${eur(payMt(u, old))} €${payReste(u, old)})`).join(', ') + (list.length > 8 ? ` et ${list.length - 8} autre(s), total ${eur(total)} €` : '');
-    const one = (u) => `de ${eur(payMt(u, old))} € du ${d(u.date)}${payReste(u, old) ? ` (${payReste(u, old).slice(2)})` : ''}`;
-    // Liste Excel : montant de la ligne de banque ; part sans facture précisée dans le document
-    const x = { ops: list.map((u) => Object.assign({ date: u.date, amt: payMt(u), lib: u.label || u.lib }, payReste(u) ? { doc: `Facture (${eur(u.amt)} € sans facture sur ce montant)` } : {})), keys: g.flatMap((y) => y.keys) };
+    const det = list.slice(0, 8).map((u) => `du ${d(u.date)} (${eur(payMt(u, old))} €)`).join(', ') + (list.length > 8 ? ` et ${list.length - 8} autre(s), total ${eur(total)} €` : '');
+    const one = (u) => `de ${eur(payMt(u, old))} € du ${d(u.date)}`;
+    const x = { ops: list.map((u) => ({ date: u.date, amt: payMt(u), lib: u.label || u.lib })), keys: g.flatMap((y) => y.keys) };
     if (u0.racine === '401') push('achats', `nf:${u0.num}`, list.length === 1
       ? `Facture ${u0.lib} correspondant au paiement ${one(u0)}`
       : `Factures ${u0.lib} correspondant aux paiements ${det}`,
@@ -1050,7 +1048,7 @@ function supplierMail(r, c, x) {
   }
   if (x.pays.length) {
     lines.push('- le duplicata des factures correspondant aux règlements suivants :');
-    x.pays.forEach((u) => lines.push(`    • règlement du ${fmtDate(u.date)} : ${eur(payMt(u))} €${payReste(u)}${u.label ? ` (${u.label})` : ''}`));
+    x.pays.forEach((u) => lines.push(`    • règlement du ${fmtDate(u.date)} : ${eur(payMt(u))} €${u.label ? ` (${u.label})` : ''}`));
   }
   if (x.months.length) lines.push(`- les factures de ${fmtMonths(x.months)}`);
   lines.push(`- un relevé de compte (factures, avoirs et règlements) pour la période ${periode}`);
