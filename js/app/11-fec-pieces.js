@@ -444,6 +444,13 @@ function immoPieces(r, push, from, to, flt) {
 
 // Numéros manquants d'une série dont la facture suivante est datée du `from` au `to` : [numéro, date de cette facture].
 // Série de plus de 6 000 factures (sans séquence détaillée) : d'après les trous transmis par le moteur.
+// N° d'une série tel qu'écrit sur la facture : préfixe et zéros de tête ; numérotation « n° + mois et année » : 51080126
+// (suffixe lu ou déduit des n° voisins, les deux s'ils diffèrent)
+function serieRef(g) {
+  if (g.src !== 'mmaa') return (n) => g.prefix + String(n).padStart(g.w || 0, '0');
+  const sfx = new Map(g.sfxL || []);
+  return (n) => (sfx.get(n) || '').split('|').map((x) => `${n}${x}`).join(' ou ');
+}
 function seriesMissing(g, from, to) {
   const out = [];
   const add = (a, b, date) => { if (date && date >= from && date <= to) for (let n = a + 1; n < b && out.length < 5000; n++) out.push([n, date]); };
@@ -451,7 +458,14 @@ function seriesMissing(g, from, to) {
   else (g.gaps || []).forEach(([a, b, , date]) => add(a, b, date));
   return out;
 }
-const numberingSeries = (r) => (r.cycles && ui.fecProfile !== 'pharmacie' ? r.cycles.clients.numbering.filter((g) => !g.sparse && (g.seq || g.gaps)) : []);
+// Séries de numérotation suivies : toutes, sauf celles que l'utilisateur a décochées pour ce dossier (onglet Factures de vente)
+function ventesSeriesStore() {
+  const c = ui.fec && clientById(ui.fec.clientId);
+  if (c) return (c.ventesSeries = c.ventesSeries || {});
+  return (ui.fec.ventesSeries = ui.fec.ventesSeries || {});
+}
+const serieOn = (g) => ventesSeriesStore()[g.label] !== false;
+const numberingSeries = (r) => (r.cycles && ui.fecProfile !== 'pharmacie' ? r.cycles.clients.numbering.filter((g) => !g.sparse && (g.seq || g.gaps) && serieOn(g)) : []);
 
 // Numéros de facture de vente manquants : chaque trou de la numérotation est rattaché au mois de la facture qui le suit ;
 // une pièce par numéro (50 par série, puis une ligne pour le reste).
@@ -460,7 +474,7 @@ function numberingPieces(r, push, from, to, flt) {
     const key = (n) => `num|${g.jc || ''}|${g.prefix}|${n}`;
     const miss = seriesMissing(g, from, to).filter(([n]) => flt.ok([key(n)])).slice(0, 200);
     if (!miss.length) return;
-    const ref = (n) => g.prefix + String(n).padStart(g.w || 0, '0');
+    const ref = serieRef(g);
     miss.slice(0, 50).forEach(([n, date]) => push('ventes', `num:${g.jc || ''}:${g.prefix}:${n}`, `Facture de vente n° ${ref(n)} (${moisNom(date)}) : copie, ou confirmation de son annulation`, { keys: [key(n)], ym: ymOf(date) }));
     const rest = miss.slice(50);
     if (rest.length) push('ventes', `num:${g.jc || ''}:${g.prefix}:+`, `Factures de vente n° ${rest.map(([n]) => ref(n)).join(', ')} : copies, ou confirmation de leur annulation`, { keys: rest.map(([n]) => key(n)), ym: ymOf(rest[0][1]) });

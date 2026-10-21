@@ -60,7 +60,7 @@ function monthFromTva() {
 // Contrôles de la saisie du mois : imputations sur le mauvais tiers, doublons, comptes d'attente,
 // soldes anormaux des fournisseurs et des clients à la fin du mois.
 function saisieChecks(r, ym) {
-  const key = [ym, ui.fecProfile, ui.fec.clientId || '', Object.keys(wpMemo()).length].join('|');
+  const key = [ym, ui.fecProfile, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore())].join('|');
   if (r._saisie && r._saisie.key === key) return r._saisie.list;
   const out = [];
   const pharma = ui.fecProfile === 'pharmacie';
@@ -132,11 +132,11 @@ function numberingChecks(r, ym, o) {
   const cl = r.cycles && r.cycles.clients;
   if (!cl || !cl.numbering) return;
   const mois = moisNom(`${ym}-01`);
-  const series = cl.numbering.filter((g) => !g.sparse && g.seq);
+  const series = cl.numbering.filter((g) => !g.sparse && g.seq && serieOn(g));
   const missing = [], dups = [], inv = [], ok = [];
   let nMissing = 0;
   series.forEach((g) => {
-    const ref = (n) => g.prefix + String(n).padStart(g.w, '0');
+    const ref = serieRef(g);
     const inM = g.seq.filter(([, d]) => inMonth(d, ym)).map(([n]) => n);
     if (!inM.length) return;
     const tag = series.length > 1 ? ` (série ${g.label})` : '';
@@ -147,7 +147,12 @@ function numberingChecks(r, ym, o) {
     missing.push(...mi.list);
     (g.dupL || []).filter(([, list]) => list.some(([d]) => inMonth(d, ym))).forEach(([p, list]) => dups.push(`${p} : ${list.map(([d, v]) => `${fmtDate(d)} (${eur(v)} € HT)`).join(' et ')}${tag}`));
     (g.invL || []).filter(([, da, , db]) => inMonth(da, ym) || inMonth(db, ym)).forEach(([pa, da, pb, db]) => inv.push(`${pa} du ${fmtDate(da)} puis ${pb} du ${fmtDate(db)}`));
-    ok.push(`${g.label} : ${inM.length} pièce(s) du mois, de ${ref(Math.min(...inM))} à ${ref(Math.max(...inM))}`);
+    ok.push(`${g.label} : ${inM.length} ${g.src === 'mmaa' ? 'n°' : 'pièce(s)'} du mois, de ${ref(Math.min(...inM))} à ${ref(Math.max(...inM))}`);
+    // N° « 51080126 » lus seulement dans un encaissement : la vente n'est pas identifiable par son n°
+    if (g.src === 'mmaa') {
+      const only = (g.onlyEnc || []).filter(([, d]) => inMonth(d, ym));
+      if (only.length) o.add('info', 'N° de facture cités seulement dans les encaissements', `${only.length} n° de facture du mois apparaissent dans un encaissement mais dans aucune écriture de vente : vérifiez que la vente correspondante est bien saisie (son libellé ne reprend pas le n° de facture).`, only.slice(0, 60).map(([n, d]) => `${ref(n)} (encaissement, facture de ${moisNom(d)})`), { full: only.length <= 60 });
+    }
   });
   if (missing.length) o.add('warn', 'Factures de vente manquantes dans la numérotation', `${nMissing} numéro(s) absent(s) autour de ${mois} : facture annulée (garder l'original), non saisie, ou saisie sur un autre mois ou un autre compte ? La numérotation doit être continue (art. 242 nonies A de l'annexe II du CGI).`, missing, { full: missing.length >= nMissing });
   if (dups.length) o.add('warn', 'Numéros de facture de vente utilisés plusieurs fois', `${dups.length} numéro(s) : facture saisie deux fois, ou même n° donné à deux factures ?`, dups, { full: true });
@@ -195,16 +200,21 @@ function salesCard(r, ym) {
   if (!cl || !cl.numbering) return '';
   const docs = (cl.docs7L || []).filter(([d]) => inMonth(d, ym));
   const rows = cl.numbering.map((g) => {
-    const ref = (n) => g.prefix + String(n).padStart(g.w, '0');
+    const ref = serieRef(g);
     const inM = (g.seq || []).filter(([, d]) => inMonth(d, ym)).map(([n]) => n);
     if (!inM.length) return null;
+    const on = serieOn(g);
     const miss = g.sparse ? null : (g.gaps || []).filter(([, , da, db]) => inMonth(da, ym) || inMonth(db, ym)).reduce((t, [a, b]) => t + b - a - 1, 0);
     const dups = (g.dupL || []).filter(([, l]) => l.some(([d]) => inMonth(d, ym))).length;
-    return `<tr><td>${esc(g.label)}</td><td>${inM.length}</td><td>${esc(ref(Math.min(...inM)))}</td><td>${esc(ref(Math.max(...inM)))}</td><td class="${miss ? 'cred' : ''}">${g.sparse ? `<span class="muted small">${g.ecriture ? "n° d'écriture" : 'pas une suite'}</span>` : miss}</td><td class="${dups ? 'cred' : ''}">${g.sparse ? '' : dups || 0}</td></tr>`;
+    const box = g.sparse ? '' : `<label class="check inline"><input type="checkbox" data-ventes-serie="${esc(g.label)}"${on ? ' checked' : ''}><span class="sr-only">Contrôler la série ${esc(g.label)}</span></label>`;
+    return `<tr class="${on ? '' : 'muted'}"><td>${box}</td><td>${esc(g.label)}</td><td>${inM.length}</td><td>${esc(ref(Math.min(...inM)))}</td><td>${esc(ref(Math.max(...inM)))}</td><td class="${miss && on ? 'cred' : ''}">${g.sparse ? `<span class="muted small">${g.ecriture ? "n° d'écriture" : 'pas une suite'}</span>` : miss}</td><td class="${dups && on ? 'cred' : ''}">${g.sparse ? '' : dups || 0}</td></tr>`;
   }).filter(Boolean);
+  const sfx = cl.numbering.find((g) => g.src === 'mmaa');
   return `<section class="card"><h2>Factures de vente du mois <span class="count">${docs.length}</span></h2>
     <p class="muted small">Toutes les écritures du mois sur les comptes de produits 70, 75 et 77 (factures et avoirs, hors OD de TVA et régularisations). Le n° de facture est lu dans le n° de pièce, ou dans le libellé quand la pièce porte le n° d'écriture ; les séries sont formées par journal et préfixe.</p>
-    ${rows.length ? `<div class="grid-wrap"><table class="dtable num l3"><thead><tr><th>Série</th><th>Pièces du mois</th><th>Du n°</th><th>Au n°</th><th>Manquants</th><th>Doublons</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<p class="muted">Aucune série de numéros exploitable ce mois-ci (moins de trois numéros, ou pièces sans numéro).</p>'}
+    ${rows.length ? `<div class="grid-wrap"><table class="dtable num ventes-series"><thead><tr><th title="Série contrôlée">Contrôler</th><th>Série</th><th>Pièces du mois</th><th>Du n°</th><th>Au n°</th><th>Manquants</th><th>Doublons</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
+      <p class="muted small">Décochez une série qui n'est pas la numérotation des factures (n° de pièce interne, de réservation…) : elle n'est plus contrôlée pour ce dossier, ni demandée au client.</p>` : '<p class="muted">Aucune série de numéros exploitable ce mois-ci (moins de trois numéros, ou pièces sans numéro).</p>'}
+    ${sfx ? `<p class="small">Série <strong>${esc(sfx.label)}</strong> : numérotation « n° + mois et année » (51080126 = facture 5108 de janvier 2026), lue dans tous les libellés, avec ou sans F, y compris les listes d'encaissement (« 5101-5102-51040126 », « F5113+5114+… ») ; un n° manquant est affiché avec le mois et l'année des factures voisines, ou les deux possibilités quand elles changent de mois ; ${sfx.count} n° de ${esc(sfx.first)} à ${esc(sfx.last)} sur l'exercice, dont ${sfx.vente} dans une écriture de vente et ${sfx.enc} dans un encaissement. Un n° absent de toutes les écritures est signalé comme manquant.${sfx.outliers && sfx.outliers.length ? ` N° hors de la suite (faute de frappe ?) : ${sfx.outliers.map(([n, d, raw]) => `${raw || n} (${fmtDate(d)})`).join(', ')}.` : ''}</p>` : ''}
     ${docs.length ? `<details class="viz-table"><summary>Voir les ${docs.length} écriture(s) de vente du mois</summary>
       <div class="grid-wrap"><table class="dtable num l3 l4"><thead><tr><th>Date</th><th>Écriture</th><th>Pièce</th><th>Libellé</th><th>Montant HT</th></tr></thead>
       <tbody>${docs.slice(0, 1000).map(([d, jc, num, piece, amt, lib]) => `<tr><td>${fmtDate(d)}</td><td>${esc(jc)} ${esc(num)}</td><td>${esc(piece)}</td><td>${esc(lib)}</td><td class="${amt < 0 ? 'cred' : ''}">${eur(amt)}</td></tr>`).join('')}</tbody></table></div></details>` : ''}

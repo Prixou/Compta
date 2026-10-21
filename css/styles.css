@@ -676,7 +676,7 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
   .calc-fields { grid-template-columns: minmax(0, 1fr); }
   .calc-vent input { width: 6rem; }
   /* Barre du bas limitée à six entrées : le calcul de TVA est dans la barre du haut. */
-  .nav a[data-nav=calcul], .nav a[data-nav=releves] { display: none; }
+  .nav a[data-nav=calcul], .nav a[data-nav=releves], .nav a[data-nav=rapprochement] { display: none; }
 }
 .tva-params select { min-height: 32px; font-size: .82rem; max-width: 100%; }
 .tva-params td { vertical-align: top; }
@@ -837,6 +837,15 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .cmp-file { overflow-wrap: anywhere; }
 .cmp-swap { align-self: center; font-size: 1.2rem; }
 .banner.ok { background: var(--ok-soft); color: var(--ok); }
+/* Rapprocher un relevé */
+.brap-slots { grid-template-columns: minmax(0, 1fr) 0 minmax(0, 1fr); }
+.brap-etat td:first-child { white-space: normal; }
+.brap-amt { width: 9.5rem; text-align: right; }
+.brap-acc { min-width: 0; max-width: 100%; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.ventes-series td:first-child, .ventes-series th:first-child { width: 4.5rem; text-align: center; }
+.ventes-series tbody tr { cursor: default; }
+.brap-acc select { min-width: 0; max-width: 100%; }
 .cmp-period { flex-wrap: wrap; }
 .cmp-entry { border-top: 1px solid var(--border); padding: .45rem 0; }
 .cmp-entry summary { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; cursor: pointer; font-size: .9rem; }

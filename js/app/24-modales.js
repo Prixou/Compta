@@ -160,6 +160,7 @@ function forgetSession() {
   ui.batch = null;
   ui.anon = null;
   ui.rel = null;
+  ui.brap = null;
   cmpStop();
   ui.cmp = null;
   closeGrillePop();

@@ -193,6 +193,8 @@ const balanced = (text) => {
   await p.click('.anon-chip[data-k="FRESTAU"][data-mode=force]');
   await p.fill('input[data-anon=extra]', 'port');
   await p.click('.anon-extra button[data-action=anon-run]');
+  // Attendre la fin de la nouvelle anonymisation (la puce change d'état avant que l'aperçu soit recalculé)
+  await p.waitForFunction(() => ui.anon && ui.anon.status === 'done' && ui.anon.extraApplied === 'port' && !ui.anon.dirty);
   await p.waitForSelector('.anon-chip[data-k="FRESTAU"][data-mode=keep]');
   expect(await p.$('.anon-chip[data-k="PORT"][data-mode=keep]'), 'mot ajouté à la main : remplacé');
   expect(!(await p.textContent('.anon-preview')).includes('FRESTAU'), 'mot conservé cliqué : remplacé');
