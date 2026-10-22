@@ -310,6 +310,8 @@ function analyse(buffer, fileName, until, docs) {
     a.d += d;
     a.c += c;
     if (an) { a.dAN += d; a.cAN += c; }
+    // Mouvements mensuels des créances, avances clients et produits constatés d'avance (contrôle de TVA annuel)
+    else if (date && /^(41|487)/.test(compte)) { const ym = date.slice(0, 7); (a.m || (a.m = {}))[ym] = (a.m[ym] || 0) + d - c; }
 
     // Écriture « d'opération » : une même référence journal + n° portant plusieurs dates (n° réutilisé d'un jour ou
     // d'un mois à l'autre, fréquent après import d'un logiciel de caisse) est découpée par date, pour ne pas fusionner
@@ -627,7 +629,8 @@ function analyse(buffer, fileName, until, docs) {
 
   // ---------- Balance, SIG, bilan ----------
   const balance = Array.from(accounts.values())
-    .map((x) => ({ compte: x.compte, lib: x.lib, d: round2(x.d), c: round2(x.c), s: round2(x.d - x.c), an: round2(x.dAN - x.cAN), dm: round2(x.d - x.dAN), cm: round2(x.c - x.cAN) }))
+    .map((x) => Object.assign({ compte: x.compte, lib: x.lib, d: round2(x.d), c: round2(x.c), s: round2(x.d - x.c), an: round2(x.dAN - x.cAN), dm: round2(x.d - x.dAN), cm: round2(x.c - x.cAN) },
+      x.m ? { m: Object.fromEntries(Object.entries(x.m).map(([k, v]) => [k, round2(v)])) } : {}))
     .sort((x, y) => x.compte.localeCompare(y.compte));
   const sum = (pref, excl, fn) => balance.reduce((t, x) => (pref.some((p) => x.compte.startsWith(p)) && !(excl || []).some((p) => x.compte.startsWith(p)) ? t + fn(x) : t), 0);
   const D = (pref, excl) => round2(sum(pref, excl, (x) => x.s));
@@ -935,8 +938,9 @@ function analyse(buffer, fileName, until, docs) {
     tiers: auxList.filter((t) => Math.abs(t.s) >= 0.01).map((t) => ({ racine: t.racine, num: t.num, lib: t.lib, s: t.s, lastD: t.lastD || '', lastC: t.lastC || '' })),
     directLines,
     unmatched,
-    // Mouvements mensuels des comptes clients et fournisseurs (à-nouveau, puis débit / crédit par mois)
-    tiersMonths: Array.from(aux.values()).filter((t) => t.racine === '401' || t.racine === '411').map((t) => {
+    // Mouvements mensuels des comptes clients et fournisseurs (à-nouveau, puis débit / crédit par mois) ; fournisseurs :
+    // part des services dans leurs factures (TVA exigible au paiement) et taux de TVA le plus fréquent
+    tiersMonths: Array.from(aux.values()).filter((t) => /^(401|404|411)$/.test(t.racine)).map((t) => {
       const m = {};
       let an = 0;
       t.lines.forEach(([date, d, c, , , isAn]) => {
@@ -946,7 +950,7 @@ function analyse(buffer, fileName, until, docs) {
         x[0] = round2(x[0] + d);
         x[1] = round2(x[1] + c);
       });
-      return { racine: t.racine, num: t.num, lib: t.lib, an: round2(an), m };
+      return Object.assign({ racine: t.racine, num: t.num, lib: t.lib, an: round2(an), m }, t.racine === '411' ? {} : supplierNature(t, opEntries, remap));
     }),
     flags,
   };
@@ -984,6 +988,33 @@ function analyse(buffer, fileName, until, docs) {
       totalBilan: totalActif,
     },
   };
+}
+
+// Factures d'un fournisseur : part des services (comptes 6 hors 60) dans le HT, et taux de TVA le plus fréquent.
+function supplierNature(t, opEntries, remap) {
+  let goods = 0, serv = 0;
+  const votes = {};
+  const seen = new Set();
+  t.lines.forEach(([, , c, , , isAn, oek]) => {
+    if (isAn || c <= 0 || !oek) return;
+    const k = remap.get(oek) || oek;
+    if (seen.has(k) || seen.size > 400) return;
+    seen.add(k);
+    const L = (opEntries.get(k) || {}).l || [];
+    let ht = 0, vat = 0;
+    for (let i = 0; i < L.length; i += 4) {
+      const cpt = L[i], v = L[i + 2] - L[i + 3];
+      if (/^(60|2)/.test(cpt)) { goods += v; ht += v; }
+      else if (cpt[0] === '6') { serv += v; ht += v; }
+      else if (cpt.startsWith('4456')) vat += v;
+    }
+    if (ht > 0.01 && vat > 0.01) {
+      const r = [20, 10, 5.5, 2.1, 8.5, 13].find((x) => Math.abs(vat - ht * x / 100) <= Math.max(0.05, ht * 0.0015));
+      if (r) votes[r] = (votes[r] || 0) + 1;
+    }
+  });
+  const best = Object.entries(votes).sort((a, b) => b[1] - a[1])[0];
+  return { sv: goods + serv > 0.01 ? round2(serv / (goods + serv)) : null, rt: best ? Number(best[0]) : null };
 }
 
 // Liste plafonnée : triée par date, seuls les `max` éléments les plus récents sont gardés.

@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '64';
+const ASSET_VERSION = '65';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -354,7 +354,8 @@ function viewFec() {
     tabs = Object.assign({ synthese: 'Synthèse' }, pharma ? { tp: 'Tiers payant', catva: 'CA & TVA' } : {},
       cc ? Object.assign(cyc('achats', 'Achats'), cyc('charges', 'Charges externes'), pharma ? {} : cyc('clients', 'Clients'), cyc('treso', 'Trésorerie')) : {},
       r.cycles ? { ecritures: cnt('Écritures', ecrProposals(r).filter((p) => p.on).length) } : {},
-      { pieces: cnt('Pièces à demander', nbPieces), revue: 'Revue N / N-1', rappro: 'Rapprochement' });
+      { pieces: cnt('Pièces à demander', nbPieces), revue: 'Revue N / N-1', rappro: 'Rapprochement' },
+      r.cycles && r.cycles.tva && Object.keys(r.cycles.tva.months).length ? { tvarev: 'Contrôle TVA' } : {});
   }
   f.lastTab = f.lastTab || {};
   if (!tabs[f.section]) f.section = tabs[f.lastTab[space]] ? f.lastTab[space] : Object.keys(tabs)[0];
@@ -424,6 +425,8 @@ function viewFec() {
     body = viewCaTva();
   } else if (f.section === 'rappro') {
     body = viewRappro();
+  } else if (f.section === 'tvarev') {
+    body = viewTvaRevue();
   } else if (f.section === 'revue') {
     body = viewRevue();
   } else if (f.section === 'pieces') {

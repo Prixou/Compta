@@ -25,6 +25,9 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
   écarts connus (`fixtures/rappro/`), pour « Rapprocher un relevé » (`suites/brap-test.js`).
   `genfactmmaa.py` produit un FEC dont les factures sont numérotées « n° + mois et année » (F51080126), citées surtout
   dans les encaissements et en listes (`800000008FEC20261231.txt`), pour `suites/factmmaa-test.js`.
+  `gentvarevue.py` produit un FEC d'hôtel au réel mensuel (`600000006FEC20261231.txt`) avec ses OD de TVA, un crédit, une
+  TVA erronée et un loyer non réglé, et les montants attendus (`600000006-attendu.json`), pour l'onglet « Contrôle TVA »
+  (`suites/tvarevue-test.js`).
 - `suites/` : une suite par fonction (analyse FEC, cycles, TVA, pièces, portefeuille, suivi mensuel, sécurité…) ; `suites/lib.js` regroupe les aides de navigation (onglets et espaces Mois / Révision / Consultation de l'analyse FEC, choix du mois).
 - `out/` : captures d'écran, fichiers exportés et journal de chaque suite (non versionné).
 

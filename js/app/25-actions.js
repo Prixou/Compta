@@ -255,6 +255,7 @@ const actions = {
   'brap-pick-fec': async () => brapSetFec(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true)),
   'brap-clear': () => { ui.brap = null; refresh(); },
   'brap-export': (el) => brapExport(el.dataset.kind),
+  'tvr-export': () => tvrExport(),
   'cmp-pick': async (el) => { const f = await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true); if (f) cmpDrop([f], el.dataset.side); },
   'cmp-swap': () => { const st = cmpState(); [st.ref, st.cmp] = [st.cmp, st.ref]; cmpRun(); },
   'cmp-clear': () => { cmpStop(); ui.cmp = null; refresh(); },
@@ -655,6 +656,8 @@ document.addEventListener('change', (e) => {
     // Paramétrage du contrôle de TVA : nature ou taux d'un compte
     if (t.dataset.tvap === 'ca') setTvaParam('ca', t.dataset.c, t.value);
     else setTvaParam('acc', t.dataset.c, t.value, t.dataset.tvap === 'acc-rate' ? 'rate' : 'role');
+  } else if (t.dataset.tvr !== undefined && ui.fec && ui.fec.result) {
+    onTvrChange(t);
   } else if (t.dataset.tvaDecl && ui.fec && ui.fec.result) {
     const key = tvaState().key;
     const store = tvaDeclStore();

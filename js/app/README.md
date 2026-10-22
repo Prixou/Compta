@@ -28,7 +28,8 @@ de sécurité (CSP) n'autorise que les scripts du site.
 | `29-notes.js` | Notes : procédures, particularités de dossier, listes d'étapes à cocher (rattachées à un dossier ou non, classées par groupe) |
 | `30-comparer.js` | Comparaison de deux FEC du même exercice (moteur `fec-compare.js`, qui reprend la lecture de `fec-worker.js`) |
 | `31-rapprochement.js` | Rapprocher un relevé bancaire et le FEC du journal de banque (appariement de `12-fec-revue.js`) : écarts, état de rapprochement, écritures à passer |
-| `32-formulaires.js` | Formulaires, démarrage (toujours en dernier) |
+| `32-tva-revue.js` | Contrôle de la TVA de l'exercice (onglet « Contrôle TVA » de l'espace Révision) : récapitulatif des déclarations, TVA collectée, TVA déductible, soldes après OD, export Excel |
+| `33-formulaires.js` | Formulaires, démarrage (toujours en dernier) |
 
 Règles : un fichier ne doit pas exécuter au chargement une fonction déclarée dans un fichier suivant (les appels depuis
 des événements ou d'autres fonctions sont libres) ; deux fichiers ne doivent pas déclarer le même nom ; les noms ne doivent
