@@ -122,7 +122,7 @@ const { fecTab, fecMonth } = require('./lib');
   expect(texts[0] === 'Documents à nous transmettre' && texts[1] === 'EXEMPLE CONSEIL — Comptabilité au 30 septembre 2026', 'en-tête : titre, client et période', texts.slice(0, 2).join(' | '));
   expect(/^Liste établie le \d\d\/\d\d\/\d{4} par Cabinet Martin &amp; Associés · réponse souhaitée avant le /.test(texts[2]), 'cabinet, date et échéance de la demande', texts[2]);
   expect(texts.includes('OPÉRATIONS DIVERSES  ·  1 document') && texts.some((t) => /^FACTURES FOURNISSEURS  ·  \d+ documents$/.test(t)), 'une rubrique par bandeau, avec son nombre de documents');
-  const at = texts.indexOf('Justificatif');
+  const at = texts.indexOf('Justificatif, réglé par CB'); // mode de règlement repris après le type de pièce
   expect(at > 0 && /PARKING CENTRE/.test(texts[at + 1]), 'document sans libellé, date ni montant dans le texte (colonnes à part), libellé de l\'écriture dans sa colonne', texts.slice(at, at + 2).join(' | '));
   expect(texts.includes("Libellé de l'écriture"), 'colonne « Libellé de l\'écriture »');
   expect(texts.includes('WEB SCI EXEMPLE LOYER') && !texts.some((t) => /LOCATION SCI EXEMPLE/.test(t)), 'dépense payée directement : libellé de l\'écriture, pas le nom du compte de charge');

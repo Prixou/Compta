@@ -192,6 +192,19 @@ function compteDemande(c, key, lib) {
   return !key.startsWith('411|') || ui.fecProfile !== 'pharmacie' || auto411(key.slice(4), lib);
 }
 
+// Mode de règlement repris après le type de pièce dans la liste Excel : « Facture, réglée par LCR », « Avoir, remboursé par
+// virement »… (mode trouvé par le moteur : journal ou compte d'effets, libellé, caisse).
+const MODES = { LCR: 'par LCR', CB: 'par CB', virement: 'par virement', 'prélèvement': 'par prélèvement', 'chèque': 'par chèque', 'espèces': 'en espèces' };
+const withMode = (doc, mode) => (MODES[mode] ? `${doc}, ${/^Avoir/.test(doc) ? 'remboursé' : /^(Facture|Échéance)/.test(doc) ? 'réglée' : 'réglé'} ${MODES[mode]}` : doc);
+// Fournisseurs dont on demande le relevé plutôt que les factures (trop de factures, seuls les relevés sont saisis) : choix
+// conservé dans le dossier (clé « 401|n° »).
+function relevesTiers(r, create) {
+  const f = ui.fec || {};
+  if (r && f.result !== r) return {};
+  const o = piecesPrefs();
+  return o.piecesReleves || (create ? (o.piecesReleves = {}) : {});
+}
+
 // Montant demandé d'un règlement : celui de la ligne de banque (`brut`), même si une facture en couvre une partie ; `old` :
 // textes d'avant la version 57 (part sans facture seule), pour reconnaître les anciennes demandes.
 const payMt = (u, old) => (old || !u.brut ? u.amt : u.brut);
@@ -204,6 +217,7 @@ function unmatchedPieces(r, push, from, to, flt, old = false, seuil = 0) {
   const d = (date) => fmtDate(date);
   const dop = (u) => u.dateOp || u.date;
   const K = pieceKeys(r).unm;
+  const rel = old ? {} : relevesTiers(r);
   const groups = new Map();
   (r.pieces.unmatched || []).forEach((u, i) => {
     if (u.date < from || u.date > to || !flt.ok(K[i].keys) || flt.gone(K[i].alias) || (seuil && u.racine === '401' && payMt(u) < seuil)) return;
@@ -216,11 +230,14 @@ function unmatchedPieces(r, push, from, to, flt, old = false, seuil = 0) {
     const total = list.reduce((s2, u) => s2 + payMt(u, old), 0);
     const det = list.slice(0, 8).map((u) => `du ${d(old ? u.date : dop(u))} (${eur(payMt(u, old))} €)`).join(', ') + (list.length > 8 ? ` et ${list.length - 8} autre(s), total ${eur(total)} €` : '');
     const one = (u) => `de ${eur(payMt(u, old))} € du ${d(old ? u.date : dop(u))}`;
-    const x = { ops: list.map((u) => ({ date: dop(u), amt: payMt(u), lib: u.label || u.lib })), keys: g.flatMap((y) => y.keys) };
+    // Fournisseur : facture ou relevé de compte, au choix ; liste Excel : type de pièce et mode de règlement de chaque paiement
+    const releve = u0.racine === '401' && rel[`401|${u0.num}`] === true;
+    const type = releve ? 'Relevé' : 'Facture';
+    const x = { ops: list.map((u) => Object.assign({ date: dop(u), amt: payMt(u), lib: u.label || u.lib }, !old && MODES[u.mode] ? { doc: withMode(type, u.mode) } : {})), keys: g.flatMap((y) => y.keys) };
     if (u0.racine === '401') push('achats', `nf:${u0.num}`, list.length === 1
-      ? `Facture ${u0.lib} correspondant au paiement ${one(u0)}`
-      : `Factures ${u0.lib} correspondant aux paiements ${det}`,
-    Object.assign({ doc: list.length === 1 ? 'Facture' : 'Factures', doc1: 'Facture', tiers: `${u0.racine}|${u0.num}`, tlib: u0.lib }, x));
+      ? `${type} ${u0.lib} correspondant au paiement ${one(u0)}`
+      : `${type}s ${u0.lib} correspondant aux paiements ${det}`,
+    Object.assign({ doc: list.length === 1 ? type : `${type}s`, doc1: type, tiers: `${u0.racine}|${u0.num}`, tlib: u0.lib, releve: { key: `401|${u0.num}`, on: releve } }, x));
     else push('ventes', `ne:${u0.num}`, list.length === 1
       ? `Facture ou avoir ${u0.lib} correspondant à l'encaissement ${one(u0)}`
       : `Factures ou avoirs ${u0.lib} correspondant aux encaissements ${det}`,
@@ -314,7 +331,7 @@ function attentePieces(r, push, from, to, flt, seuil = 0) {
     const amt = l.c || l.d;
     if (seuil && cat === 'achats' && !(l.c > 0) && amt < seuil) return; // petit paiement non demandé (officine, demande mensuelle)
     push(cat, key, `${attenteDoc(l, cat)} du ${fmtDate(l.date)} (${eur(amt)} €)`,
-      { id: 'attente:' + key, src: 'attente', key, compte: l.compte, doc: attenteDoc(l, cat, false), ops: [{ date: l.date, amt, lib: l.lib }], keys: K[i] });
+      { id: 'attente:' + key, src: 'attente', key, compte: l.compte, doc: attenteDoc(l, cat, false), ops: [{ date: l.date, amt, lib: l.lib, doc: withMode(attenteDoc(l, cat, false), l.mode) }], keys: K[i] });
   });
 }
 
@@ -382,14 +399,14 @@ function directPieces(r, push, from, to, flt, opts = {}) {
   const stop = new Set((r.labelIdx && r.labelIdx.stop) || []);
   const words = (lib) => norm(lib).replace(/[^a-z ]+/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !stop.has(w)).slice(0, 2).join(' ');
   const groups = new Map();
-  (r.pieces.directLines || []).forEach(([date, compte, clib, elib, amt], i) => {
+  (r.pieces.directLines || []).forEach(([date, compte, clib, elib, amt, , , mode], i) => {
     if (date < from || date > to || (opts.charges && !/^6[12]/.test(compte)) || !flt.ok(K[i])) return;
     const lib = String(elib).replace(/\S*\d\S*/g, '').replace(/\s+/g, ' ').trim() || elib;
     const k = compte + '|' + (opts.large ? words(elib) || norm(lib) : norm(lib));
     const g = groups.get(k) || groups.set(k, { k, compte, lib, clib, n: 0, total: 0, ops: [], keys: [], last: '' }).get(k);
     g.n++;
     g.total = round2(g.total + amt);
-    g.ops.push({ date, amt, lib: elib });
+    g.ops.push({ date, amt, lib: elib, mode });
     K[i].forEach((x) => { if (!g.keys.includes(x)) g.keys.push(x); });
     if (opts.large && date >= g.last) Object.assign(g, { last: date, lib }); // libellé de la dernière opération
   });
@@ -404,6 +421,7 @@ function directPieces(r, push, from, to, flt, opts = {}) {
         { doc: 'Échéancier', ops: [{ amt: g.total, lib: g.ops[g.ops.length - 1].lib, doc: `Échéancier (${g.n} paiement${g.n > 1 ? 's' : ''} : ${fmtMonths(mois)})` }], ym: mois[0], keys: g.keys, ech: g.k, echOn: true });
       return;
     }
+    g.ops.forEach((o) => { if (MODES[o.mode]) o.doc = withMode(docName(g.lib), o.mode); delete o.mode; });
     push('justif', 'dir:' + g.keys[0], g.n === 1
       ? `${docName(g.lib)} « ${lib} » du ${fmtDate(g.ops[0].date)} (${eur(g.total)} €) — ${g.clib}`
       : `Factures « ${lib} » : ${g.n} paiements (${fmtMonths(mois)}), total ${eur(g.total)} € — ${g.clib}`,
@@ -925,6 +943,8 @@ function viewPieces() {
   const piece = (i) => {
     const box = `<label class="check piece"><input type="checkbox" data-piece="${esc(i.id)}"${st.excluded.has(i.id) ? '' : ' checked'}><span>${esc(i.text)}</span></label>`;
     // Dépenses payées directement : factures ou échéancier, au choix (conservé dans le dossier)
+    // Fournisseur : facture ou relevé, au choix (conservé dans le dossier)
+    if (i.releve) return `<div class="piece-row">${box}<span class="piece-rub"><select data-piece-releve="${esc(i.releve.key)}" aria-label="Pièce demandée"><option value="0"${i.releve.on ? '' : ' selected'}>Factures</option><option value="1"${i.releve.on ? ' selected' : ''}>Relevé</option></select></span></div>`;
     if (i.ech) return `<div class="piece-row">${box}<span class="piece-rub"><select data-piece-ech="${esc(i.ech)}" aria-label="Pièce demandée"><option value="0"${i.echOn ? '' : ' selected'}>Factures</option><option value="1"${i.echOn ? ' selected' : ''}>Échéancier</option></select></span></div>`;
     if (i.src !== 'attente') return box;
     // Opération en compte d'attente : rubrique de la demande au choix

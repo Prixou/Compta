@@ -362,6 +362,9 @@ function analyse(buffer, fileName, until, docs) {
     if (/^5[13]/.test(compte)) oe.has5 = true;
     if (/^4[01]/.test(compte)) oe.has4 = true;
     if (/^[67]/.test(compte)) oe.has67 = true;
+    if (/^51/.test(compte)) oe.has51 = true;
+    if (/^53/.test(compte)) oe.has53 = true;
+    if (/^4[01]3/.test(compte)) oe.hasEff = true; // effets à payer ou à recevoir
     if (/^41/.test(compte) && !oe.lib41 && elib) oe.lib41 = elib; // libellé de la ligne client (n° de facture chez Pennylane)
     if (compte[0] === '4' && !compte.startsWith('445') && g('EcritureLet') && date && !an) (oe.lt = oe.lt || []).push(compte + '|' + auxNum);
     if (date && !an) {
@@ -533,6 +536,20 @@ function analyse(buffer, fileName, until, docs) {
     const x = jStat.get(j.code) || { n: 0, f: 0 };
     if (/achat|vente|purchas|\bsales?\b|factur/i.test(j.lib || '') || RE_FACT_CODE.test(j.code || '') || (x.n >= 10 && x.f >= x.n * 0.8)) factJ.add(j.code);
   });
+
+  // Mode de règlement d'une opération : LCR (journal ou compte d'effets), sinon d'après le libellé (carte, prélèvement,
+  // virement, chèque), sinon espèces pour la caisse ; '' si inconnu. `jc` : journal (à défaut, celui de l'écriture).
+  const payMode = (lib, en, jc) => {
+    const j = journals.get(jc || (en && en.jc)) || {};
+    const t = String(lib || '');
+    if ((en && en.hasEff) || /^(EFF|LCR|EF|TRA)/i.test(jc || j.code || '') || /effet|lcr|traite/i.test(j.lib || '') || /\blcr\b|\beffets?\b|\btraite/i.test(t)) return 'LCR';
+    if (/\bcarte\b|\bcb\b|\bcb\d/i.test(t)) return 'CB';
+    if (/\bprlv|pr[eé]l[eè]v|gocardless|\bsdd\b|sepa dd/i.test(t)) return 'prélèvement';
+    if (/\bvir\b|virement|\bvrt\b|\bweb\b/i.test(t)) return 'virement';
+    if (/\bch[eè]que|\bchq/i.test(t)) return 'chèque';
+    if (en && en.has53 && !en.has51) return 'espèces';
+    return '';
+  };
 
   // Écritures déséquilibrées, dates atypiques, numérotation
   const numsByJournal = new Map();
@@ -730,7 +747,8 @@ function analyse(buffer, fileName, until, docs) {
       // d'origine cité dans son libellé (« 30/09/2025 -HA- … »)
       const jAn = isAn && /(?:^|\s)-([A-Z0-9]{1,8})-(?:\s|$)/i.exec(lib || '');
       const anFact = jAn && (factJ.has(jAn[1]) || RE_FACT_CODE.test(jAn[1]));
-      items.push({ date, amt, lib, an: isAn, bank: isAn ? lettered && amt < 0 && !anFact : !!(en && !factJ.has(en.jc)) });
+      items.push({ date, amt, lib, an: isAn, mode: isAn ? payMode(lib, null, jAn ? jAn[1] : '') : en ? payMode(lib, en) : '',
+        bank: isAn ? lettered && amt < 0 && !anFact : !!(en && !factJ.has(en.jc)) });
     });
     const pays = items.filter((x) => x.amt < 0 && x.bank).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     if (!pays.length) return;
@@ -738,7 +756,7 @@ function analyse(buffer, fileName, until, docs) {
     // factures non lettrées, qui sont des factures à payer)
     if (lettered) {
       pays.forEach((pm) => {
-        const u = { racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(-pm.amt), brut: round2(-pm.amt), label: String(pm.lib || '').slice(0, 60) };
+        const u = { racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(-pm.amt), brut: round2(-pm.amt), label: String(pm.lib || '').slice(0, 60), mode: pm.mode };
         // À-nouveau détaillé (« 30/09/2025 -EFF- CSP ») : date du règlement d'origine (dateOp) et libellé sans date ni journal
         const m = pm.an && /^\s*(\d{2})\/(\d{2})\/(\d{4})\s*-[A-Z0-9]{1,8}-\s*(.*)$/i.exec(pm.lib || '');
         if (m) Object.assign(u, { dateOp: `${m[3]}-${m[2]}-${m[1]}`, label: m[4].slice(0, 60) || u.label });
@@ -775,7 +793,7 @@ function analyse(buffer, fileName, until, docs) {
         a -= take;
       }
       // amt : part non couverte par une facture ; brut : montant du paiement
-      if (a >= 0.01) unmatched.push({ racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(a), brut: round2(-pm.amt), label: String(pm.lib || '').slice(0, 60) });
+      if (a >= 0.01) unmatched.push({ racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(a), brut: round2(-pm.amt), label: String(pm.lib || '').slice(0, 60), mode: pm.mode });
     });
   });
   trunc.unm = keepRecent(unmatched, 5000);
@@ -859,7 +877,7 @@ function analyse(buffer, fileName, until, docs) {
     const en = opEntries.get(remap.get(ek) || ek);
     if (!en || !en.has5 || en.has4 || /^(627|6[3-9]|64|658|66|67|68|69)/.test(compte)) return;
     // bq : montant payé en banque (TTC) ; référence de l'écriture (une opération bancaire répartie sur plusieurs charges)
-    directLines.push([date, compte, clib, elib, round2(amt), round2(Math.abs(en.p5 || amt)), remap.get(ek) || ek]);
+    directLines.push([date, compte, clib, elib, round2(amt), round2(Math.abs(en.p5 || amt)), remap.get(ek) || ek, payMode(elib, en)]);
     const key = compte + '|' + labelKey(elib);
     let gr = direct.get(key);
     if (!gr) direct.set(key, (gr = { compte, clib, label: elib, count: 0, total: 0, months: {}, first: date, last: date }));
@@ -905,7 +923,7 @@ function analyse(buffer, fileName, until, docs) {
       .map((x) => ({ num: x.num, lib: x.lib, months: Object.fromEntries(Object.entries(x.months).map(([k, v]) => [k, round2(v)])) })),
     payroll,
     // bank : ligne d'une écriture de banque ou de caisse (opération à justifier) ; sinon OD ou facture passée en attente.
-    attente: attOpen.map((l) => ({ date: l.date, compte: l.compte, lib: l.lib, d: l.d, c: l.c, lettre: l.lettre, bank: l.bank, fact: l.fact, soldeCompte: soldeOf(l.compte),
+    attente: attOpen.map((l) => ({ date: l.date, compte: l.compte, lib: l.lib, d: l.d, c: l.c, lettre: l.lettre, bank: l.bank, fact: l.fact, mode: payMode(l.lib, opEntries.get(remap.get(l.ek) || l.ek)), soldeCompte: soldeOf(l.compte),
       sug: invSug(invIdx, l.lib, l.c > 0) || labelIdx[labelKey(l.lib)] || null })),
     attenteMax: !!trunc.att,
     attenteMois: attMois,

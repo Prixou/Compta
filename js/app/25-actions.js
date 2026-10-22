@@ -683,6 +683,11 @@ document.addEventListener('change', (e) => {
     piecesPrefs().piecesJustif = t.checked;
     if (clientById(ui.fec.clientId)) persist();
     refresh();
+  } else if (t.dataset.pieceReleve && ui.fec) {
+    // Fournisseur : relevé plutôt que factures (choix conservé dans le dossier)
+    relevesTiers(null, true)[t.dataset.pieceReleve] = t.value === '1';
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
   } else if (t.dataset.pieceEch && ui.fec) {
     // Factures ou échéancier pour ce groupe de paiements : choix conservé dans le dossier
     echeanciers(true)[t.dataset.pieceEch] = t.value === '1';
