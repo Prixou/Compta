@@ -331,54 +331,24 @@ function monthPieces(r, arrete, flt) {
   // `x` : précisions pour la liste Excel (doc : document sans date ni montant, ops : opérations datées, total), clés des
   // opérations (keys) et mois rattaché (ym).
   const push = (cat, id, text, x) => items.push(Object.assign({ cat, id: `${cat}:${id}`, text }, x));
-  const p = r.pieces;
   const cy = r.cycles;
-  const ym = ymOf(arrete);
-  const end = endOfMonth(`${ym}-01`);
+  const end = endOfMonth(`${ymOf(arrete)}-01`);
   const from = exStart(r, end);
-  const months = monthsBetween(ymOf(from), ym);
   const inP = (date) => date >= from && date <= end;
   const pharma = ui.fecProfile === 'pharmacie';
+  // Seules les opérations des journaux de paiement (banque, caisse) sont demandées : rien des journaux d'achats et de
+  // ventes (factures ou avoirs sans justificatif, numéros de facture manquants, factures habituelles absentes).
 
   // Règlements fournisseurs et encaissements clients non affectés à une facture (paiement par paiement)
   unmatchedPieces(r, push, from, end, flt);
-  // Mois où un tiers a un paiement sans facture (demandé, reçu ou non) : sa facture du mois n'est pas demandée une seconde fois.
-  const askedM = new Set((p.unmatched || []).filter((u) => inP(u.date)).map((u) => `${u.racine}|${u.num}|${ymOf(u.date)}`));
-  // Archive de justificatifs : écritures sans pièce (exact), à la place de la liste des dépenses payées directement.
-  // Les abonnements dont la facture n'est pas saisie du tout restent détectés : l'archive ne peut pas les voir.
-  justifPieces(r, push, from, end, flt, { charges: true });
-  // Abonnements : mois sans facture d'un fournisseur facturé chaque mois pour un montant stable
-  p.suppliers.forEach((sp) => {
-    let med = null;
-    const miss = months.filter((m) => {
-      if (Math.abs(sp.months[m] || 0) >= 0.01 || askedM.has(`401|${sp.num}|${m}`) || !flt.ok([`abo|${sp.num}|${m}`])) return false;
-      const v = stableMonthly(sp, m);
-      if (v !== null) med = v;
-      return v !== null;
-    });
-    if (miss.length) push('achats', 'rec:' + sp.num, `${miss.length > 1 ? 'Factures' : 'Facture'} ${sp.lib} : ${fmtMonths(miss)} (abonnement de ${eur(med)} € par mois)`, { keys: miss.map((m) => `abo|${sp.num}|${m}`), tiers: `401|${sp.num}`, tlib: sp.lib });
-  });
-  // Dépenses payées directement (charges externes : locations, assurances, cotisations…) et opérations en compte d'attente.
-  // La demande mensuelle porte sur les fournisseurs, les clients, les comptes d'attente et ces charges, sans les
-  // acquisitions d'immobilisations (demandées pour la situation et le bilan).
+  // Archive de justificatifs : dépenses payées directement sans pièce (exact), à la place de la liste ci-dessous
+  justifPieces(r, push, from, end, flt, { charges: true, paiements: true });
+  // Dépenses payées directement (charges externes : locations, assurances, cotisations…) et opérations en compte d'attente,
+  // sans les acquisitions d'immobilisations (demandées pour la situation et le bilan).
   directPieces(r, push, from, end, flt, { charges: true });
   attentePieces(r, push, from, end, flt);
-
+  // Encaissements enregistrés en ventes sans facture client (activité facturée), 15 par mois au plus
   if (!pharma && cy) {
-    // Ventes : mois sans facture d'un client facturé chaque mois
-    cy.clients.customers.forEach((c) => {
-      if (!c.months || RE_DIVERS.test(c.lib || '')) return;
-      let med = null;
-      const miss = months.filter((m) => {
-        if (Math.abs(c.months[m] || 0) >= 0.01 || askedM.has(`411|${c.num}|${m}`) || !flt.ok([`cli|${c.num}|${m}`])) return false;
-        const v = usuallyMonthly(c.months, m);
-        if (v !== null) med = v;
-        return v !== null;
-      });
-      if (miss.length) push('ventes', 'mcli:' + c.num, `Factures de vente à ${c.lib} : ${fmtMonths(miss)} (facturé habituellement chaque mois, environ ${eur(med, 0)} € TTC)`, { keys: miss.map((m) => `cli|${c.num}|${m}`), tiers: `411|${c.num}`, tlib: c.lib });
-    });
-    numberingPieces(r, push, from, end, flt);
-    // Encaissements enregistrés en ventes sans facture client (activité facturée), 15 par mois au plus
     const facture = cy.clients.customers.reduce((s, c) => s + c.ht, 0);
     if (r.kpi.ca > 0 && facture >= r.kpi.ca * 0.5) {
       const K = pieceKeys(r).enc;
@@ -1234,6 +1204,9 @@ function createPiecesRequest() {
   // Pièce qui regroupe une opération déjà demandée avec de nouvelles (même tiers, même dépense) : elle remplace l'étape en attente
   const added = new Set(steps);
   m.etapes = m.etapes.filter((e) => added.has(e) || e.done || !e.keys || !e.keys.length || !steps.some((n) => n.keys && e.keys.every((k) => n.keys.includes(k))));
+  // Pièce décochée : écartée, et retirée de la demande en cours si elle y était encore attendue
+  const offKeys = new Set(off.flatMap((i) => i.keys));
+  if (offKeys.size) m.etapes = m.etapes.filter((e) => e.done || !e.keys || !e.keys.length || !e.keys.every((k) => offKeys.has(k)));
   if (off.length) setEcarte(off.flatMap((i) => i.keys), true);
   st.excluded.clear();
   if (m.etapes.every((e) => e.done)) setStatus(m, 'termine');

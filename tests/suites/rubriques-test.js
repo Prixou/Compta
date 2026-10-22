@@ -143,8 +143,8 @@ const { fecTab, fecMonth } = require('./lib');
   const lC = await liste('clients'), lT = await liste('');
   expect(garde === 'fournisseurs', 'choix « Factures fournisseurs » conservé dans le dossier', garde);
   expect(/ASSURANCES EXEMPLE/.test(lF) && !/Facture de vente n° F-260159/.test(lF) && /PARKING CENTRE/.test(lF), 'filtre « Factures fournisseurs » : factures clients écartées, compte d\'attente gardé');
-  expect(!/WEB SCI EXEMPLE LOYER/.test(lC) && /Facture de vente n° F-260159/.test(lC) && /PARKING CENTRE/.test(lC) && /ASSURANCES EXEMPLE/.test(lC), 'filtre « Factures clients » : autres pièces écartées, comptes d\'attente gardés (toutes rubriques)');
-  expect(/WEB SCI EXEMPLE LOYER/.test(lT) && /F-260159/.test(lT), 'retour à « Toutes »');
+  expect(!/WEB SCI EXEMPLE LOYER/.test(lC) && /PARKING CENTRE/.test(lC) && /ASSURANCES EXEMPLE/.test(lC), 'filtre « Factures clients » : autres pièces écartées, comptes d\'attente gardés (toutes rubriques)');
+  expect(/WEB SCI EXEMPLE LOYER/.test(lT) && /ASSURANCES EXEMPLE/.test(lT), 'retour à « Toutes »');
   // Compte de tiers écarté : choix conservé dans le dossier, ses pièces ne sont plus demandées
   const cpt = () => p.locator('details.pieces-ecartes', { hasText: 'Comptes de tiers' });
   if (await cpt().count()) {

@@ -503,7 +503,8 @@ function justifCard(r) {
 }
 
 // Écritures sans justificatif sur la période, regroupées par tiers ; `flt` écarte les pièces déjà reçues, déjà demandées ou
-// écartées (voir piecesSuivi) ; `opts.charges` : dépenses payées directement des charges externes seules (61, 62).
+// écartées (voir piecesSuivi) ; `opts.charges` : dépenses payées directement des charges externes seules (61, 62) ;
+// `opts.paiements` : dépenses payées directement seules (rien des journaux d'achats et de ventes).
 function justifPieces(r, push, from, to, flt = ALL_PIECES, opts = {}) {
   if (!justifOk(r)) return;
   const d = fmtDate;
@@ -511,7 +512,7 @@ function justifPieces(r, push, from, to, flt = ALL_PIECES, opts = {}) {
   const list = r.cycles.justif.missing.map((x, i) => ({ x, keys: K[i] })).filter(({ x, keys }) => x.date >= from && x.date <= to && flt.ok(keys));
   const desc = (x) => `${x.avoir ? 'avoir' : 'facture'}${x.piece ? ` n° ${x.piece}` : ''} du ${d(x.date)} (${eur(Math.abs(x.amt))} €)`;
   const groups = new Map();
-  list.filter(({ x }) => x.kind !== 'direct').forEach((y) => { const k = y.x.kind + '|' + y.x.num; (groups.get(k) || groups.set(k, []).get(k)).push(y); });
+  list.filter(({ x }) => x.kind !== 'direct' && !opts.paiements).forEach((y) => { const k = y.x.kind + '|' + y.x.num; (groups.get(k) || groups.set(k, []).get(k)).push(y); });
   groups.forEach((l) => {
     const x0 = l[0].x;
     const items = l.slice(0, 12).map(({ x }) => desc(x)).join(', ') + (l.length > 12 ? ` et ${l.length - 12} autre(s)` : '');

@@ -74,7 +74,7 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   console.log('=== OCTOBRE (sans demande)\n   - ' + v.fresh.map((x) => x.text).join('\n   - '));
   expect(v.h2 === 'Pièces manquantes au 31 octobre 2026', 'titre : pièces manquantes à la fin du mois', v.h2);
   expect(/Exercice ouvert le 1er septembre 2026/.test(v.intro), "début de l'exercice indiqué", v.intro.slice(0, 80));
-  expect(has(v.fresh, /PARKING CENTRE.*29\/09\/2026/) && has(v.fresh, /F-260159 \(septembre 2026\)/) && has(v.fresh, /F-260190 \(octobre 2026\)/), 'octobre : pièces de septembre toujours manquantes et pièces d\'octobre');
+  expect(has(v.fresh, /PARKING CENTRE.*29\/09\/2026/) && has(v.fresh, /BOULANGERIE DU PORT » du 06\/10\/2026/) && !has(v.fresh, /Facture de vente n°/), 'octobre : pièces de septembre toujours manquantes et pièces d\'octobre, rien du journal de ventes');
   expect(has(v.fresh, /^Factures « WEB SCI EXEMPLE LOYER » : 2 paiements \(septembre et octobre 2026\)/), 'loyers prélevés : un élément, deux paiements sur la période');
   expect(new Set(v.fresh.map((x) => x.id)).size === v.fresh.length, 'identifiants des éléments uniques');
   const octKeys = await p.evaluate(() => computePieces(ui.fec.result, 'mois', '2026-10-31').flatMap((i) => i.keys || []));
@@ -109,14 +109,14 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   console.log('=== OCTOBRE (après la demande de septembre)\n   À demander :\n   - ' + v.fresh.map((x) => x.text).join('\n   - ') + '\n   Déjà demandées :\n   - ' + v.pending.map((x) => `${x.text} [${x.badges.join(', ')}]`).join('\n   - '));
   expect(has(v.fresh, /PARKING CENTRE/), 'pièce cochée reçue mais toujours manquante dans le FEC : de nouveau à demander');
   expect(!v.pending.length && !/Déjà demandées/.test(v.card), 'pas de bloc « déjà demandées »');
-  expect(has(v.fresh, /F-260190/) && has(v.fresh, /F-260159/) && has(v.fresh, /^Factures « WEB SCI EXEMPLE LOYER » : 2 paiements/), 'à demander : toutes les pièces manquantes, déjà demandées ou non');
+  expect(has(v.fresh, /BOULANGERIE DU PORT » du 06\/10\/2026/) && has(v.fresh, /PARKING CENTRE/) && has(v.fresh, /^Factures « WEB SCI EXEMPLE LOYER » : 2 paiements/), 'à demander : toutes les pièces manquantes, déjà demandées ou non');
   expect(/^Pièces manquantes \(\d+\)$/.test(v.tab) && Number(v.tab.match(/\d+/)[0]) === v.fresh.length, 'onglet : pièces manquantes', v.tab);
   // Pièces toujours manquantes : jamais « comptabilisées », quel que soit l'espace (liste de la situation plafonnée, détecteurs différents)
   const fauxPos = await p.evaluate(() => ['mois', 'situation', 'bilan'].map((mode) => piecesPending(ui.fec.result, mode, mode === 'bilan' ? '2027-08-31' : '2026-10-31').filter((x) => x.comptab).length).join(','));
   expect(fauxPos === '0,0,0', 'aucune pièce manquante signalée comptabilisée (Mois, situation, bilan)', fauxPos);
 
   // ---------- 4. Demande d'octobre : la demande unique se complète, mail « Pour rappel », pièce écartée ----------
-  const f190 = v.fresh.find((x) => /F-260190/.test(x.text));
+  const f190 = v.fresh.find((x) => /SUBVENTION EXEMPLE 2026/.test(x.text));
   await p.uncheck(`input[data-piece="${f190.id}"]`);
   const nSept = dm[0].etapes.length;
   await p.click('button[data-action=pieces-demande]'); await p.waitForSelector('#msg-body');
@@ -124,7 +124,7 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   console.log('=== MAIL D\'OCTOBRE\n' + body);
   expect(await p.evaluate(() => ui.msg.modele) === 'pieces', 'modèle « demande de documents » (et non relance)');
   expect(/Afin de mettre à jour votre comptabilité au 31 octobre 2026, nous avons besoin des éléments suivants :/.test(body) && !/Pour rappel/.test(body), 'mail : une seule liste, sans « Pour rappel »');
-  expect(/WEB SCI EXEMPLE LOYER » : 2 paiements/.test(body) && /F-260159/.test(body) && /PARKING/.test(body) && !/F-260190/.test(body), 'mail : toutes les pièces manquantes, sauf la pièce écartée');
+  expect(/WEB SCI EXEMPLE LOYER » : 2 paiements/.test(body) && /ASSURANCES EXEMPLE/.test(body) && /PARKING/.test(body) && !/SUBVENTION EXEMPLE 2026/.test(body), 'mail : toutes les pièces manquantes, sauf la pièce écartée');
   await p.click('#modal [data-action=msg-copy]');
   await p.click('#modal [data-action=close-modal]');
   dm = await demandes(p);
@@ -134,7 +134,7 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   expect(dm[0].etapes.some((e) => e.ym === '2026-10') && dm[0].etapes.filter((e) => e.ym === '2026-09').length >= nSept, 'étapes de septembre gardent leur mois, octobre ajouté');
   await month(p, '2026-10');
   v = await view(p);
-  expect(v.ecartes.length === 1 && /F-260190/.test(v.ecartes[0]) && !has(v.fresh, /F-260190/), 'pièce décochée : rangée dans « Écartées »', v.ecartes.join(' | '));
+  expect(v.ecartes.length === 1 && /SUBVENTION EXEMPLE 2026/.test(v.ecartes[0]) && !has(v.fresh, /SUBVENTION EXEMPLE 2026/), 'pièce décochée : rangée dans « Écartées »', v.ecartes.join(' | '));
   // Retour en septembre : la demande ne recule pas
   await month(p, '2026-09');
   await p.click('button[data-action=pieces-demande]'); await p.waitForSelector('#msg-body');
@@ -146,7 +146,7 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   await month(p, '2026-10');
   await p.click('.pieces-ecartes summary'); await p.click('input[data-ecarte]'); await p.waitForTimeout(150);
   v = await view(p);
-  expect(has(v.fresh, /F-260190/) && !v.ecartes.length, 'pièce écartée remise dans les pièces à demander');
+  expect(has(v.fresh, /SUBVENTION EXEMPLE 2026/) && !v.ecartes.length, 'pièce écartée remise dans les pièces à demander');
 
   // ---------- 5. « Pièces reçues » des missions TVA, mois par mois ----------
   await p.evaluate(() => {
@@ -185,7 +185,7 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   });
   await load(q, FEC, '2026-10');
   v = await view(q);
-  expect(has(v.fresh, /F-260159/) && has(v.fresh, /F-260181/) && has(v.fresh, /F-260182/) && has(v.fresh, /PARKING CENTRE/) && !v.pending.length, 'anciennes demandes : pièces toujours manquantes listées à demander');
+  expect(!has(v.fresh, /F-2601/) && has(v.fresh, /PARKING CENTRE/) && !v.pending.length, 'anciennes demandes : pièces de paiement listées à demander, numéros de facture (journal de ventes) plus demandés');
   await q.click('button[data-action=pieces-demande]'); await q.waitForSelector('#msg-body');
   await q.click('#modal [data-action=close-modal]');
   dm = await demandes(q);
@@ -204,7 +204,7 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
   const tag = await comptab();
   expect(/F-260159/.test(tag) && !/\|/.test(tag), 'facture saisie depuis : seule pièce reconnue comptabilisée', tag);
   const copie = await q.evaluate(() => piecesCopyText());
-  expect(!/F-260159/.test(copie) && /F-260182/.test(copie), 'texte copié : pièce saisie absente, pièces manquantes présentes');
+  expect(!/F-2601/.test(copie) && /PARKING/.test(copie), 'texte copié : pièces de paiement seules');
   await fecTab(q, 'mois-pieces', 0);
   await q.click('button[data-action=pieces-demande]'); await q.waitForSelector('#msg-body');
   await q.click('#modal [data-action=close-modal]');

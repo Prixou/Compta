@@ -40,7 +40,8 @@ const A = require(D + '900000009-attendu.json').sept;
   // 3. Pièces du mois : une pièce par facture manquante, libellés bancaires raccourcis, encaissements identifiés retirés
   await fecTab(p, 'mois-pieces', 0); await fecMonth(p, '2026-09');
   const pieces = await main();
-  A.missing.forEach((n) => expect(pieces.includes(`Facture de vente n° ${n} (septembre 2026) : copie, ou confirmation de son annulation`), `pièce demandée : facture ${n}`));
+  // Numéros manquants (journal de ventes) : signalés dans l'onglet Ventes, jamais demandés dans les pièces du mois
+  A.missing.forEach((n) => expect(!pieces.includes(`Facture de vente n° ${n} (septembre 2026) : copie, ou confirmation de son annulation`), `facture ${n} manquante : pas demandée (journal de ventes)`));
   expect(!/\b(IBE|CPY|RUM|MMO|CBE|LIB): /.test(pieces), 'références techniques des libellés bancaires écartées (IBAN, mandat, BIC…)');
   expect(pieces.includes('« 0999001 ASSURANCES EXEMPLE · MULTIRISQUE PRO EXEMPLE -ECHEANCE 09/2026 COTISATION MENSUELLE »'), 'libellé bancaire : tête et communication (LCC + LC2)');
   expect(pieces.includes('PARKING CENTRE'), 'opération inconnue : justificatif demandé');
