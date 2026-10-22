@@ -86,6 +86,8 @@ function dayKind(iso) {
 const normTxt = (s) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const STOP = new Set(['prlv', 'prelevement', 'prel', 'sepa', 'cb', 'carte', 'vir', 'virement', 'recu', 'emis', 'du', 'de', 'des', 'le', 'la', 'les', 'ref',
   'fact', 'facture', 'echeance', 'ech', 'paiement', 'pmt', 'achat', 'sa', 'sas', 'sarl', 'fr', 'france', 'europe', 'et', 'pour', 'mois', 'avis']);
+// Code usuel d'un journal d'achats ou de ventes
+const RE_FACT_CODE = /^(HA|AC|ACH|ACHAT|ACHATS|VT|VE|VEN|VTE|VENTE|VENTES)\d*$/i;
 // Libellé bancaire détaillé (Pennylane) : « VIR X (ref: …) - LCC: communication - LC2: suite - LIB: BIC - NBE: … - IBE: … -
 // RUM: … - CPY: IBAN - MMO: montant ». On garde la tête et la communication (n° de facture, échéance…), sans les références
 // techniques (BIC, IBAN, mandat, identifiant créancier, montant d'origine) qui rendent chaque libellé unique et illisible.
@@ -529,7 +531,7 @@ function analyse(buffer, fileName, until, docs) {
   });
   journals.forEach((j) => {
     const x = jStat.get(j.code) || { n: 0, f: 0 };
-    if (/achat|vente|purchas|\bsales?\b|factur/i.test(j.lib || '') || /^(HA|AC|ACH|ACHAT|ACHATS|VT|VE|VEN|VTE|VENTE|VENTES)\d*$/i.test(j.code || '') || (x.n >= 10 && x.f >= x.n * 0.8)) factJ.add(j.code);
+    if (/achat|vente|purchas|\bsales?\b|factur/i.test(j.lib || '') || RE_FACT_CODE.test(j.code || '') || (x.n >= 10 && x.f >= x.n * 0.8)) factJ.add(j.code);
   });
 
   // Écritures déséquilibrées, dates atypiques, numérotation
@@ -723,8 +725,12 @@ function analyse(buffer, fileName, until, docs) {
       if (!amt) return;
       const en = !isAn && opEntries.get(remap.get(ek) || ek);
       // Règlement : écriture hors journaux d'achats et de ventes (banque, caisse, OD, effets…) ; compte lettré : aussi
-      // l'à-nouveau détaillé d'un règlement de l'exercice précédent resté non lettré
-      items.push({ date, amt, lib, bank: isAn ? lettered && amt < 0 : !!(en && !factJ.has(en.jc)) });
+      // l'à-nouveau détaillé d'un règlement de l'exercice précédent resté non lettré (sens du règlement ; une facture
+      // antérieure est dans l'autre sens), sauf s'il vient d'un journal d'achats ou de ventes (avoir), d'après le journal
+      // d'origine cité dans son libellé (« 30/09/2025 -HA- … »)
+      const jAn = isAn && /(?:^|\s)-([A-Z0-9]{1,8})-(?:\s|$)/i.exec(lib || '');
+      const anFact = jAn && (factJ.has(jAn[1]) || RE_FACT_CODE.test(jAn[1]));
+      items.push({ date, amt, lib, bank: isAn ? lettered && amt < 0 && !anFact : !!(en && !factJ.has(en.jc)) });
     });
     const pays = items.filter((x) => x.amt < 0 && x.bank).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     if (!pays.length) return;
