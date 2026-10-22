@@ -27,7 +27,9 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
   dans les encaissements et en listes (`800000008FEC20261231.txt`), pour `suites/factmmaa-test.js`.
   `gentvarevue.py` produit un FEC d'hôtel au réel mensuel (`600000006FEC20261231.txt`) avec ses OD de TVA, un crédit, une
   TVA erronée et un loyer non réglé, et les montants attendus (`600000006-attendu.json`), pour l'onglet « Contrôle TVA »
-  (`suites/tvarevue-test.js`).
+  (`suites/tvarevue-test.js`). `genca3_pdf.py` produit les CA3 de ce dossier en PDF (`fixtures/ca3/` : janvier ; février et
+  mars dans un même fichier, deux mises en page) ; `fixtures/factures-non-reglees.csv` est une liste de factures non réglées
+  telle qu'exportée d'un logiciel de facturation (données inventées).
 - `suites/` : une suite par fonction (analyse FEC, cycles, TVA, pièces, portefeuille, suivi mensuel, sécurité…) ; `suites/lib.js` regroupe les aides de navigation (onglets et espaces Mois / Révision / Consultation de l'analyse FEC, choix du mois).
 - `out/` : captures d'écran, fichiers exportés et journal de chaque suite (non versionné).
 

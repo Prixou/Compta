@@ -907,3 +907,8 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .tvr-in.set { border-color: var(--primary); font-weight: 600; }
 .tvr textarea { width: 100%; box-sizing: border-box; }
 .tvr h3 { margin: 1.1rem 0 .4rem; font-size: 1rem; }
+.tvr-badge { display: inline-block; padding: 0 .35rem; border-radius: 4px; font-size: .7rem; font-weight: 700; color: var(--ok); background: var(--ok-soft); }
+.tvr-badge.bad { color: var(--danger); background: var(--danger-soft); }
+.tvr-msg { margin: .5rem 0; padding-left: 1.2rem; font-size: .85rem; }
+.tvr-msg .ok { color: var(--ok); }
+.tvr-msg .bad { color: var(--danger); }

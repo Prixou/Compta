@@ -981,6 +981,7 @@ function analyse(buffer, fileName, until, docs) {
     labelIdx: { stop: Array.from(STOP), map: labelIdx },
     bankCp,
     invIdx,
+    tvaCli: clientOpen(aux, opEntries, remap),
     cycles,
     kpi: {
       ca: P(['70']), marge, va, ebe, rex, resultat,
@@ -988,6 +989,54 @@ function analyse(buffer, fileName, until, docs) {
       totalBilan: totalActif,
     },
   };
+}
+
+// Lignes des comptes clients pour la TVA sur les encaissements : [date ('' pour un à-nouveau), montant (débit +),
+// date de règlement (dernière date du lettrage ; '' non lettrée ; '0000-00-00' soldée dans les à-nouveaux),
+// ventilation HT de la facture par compte de produits au prorata de la ligne]. lettered : part des factures lettrées.
+function clientOpen(aux, opEntries, remap) {
+  const accs = [];
+  let n = 0, inv = 0, invLet = 0;
+  aux.forEach((t) => {
+    if (t.racine !== '411' || n > 60000) return;
+    const groups = new Map();
+    t.lines.forEach(([date, , , lt, , an]) => {
+      if (!lt) return;
+      const g = groups.get(lt) || { max: '', nN: 0 };
+      if (!an) { g.nN++; if (date > g.max) g.max = date; }
+      groups.set(lt, g);
+    });
+    const lines = [];
+    t.lines.forEach(([date, d, c, lt, , an, oek]) => {
+      const amt = round2(d - c);
+      if (!amt) return;
+      const g = lt ? groups.get(lt) : null;
+      const paid = g ? (g.nN ? g.max : '0000-00-00') : '';
+      let split = null;
+      if (!an && amt > 0) {
+        inv++;
+        if (lt) invLet++;
+        const en = oek ? opEntries.get(remap.get(oek) || oek) : null;
+        const L = (en && en.l) || [];
+        let t411 = 0;
+        const ht = {};
+        for (let i = 0; i < L.length; i += 4) {
+          const cpt = L[i];
+          if (cpt.startsWith('411')) t411 += L[i + 2] - L[i + 3];
+          else if (cpt[0] === '7') ht[cpt] = (ht[cpt] || 0) + L[i + 3] - L[i + 2];
+        }
+        if (t411 > 0.01 && Object.keys(ht).length) {
+          const k = amt / t411;
+          split = {};
+          for (const c7 in ht) split[c7] = round2(ht[c7] * k);
+        }
+      }
+      lines.push(split ? [an ? '' : date, amt, paid, split] : [an ? '' : date, amt, paid]);
+      n++;
+    });
+    if (lines.length) accs.push({ num: t.num, lib: t.lib, lines });
+  });
+  return { accs, lettered: inv ? round2(invLet / inv) : null, invoices: inv, truncated: n > 60000 };
 }
 
 // Factures d'un fournisseur : part des services (comptes 6 hors 60) dans le HT, et taux de TVA le plus fréquent.

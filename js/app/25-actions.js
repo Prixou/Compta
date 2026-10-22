@@ -256,6 +256,8 @@ const actions = {
   'brap-clear': () => { ui.brap = null; refresh(); },
   'brap-export': (el) => brapExport(el.dataset.kind),
   'tvr-export': () => tvrExport(),
+  'tvr-ca3-clear': (el) => tvrClearPeriod(el.dataset.key),
+  'tvr-od-export': (el) => tvrOdExport(el.dataset.kind),
   'cmp-pick': async (el) => { const f = await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true); if (f) cmpDrop([f], el.dataset.side); },
   'cmp-swap': () => { const st = cmpState(); [st.ref, st.cmp] = [st.cmp, st.ref]; cmpRun(); },
   'cmp-clear': () => { cmpStop(); ui.cmp = null; refresh(); },
@@ -277,6 +279,7 @@ const actions = {
     const it = ui.batch && ui.batch.items[Number(el.dataset.i)];
     if (!it || !it.st) return;
     if (el.dataset.mois) Object.assign(it.st, { space: 'mois', section: 'mois-pieces', month: ymOf(it.sum.moisArrete) });
+    if (el.dataset.tab) Object.assign(it.st, { space: 'revision', section: el.dataset.tab });
     ui.fecState = it.st;
     location.hash = '#/fec';
   },
@@ -656,6 +659,12 @@ document.addEventListener('change', (e) => {
     // Paramétrage du contrôle de TVA : nature ou taux d'un compte
     if (t.dataset.tvap === 'ca') setTvaParam('ca', t.dataset.c, t.value);
     else setTvaParam('acc', t.dataset.c, t.value, t.dataset.tvap === 'acc-rate' ? 'rate' : 'role');
+  } else if (t.dataset.tvrFact !== undefined && ui.fec && ui.fec.result) {
+    if (t.files && t.files[0]) tvrImportFactures(t.files[0]);
+    t.value = '';
+  } else if (t.dataset.tvrCa3 !== undefined && ui.fec && ui.fec.result) {
+    tvrImportCa3(t.files);
+    t.value = '';
   } else if (t.dataset.tvr !== undefined && ui.fec && ui.fec.result) {
     onTvrChange(t);
   } else if (t.dataset.tvaDecl && ui.fec && ui.fec.result) {

@@ -48,7 +48,9 @@ function batchSummary(it) {
     const pieces = computePieces(r, mode, defaultArrete(r, mode)).length;
     const props = ecrProposals(r).filter((p) => p.on);
     const moisArrete = defaultArrete(r, 'mois');
+    const tva = r.cycles && r.cycles.tva && Object.keys(r.cycles.tva.months).length ? tvrSummary(r, tvrCalc(r)) : null;
     return {
+      tva,
       moisArrete, moisPieces: piecesCount(r, 'mois', moisArrete),
       errors, warnings, left, total: Object.values(left).reduce((s, v) => s + v, 0), pieces, mode,
       ecr: props.length, impact: props.reduce((s, p) => s + ecrImpact(p.lines), 0),
@@ -131,6 +133,7 @@ function viewBatch() {
       ${kpiTile('Points à traiter', tot('total'), tot('total') ? 'kpi-wait' : '')}
       ${kpiTile('Pièces à demander', tot('pieces'))}
       ${kpiTile('Écritures proposées', tot('ecr'))}
+      ${kpiTile('Écarts de TVA', ok.filter((x) => x.sum.tva && x.sum.tva.ecart).length, ok.some((x) => x.sum.tva && x.sum.tva.ecart) ? 'kpi-wait' : '')}
     </div>
     <section class="card"><div class="card-head"><h2>Dossiers par charge de révision</h2>
       ${!b.running && linked.length ? `<button class="btn small" data-action="batch-save">Enregistrer les synthèses dans les dossiers (${linked.length})</button>` : ''}</div>
@@ -141,7 +144,22 @@ function viewBatch() {
         <td class="${x.sum.impact < 0 ? 'cred' : ''}">${x.sum.ecr ? eur(x.sum.impact, 0) : ''}</td><td>${eurK(x.sum.ca)}</td><td class="${x.sum.resultat < 0 ? 'cred' : ''}">${eurK(x.sum.resultat)}</td>
         <td><button class="btn small" data-action="batch-open" data-i="${x.i}">Ouvrir</button></td></tr>`).join('')}</tbody></table></div>
       <p class="muted small">Classement : anomalies de conformité d'abord, puis nombre de points de révision restant à traiter. Les FEC sans dossier correspondant (SIREN) peuvent être ouverts et rattachés manuellement.</p>
-    </section>`;
+    </section>
+    ${batchTvaCard(ok, name)}`;
+}
+
+// Contrôle de la TVA de l'exercice de chaque dossier (onglet « Contrôle TVA »), du plus grand écart au plus petit
+function batchTvaCard(ok, name) {
+  const list = ok.filter((x) => x.sum.tva).sort((a, b) => b.sum.tva.total - a.sum.tva.total);
+  if (!list.length) return '';
+  const cell = (v, title) => (v === null ? `<td class="muted small" title="${esc(title || '')}">—</td>` : `<td class="${v >= 1 ? 'cred' : ''}">${v >= 0.005 ? eur(v) : '0'}</td>`);
+  return `<section class="card"><h2>Contrôle de la TVA <span class="count">${list.filter((x) => x.sum.tva.ecart).length} en écart</span></h2>
+    <p class="muted small">Pour chaque dossier, le contrôle de l'onglet « Contrôle TVA » (espace Révision) au dernier mois dont l'OD de TVA est comptabilisée, avec les saisies et les CA3 importées déjà conservées dans le dossier. Écarts en euros de TVA, en valeur absolue ; à partir de 1 € en rouge.</p>
+    <div class="grid-wrap"><table class="dtable num batch-tva"><thead><tr><th>Dossier</th><th>Arrêté</th><th title="Net calculé et OD de TVA comptabilisée, toutes périodes">Écart OD</th><th title="CA × taux et TVA collectée comptabilisée">Contrôle en bases</th><th title="TVA sur les encaissements à déclarer (si les comptes clients sont lettrés)">Encaissements</th><th title="TVA déductible exigible et TVA déduite par l'OD de la période">Déductible</th><th title="Soldes théoriques et réels des comptes de TVA après OD">Soldes après OD</th><th>OD proposées</th><th>CA3 importées</th><th></th></tr></thead>
+    <tbody>${list.map((x) => { const t = x.sum.tva; return `<tr><td>${name(x)}</td><td>${esc(MOIS_COURTS[Number(t.arr.slice(5, 7)) - 1])} ${esc(t.arr.slice(0, 4))}</td>
+      ${cell(t.od)}${cell(t.bases)}${cell(t.enc, 'Comptes clients peu lettrés : à contrôler dans le dossier')}${cell(t.ded, "Pas d'OD de TVA pour la période d'arrêté")}${cell(t.soldes)}
+      <td>${t.odItems || ''}</td><td>${t.ca3 ? `${t.ca3} / ${t.periods}` : ''}</td><td><button class="btn small" data-action="batch-open" data-i="${x.i}" data-tab="tvarev">Ouvrir</button></td></tr>`; }).join('')}</tbody></table></div>
+  </section>`;
 }
 
 function batchExport() {
@@ -154,7 +172,13 @@ function batchExport() {
         n(x.sum.errors, 2), n(x.sum.total, 2), n(x.sum.left.achats || 0, 2), n(x.sum.left.charges || 0, 2), n(x.sum.left.clients || 0, 2), n(x.sum.left.treso || 0, 2), n(x.sum.left.gen || 0, 2),
         n(x.sum.pieces, 2), n(x.sum.moisPieces, 2), n(x.sum.ecr, 2), n(x.sum.impact), n(x.sum.ca), n(x.sum.resultat), n(x.sum.treso)];
     }));
-  const blob = XlsxWriter.build({ sheets: [{ name: 'Portefeuille', rows, widths: [34, 30, 11, 11, 11, 13, 9, 11, 9, 11, 10, 12, 12, 12, 14, 14, 14, 14], freeze: { row: 1 } }] });
+  const tvaRows = [['Dossier', 'Fichier', 'Arrêté', 'Écart OD', 'Contrôle en bases', 'Encaissements', 'Déductible', 'Soldes après OD', 'OD proposées', 'CA3 importées', 'Périodes'].map((c) => t(c, 1))]
+    .concat(batchItems().filter((x) => x.sum && x.sum.tva).map((x) => {
+      const c = clientById(x.st.clientId), v = x.sum.tva;
+      return [t(c ? clientLabel(c) : ''), t(x.fileName), t(v.arr), n(v.od), n(v.bases), v.enc === null ? t('—') : n(v.enc), v.ded === null ? t('—') : n(v.ded), n(v.soldes), n(v.odItems, 2), n(v.ca3, 2), n(v.periods, 2)];
+    }));
+  const blob = XlsxWriter.build({ sheets: [{ name: 'Portefeuille', rows, widths: [34, 30, 11, 11, 11, 13, 9, 11, 9, 11, 10, 12, 12, 12, 14, 14, 14, 14], freeze: { row: 1 } },
+    { name: 'Contrôle TVA', rows: tvaRows, widths: [34, 30, 10, 12, 14, 14, 12, 14, 12, 12, 10], freeze: { row: 1 } }] });
   download(`portefeuille-fec-${todayStr()}.xlsx`, blob, blob.type);
 }
 

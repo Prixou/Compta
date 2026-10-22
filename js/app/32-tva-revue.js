@@ -142,6 +142,7 @@ function tvrCalc(r) {
   const collAccs = accsOf((a) => /^coll/.test(a.role));
   const rateSet = new Set(accounts.filter((x) => /^[\d.]+$/.test(x.col)).map((x) => Number(x.col)));
   collAccs.forEach((a) => { if (a.rate && Math.abs(accBal[a.compte].ops) >= 1) rateSet.add(a.rate); });
+  Object.values(ex.ca3).forEach((o) => Object.keys(o).forEach((k) => { if (/^b[\d.]+$/.test(k) && tvrNum(o[k])) rateSet.add(Number(k.slice(1))); }));
   const R = Array.from(rateSet).sort((a, b) => b - a);
   const cols = R.map(String).concat('exo');
   const sumCols = (fn) => Object.fromEntries(cols.map((k) => [k, round2(fn(k))]));
@@ -179,7 +180,8 @@ function tvrCalc(r) {
     const ov = ex.ca3[key] || {};
     const v = (k) => { const o = tvrNum(ov[k]); return o !== undefined ? o : auto[k] || 0; };
     const bases = Object.fromEntries(R.map((rt) => [rt, v(`b${rt}`)]));
-    const coll = round2(R.reduce((t, rt) => t + (bases[rt] * rt) / 100, 0) + v('acq') * 0.2);
+    // TVA collectée : bases × taux, autoliquidations à 20 %, sommes à ajouter (lignes 15 et 5B)
+    const coll = round2(R.reduce((t, rt) => t + (bases[rt] * rt) / 100, 0) + v('acq') * 0.2 + v('add'));
     const base = round2(R.reduce((t, rt) => t + bases[rt], 0) + TVR_CA3_OTHER.reduce((t, [k]) => t + v(k), 0));
     // Report : crédit de la période précédente, plus la TVA à régulariser imputée par l'OD (acompte versé, 4458)
     const acompte = round2(decls.reduce((t, d) => t + Object.entries(d.m).reduce((x, [c, v]) => x + (M.roleOf(c) === 'regul' && v < 0 ? -v : 0), 0), 0));
@@ -193,17 +195,20 @@ function tvrCalc(r) {
     // OD de TVA comptabilisée : TVA à décaisser moins crédit constaté
     const creditNew = round2(decls.reduce((t, d) => t + Object.entries(d.m).reduce((s, [c, x]) => s + (M.roleOf(c) === 'credit' && x > 0 ? x : 0), 0), 0));
     const odNet = decls.length ? round2(sumD('due') - creditNew) : null;
-    rows.push({ key, label: per.label, decls: decls.length, auto, ov, v: Object.fromEntries(['acq', 'exp', 'exo', 'lic', 'dImmo', 'dAbs', 'dIntra', 'remb'].map((k) => [k, v(k)])),
-      bases, base, coll, report, dTot, due, remb, credit, odNet, odGap: odNet === null ? null : round2(due - credit - odNet) });
+    // Déclaration importée : TVA nette (ligne 28) et crédit à reporter (ligne 27) comparés au calcul
+    const ca3 = ov._ca3 || null;
+    const ca3Gap = ca3 ? round2(Math.abs(due - (ca3.l28 || 0)) + Math.abs(credit - (ca3.l27 || 0))) : null;
+    rows.push({ key, label: per.label, decls: decls.length, auto, ov, v: Object.fromEntries(['acq', 'exp', 'exo', 'lic', 'add', 'dImmo', 'dAbs', 'dIntra', 'remb'].map((k) => [k, v(k)])),
+      bases, base, coll, report, dTot, due, remb, credit, odNet, odGap: odNet === null ? null : round2(due - credit - odNet), ca3, ca3Gap });
   });
   const baseKeys = R.map((rt) => `b${rt}`).concat(TVR_CA3_OTHER.map(([k]) => k));
   const valOf = (row, k) => (k[0] === 'b' ? row.bases[Number(k.slice(1))] : row.v[k]);
-  const tot = Object.fromEntries(baseKeys.concat(['dImmo', 'dAbs', 'dIntra', 'remb']).map((k) => [k, round2(rows.reduce((t, row) => t + (valOf(row, k) || 0), 0))]));
+  const tot = Object.fromEntries(baseKeys.concat(['add', 'dImmo', 'dAbs', 'dIntra', 'remb']).map((k) => [k, round2(rows.reduce((t, row) => t + (valOf(row, k) || 0), 0))]));
   ['base', 'coll', 'report', 'dTot', 'due', 'credit'].forEach((k) => { tot[k] = round2(rows.reduce((t, row) => t + row[k], 0)); });
   const adj = (row, k) => tvrNum((ex.adj[row] || {})[k]) || 0;
   const caDecl = Object.fromEntries(baseKeys.map((k) => [k, round2(tot[k] - adj('rd', k) + adj('ra', k))]));
   const tvaCaDecl = round2(R.reduce((t, rt) => t + (caDecl[`b${rt}`] * rt) / 100, 0) + caDecl.acq * 0.2);
-  const recap = { rows, tot, caDecl, tvaCaDecl, ecart: round2(tot.coll - tvaCaDecl), baseKeys };
+  const recap = { rows, tot, caDecl, tvaCaDecl, ecart: round2(tot.coll - tvaCaDecl), baseKeys, showAdd: rows.some((row) => row.v.add) };
 
   // 2. TVA collectée
   const prodTot = sumCols((k) => accounts.filter((x) => x.col === k).reduce((t, x) => t + x.amt, 0));
@@ -246,11 +251,44 @@ function tvrCalc(r) {
     setA('av1', k, ht(-n1));
     setA('av', k, ht(-fin));
   });
+  // Créances et avances d'après le lettrage des comptes clients : factures non réglées à la date (ventilées par leurs
+  // comptes de produits), règlements non encore affectés ; à-nouveaux et lignes sans ventilation répartis au prorata des
+  // factures du client (TTC par taux). Seulement si les factures sont lettrées dans leur majorité.
+  const cli = r.tvaCli;
+  const cliState = !cli || !cli.invoices ? 'absent' : cli.truncated ? 'trop' : cli.lettered < 0.5 ? 'lettrage' : 'ok';
+  if (cliState === 'ok') {
+    const rateOf = (k) => (k === 'exo' ? 0 : Number(k));
+    const colIn = (k) => (cols.includes(k) ? k : 'exo');
+    const mixOf = (acc) => {
+      const m = {};
+      acc.lines.forEach((l) => { if (l[3]) Object.entries(l[3]).forEach(([c, v]) => { const k = colOf(c); if (k !== 'hc') m[colIn(k)] = (m[colIn(k)] || 0) + v * (1 + rateOf(colIn(k)) / 100); }); });
+      return m;
+    };
+    const mixes = cli.accs.map(mixOf);
+    const globalMix = {};
+    mixes.forEach((m) => Object.entries(m).forEach(([k, v]) => { globalMix[k] = (globalMix[k] || 0) + v; }));
+    const alloc = (row, ttc, m) => {
+      const tot = Object.values(m).reduce((t, v) => t + v, 0);
+      if (tot > 0) Object.entries(m).forEach(([k, w]) => setA(row, k, (ttc * w) / tot / (1 + rateOf(k) / 100)));
+    };
+    const start = `${months[0]}-01`;
+    cli.accs.forEach((acc, i) => {
+      const m = Object.keys(mixes[i]).length ? mixes[i] : globalMix;
+      acc.lines.forEach(([date, amt, paid, split]) => {
+        if (paid === '0000-00-00') return;
+        if (!date) { if (amt > 0) alloc('cre1', amt, m); else alloc('av1', -amt, m); }
+        if ((date || start) > arrEnd || (paid && paid <= arrEnd)) return;
+        if (amt < 0) alloc('av', -amt, m);
+        else if (split) Object.entries(split).forEach(([c, v]) => { const k = colOf(c); if (k !== 'hc') setA('cre', colIn(k), v); });
+        else alloc('cre', amt, m);
+      });
+    });
+  }
   const encVal = (row, k) => { const o = tvrNum((ex.adj[row] || {})[k]); return o !== undefined ? o : (encAuto[row] || {})[k] || 0; };
   const encTot = sumCols((k) => caHt[k] + TVR_ENC.reduce((t, [row, , s]) => t + s * encVal(row, k), 0));
   const encDecl = sumCols((k) => (k === 'exo' ? caDecl.exp + caDecl.exo + caDecl.lic : caDecl[`b${k}`] || 0));
   const encEcart = sumCols((k) => encTot[k] - encDecl[k]);
-  const enc = { auto: encAuto, tot: encTot, decl: encDecl, ecart: encEcart, tva: sumCols((k) => vat(k, encEcart[k])), hints };
+  const enc = { auto: encAuto, tot: encTot, decl: encDecl, ecart: encEcart, tva: sumCols((k) => vat(k, encEcart[k])), hints, cli: cliState, lettered: cli ? cli.lettered : null };
 
   // 3. TVA déductible, avant l'OD de la période d'arrêté
   const deb = (role, k) => sumBal(accsOf((a) => a.role === role), k);
@@ -284,7 +322,10 @@ function tvrCalc(r) {
   const sdReel = { abs: round2(deb('ded', 'apres') + deb('ded-att', 'apres')), immo: deb('ded-immo', 'apres') };
   const sd = ['abs', 'immo'].map((k) => ({ k, theo: nonDed[k], reel: sdReel[k], ecart: round2(nonDed[k] - sdReel[k]), base: round2((nonDed[k] - sdReel[k]) / 0.2) }));
 
-  const K = { sig, M, kind, arr, P, arrEnd, months, keys, R, cols, recap, collecte, enc, deductible, soldes: { coll: sc, ded: sd }, ex, accBal, anCredit };
+  // Compte de TVA principal de chaque nature (le plus mouvementé), pour l'OD de régularisation
+  const mainOf = (list) => (list.slice().sort((a, b) => (a.role === 'coll' ? 0 : 1) - (b.role === 'coll' ? 0 : 1) || Math.abs(accBal[b.compte].ops) - Math.abs(accBal[a.compte].ops))[0] || {}).compte || '';
+  const tvaAcc = { coll: Object.fromEntries(R.map((rt) => [rt, mainOf(collOf(String(rt)))])), abs: mainOf(accsOf((a) => a.role === 'ded')) || mainOf(accsOf((a) => a.role === 'ded-att')), immo: mainOf(accsOf((a) => a.role === 'ded-immo')) };
+  const K = { sig, M, kind, arr, P, arrEnd, months, keys, R, cols, recap, collecte, enc, deductible, soldes: { coll: sc, ded: sd }, ex, accBal, anCredit, tvaAcc };
   Object.defineProperty(r, '_tvr', { value: K, configurable: true, writable: true, enumerable: false });
   return K;
 }
@@ -312,7 +353,7 @@ function viewTvaRevue() {
   const arrLabel = moisNom(`${K.arr}-01`);
   const hint = (list, what) => (list.length ? `<p class="muted small">${what} (TTC, d'après le FEC) : ${list.map((h) => `${esc(h.compte)} ${esc(h.lib)} — N-1 ${eur(-h.n1)} €, ${esc(arrLabel)} ${eur(-h.fin)} €`).join(' ; ')}.</p>` : '');
   const roleTxt = (ro) => (typeof ro === 'number' ? rateTxt(ro) : CA_ROLES[ro] || ro);
-  const ca3Labels = Object.fromEntries(R.map((rt) => [`b${rt}`, `Base ${rateTxt(rt)}`]).concat(TVR_CA3_OTHER, TVR_CA3_DED, [['report', 'Report crédit'], ['remb', 'Remboursement']]));
+  const ca3Labels = Object.fromEntries(R.map((rt) => [`b${rt}`, `Base ${rateTxt(rt)}`]).concat(TVR_CA3_OTHER, TVR_CA3_DED, [['report', 'Report crédit'], ['remb', 'Remboursement'], ['add', 'Sommes à ajouter']]));
   const caRoleOpts = Object.assign(Object.fromEntries(TVA_RATES.filter((x) => ![19.6, 7].includes(x)).map((x) => [String(x), rateTxt(x)])), CA_ROLES);
 
   return `<section class="card tvr">
@@ -329,22 +370,27 @@ function viewTvaRevue() {
 
   <section class="card tvr">
     <h2>1. Récapitulatif des déclarations <span class="count">${recap.rows.length}</span></h2>
-    <p class="muted small">Une ligne par ${K.kind === 'quarter' ? 'trimestre' : 'mois'} ; pré-rempli d'après les OD de TVA comptabilisées (TVA de chaque taux ÷ taux = base, arrondie à l'euro) : saisissez les montants de la déclaration déposée. TVA collectée, crédit et TVA à payer sont recalculés ; « Écart OD » compare le net calculé à l'OD de TVA passée en comptabilité.</p>
+    <p class="muted small">Une ligne par ${K.kind === 'quarter' ? 'trimestre' : 'mois'} ; pré-rempli d'après les OD de TVA comptabilisées (TVA de chaque taux ÷ taux = base, arrondie à l'euro). Importez les déclarations déposées (PDF du formulaire 3310-CA3-SD : copie téléchargée de l'espace professionnel ou édition du logiciel) pour reprendre les montants exacts, ou saisissez-les. TVA collectée, crédit et TVA à payer sont recalculés ; « Écart OD » compare le net calculé à l'OD de TVA passée en comptabilité, le badge CA3 aux lignes 27 et 28 de la déclaration.</p>
+    <div class="tvr-head"><label class="btn"><input type="file" accept="application/pdf,.pdf" multiple data-tvr-ca3 class="sr-only">Importer des CA3 (PDF)</label></div>
+    ${(tvrState().msg || []).length ? `<ul class="tvr-msg">${tvrState().msg.map((m) => `<li class="${m.ok ? 'ok' : 'bad'}">${esc(m.t)}</li>`).join('')}</ul>` : ''}
     <div class="grid-wrap"><table class="dtable num tvr-t tvr-ca3">
-      <thead>${th(['Période', ''].concat(ca3Cols.map(([, l]) => l), ['Total base', 'TVA collectée'], TVR_CA3_DED.map(([, l]) => l), ['Report crédit', 'Total TVA déd.', 'TVA à payer', 'Rembours.', 'Crédit à reporter', 'Écart OD']))}</thead>
+      <thead>${th(['Période', ''].concat(ca3Cols.map(([, l]) => l), ['Total base'], recap.showAdd ? ['Sommes à ajouter'] : [], ['TVA collectée'], TVR_CA3_DED.map(([, l]) => l), ['Report crédit', 'Total TVA déd.', 'TVA à payer', 'Rembours.', 'Crédit à reporter', 'Écart OD']))}</thead>
       <tbody>${recap.rows.map((row) => {
         const inp = (k, auto, dec) => tvrIn(`ca3|${row.key}|${k}`, row.ov[k], auto, `${row.label} — ${ca3Labels[k]}`, dec);
-        return `<tr><td>${esc(row.label)}</td><td>${row.decls ? '<span class="muted small" title="OD de TVA comptabilisée">OD</span>' : ''}</td>
+        const c = row.ca3;
+        const badge = c ? `<span class="tvr-badge${row.ca3Gap >= 1 ? ' bad' : ''}" title="${esc(`Importée de ${c.file || 'la déclaration'} : ligne 28 TVA nette ${eur(c.l28 || 0, 0)} €, ligne 27 crédit à reporter ${eur(c.l27 || 0, 0)} €${row.ca3Gap >= 1 ? ` ; le calcul donne ${eur(row.due)} € et ${eur(row.credit)} €` : ' : identique au calcul'}`)}">CA3</span>` : '';
+        const clear = Object.keys(row.ov).length ? ` <button class="link-btn" data-action="tvr-ca3-clear" data-key="${esc(row.key)}" title="Effacer les montants saisis ou importés de la période" aria-label="Effacer les montants saisis ou importés de ${esc(row.label)}">×</button>` : '';
+        return `<tr><td>${esc(row.label)} ${badge}${clear}</td><td>${row.decls ? '<span class="muted small" title="OD de TVA comptabilisée">OD</span>' : ''}</td>
           ${ca3Cols.map(([k]) => `<td>${inp(k, row.auto[k], 0)}</td>`).join('')}
-          <td>${tvrAmt(row.base, 0)}</td><td>${tvrAmt(row.coll)}</td>
+          <td>${tvrAmt(row.base, 0)}</td>${recap.showAdd ? `<td>${inp('add', 0)}</td>` : ''}<td>${tvrAmt(row.coll)}</td>
           ${TVR_CA3_DED.map(([k]) => `<td>${inp(k, row.auto[k])}</td>`).join('')}
           <td>${inp('report', row.auto.report)}</td><td>${tvrAmt(row.dTot)}</td><td>${tvrAmt(row.due)}</td><td>${inp('remb', 0)}</td><td>${tvrAmt(row.credit)}</td>
           ${row.odGap === null ? '<td class="muted small">pas d\'OD</td>' : tvrGap(row.odGap)}</tr>`;
       }).join('')}
-      <tr class="strong"><td>Total</td><td></td>${ca3Cols.map(([k]) => `<td>${tvrAmt(recap.tot[k], 0)}</td>`).join('')}<td>${tvrAmt(recap.tot.base, 0)}</td><td>${tvrAmt(recap.tot.coll)}</td>${TVR_CA3_DED.map(([k]) => `<td>${tvrAmt(recap.tot[k])}</td>`).join('')}<td>${tvrAmt(recap.tot.report)}</td><td>${tvrAmt(recap.tot.dTot)}</td><td>${tvrAmt(recap.tot.due)}</td><td>${tvrAmt(recap.tot.remb)}</td><td>${tvrAmt(recap.tot.credit)}</td><td></td></tr>
-      <tr><td>Régul. à déduire (exercice)</td><td>(−)</td>${ca3Cols.map(([k, l]) => `<td>${tvrIn(`adj|rd|${k}`, (ex.adj.rd || {})[k], 0, `Régularisation à déduire — ${l}`, 0)}</td>`).join('')}<td colspan="11"></td></tr>
-      <tr><td>Régul. à ajouter (N-1)</td><td>(+)</td>${ca3Cols.map(([k, l]) => `<td>${tvrIn(`adj|ra|${k}`, (ex.adj.ra || {})[k], 0, `Régularisation à ajouter — ${l}`, 0)}</td>`).join('')}<td colspan="11"></td></tr>
-      <tr class="strong"><td>CA déclaré</td><td></td>${ca3Cols.map(([k]) => `<td>${tvrAmt(recap.caDecl[k], 0)}</td>`).join('')}<td colspan="11"></td></tr>
+      <tr class="strong"><td>Total</td><td></td>${ca3Cols.map(([k]) => `<td>${tvrAmt(recap.tot[k], 0)}</td>`).join('')}<td>${tvrAmt(recap.tot.base, 0)}</td>${recap.showAdd ? `<td>${tvrAmt(recap.tot.add)}</td>` : ''}<td>${tvrAmt(recap.tot.coll)}</td>${TVR_CA3_DED.map(([k]) => `<td>${tvrAmt(recap.tot[k])}</td>`).join('')}<td>${tvrAmt(recap.tot.report)}</td><td>${tvrAmt(recap.tot.dTot)}</td><td>${tvrAmt(recap.tot.due)}</td><td>${tvrAmt(recap.tot.remb)}</td><td>${tvrAmt(recap.tot.credit)}</td><td></td></tr>
+      <tr><td>Régul. à déduire (exercice)</td><td>(−)</td>${ca3Cols.map(([k, l]) => `<td>${tvrIn(`adj|rd|${k}`, (ex.adj.rd || {})[k], 0, `Régularisation à déduire — ${l}`, 0)}</td>`).join('')}<td colspan="${recap.showAdd ? 12 : 11}"></td></tr>
+      <tr><td>Régul. à ajouter (N-1)</td><td>(+)</td>${ca3Cols.map(([k, l]) => `<td>${tvrIn(`adj|ra|${k}`, (ex.adj.ra || {})[k], 0, `Régularisation à ajouter — ${l}`, 0)}</td>`).join('')}<td colspan="${recap.showAdd ? 12 : 11}"></td></tr>
+      <tr class="strong"><td>CA déclaré</td><td></td>${ca3Cols.map(([k]) => `<td>${tvrAmt(recap.caDecl[k], 0)}</td>`).join('')}<td colspan="${recap.showAdd ? 12 : 11}"></td></tr>
       </tbody></table></div>
     <p>TVA collectée déclarée (a) <strong>${eur(recap.tot.coll)} €</strong> · TVA sur le CA déclaré (b) <strong>${eur(recap.tvaCaDecl)} €</strong> · écart (a) − (b) <strong class="${Math.abs(recap.ecart) >= 1 ? 'cred' : ''}">${eur(recap.ecart)} €</strong></p>
   </section>
@@ -379,7 +425,17 @@ function viewTvaRevue() {
     ${C.noRate.length ? `<p class="banner info"><span>Comptes de TVA collectée sans taux, non répartis : ${C.noRate.map((a) => `${esc(a.compte)} ${esc(a.lib)}`).join(', ')}. Indiquez leur taux dans l'onglet TVA (Paramétrage des comptes) s'ils portent de la TVA sur les ventes.</span></p>` : ''}
 
     <h3>TVA sur les encaissements</h3>
-    <p class="muted small">Encaissements = CA HT ± créances et avances clients de début et de fin de période (HT), comparés au CA déclaré. Les avances se remplissent d'après les comptes 419 dont le libellé donne le taux (« pas de TVA » en non imposable) ; le reste se saisit, en HT par taux, avec les soldes du FEC rappelés sous le tableau.</p>
+    <p class="muted small">Encaissements = CA HT ± créances et avances clients de début et de fin de période (HT), comparés au CA déclaré. ${{
+      ok: `Créances et avances calculées d'après le lettrage des comptes clients (${Math.round((E.lettered || 0) * 100)} % des factures lettrées) : factures non réglées à la date, ventilées par leurs comptes de produits ; règlements non encore affectés en avances ; à-nouveaux répartis au prorata des factures du client.`,
+      lettrage: `Lettrage des comptes clients insuffisant (${Math.round((E.lettered || 0) * 100)} % des factures lettrées) : créances à saisir, ou à importer d'une liste de factures non réglées.`,
+      trop: 'Trop de lignes clients pour le calcul d\'après le lettrage : créances à saisir, ou à importer d\'une liste de factures non réglées.',
+      absent: 'Pas de factures clients dans le FEC : créances à saisir, ou à importer d\'une liste de factures non réglées.',
+    }[E.cli]} Avances des comptes 419 dont le libellé donne le taux (« pas de TVA » en non imposable). Soldes du FEC rappelés sous le tableau.</p>
+    <div class="tvr-head">
+      <label>Liste de factures non réglées <select data-tvr="factFor">${options({ cre: `au ${fmtDate(K.arrEnd)} (créances de fin)`, cre1: "à l'ouverture (créances N-1)" }, tvrState().factFor || 'cre')}</select></label>
+      <label class="btn"><input type="file" accept=".xlsx,.csv,.txt" data-tvr-fact class="sr-only">Importer (Excel, CSV)</label>
+    </div>
+    ${(tvrState().msgF || []).length ? `<ul class="tvr-msg">${tvrState().msgF.map((m) => `<li class="${m.ok ? 'ok' : 'bad'}">${esc(m.t)}</li>`).join('')}</ul>` : ''}
     <div class="grid-wrap"><table class="dtable num tvr-t">
       <thead>${th(['', ''].concat(cols.map(tvrColLabel), ['Total']))}</thead>
       <tbody>
@@ -445,18 +501,61 @@ function viewTvaRevue() {
       </tbody></table></div>
   </section>
 
+  ${tvrOdCard(r, K)}
+
   <section class="card tvr">
     <h2>Remarques</h2>
     <textarea data-tvr="meta|notes" rows="4" aria-label="Remarques" placeholder="Écarts expliqués, régularisations à passer…">${esc(meta.notes || '')}</textarea>
   </section>`;
 }
 
+function tvrOdCard(r, K) {
+  const o = K.ex.od || {};
+  const items = tvrOdItems(r, K);
+  const seuil = tvrNum(o.seuil) !== undefined ? tvrNum(o.seuil) : 10;
+  return `<section class="card tvr">
+    <h2>5. OD de régularisation proposée <span class="count">${items.filter((x) => x.on).length}</span></h2>
+    <p class="muted small">Une écriture par écart des soldes de TVA après OD (partie 4) : le compte de TVA est ramené à son solde théorique. Contrepartie : écart d'arrondi (charge 658 ou produit 758) sous le seuil, sinon TVA à régulariser (4458) à reprendre sur la prochaine déclaration. Cochez, changez la contrepartie au besoin, puis exportez pour ACD ou Pennylane (format FEC, Excel ou CSV).</p>
+    <div class="tvr-head">
+      <label>Seuil de l'écart d'arrondi <input class="tvr-in" inputmode="decimal" data-tvr="od|seuil" value="${esc(o.seuil === undefined ? '' : String(o.seuil).replace('.', ','))}" placeholder="10,00"></label>
+      <label>Journal <input data-tvr="od|journal" value="${esc(o.journal || '')}" placeholder="OD" size="6"></label>
+      <label>Date <input type="date" data-tvr="od|date" value="${esc(o.date || K.arrEnd)}"></label>
+    </div>
+    ${items.length ? `<div class="grid-wrap"><table class="dtable num tvr-t">
+      <thead><tr><th>Passer</th><th>Écart</th><th>Montant</th><th>Compte de TVA</th><th>Contrepartie</th><th>Compte</th></tr></thead>
+      <tbody>${items.map((x) => `<tr class="${x.on ? '' : 'muted'}">
+        <td><label class="check inline"><input type="checkbox" data-tvr="od-on|${esc(x.id)}"${x.on ? ' checked' : ''}><span class="sr-only">Passer : ${esc(x.label)}</span></label></td>
+        <td class="lbl">${esc(x.what)}</td><td>${eur(x.amt)}</td>
+        <td>${esc(x.tva)} <span class="muted small">${x.side === 'D' ? 'débit' : 'crédit'}</span></td>
+        <td><select data-tvr="od-kind|${esc(x.id)}" aria-label="Contrepartie : ${esc(x.what)}">${options({ arrondi: "Écart d'arrondi (658 / 758)", regul: 'TVA à régulariser (4458)' }, x.kind)}</select></td>
+        <td><input class="tvr-in" data-tvr="od-cpt|${esc(x.id)}" value="${esc(x.cp === x.auto ? '' : x.cp)}" placeholder="${esc(x.auto)}" aria-label="Compte de contrepartie : ${esc(x.what)}"></td></tr>`).join('')}</tbody></table></div>
+    <div class="tvr-head"><button class="btn" data-action="tvr-od-export" data-kind="fec">Exporter (format FEC)</button><button class="btn" data-action="tvr-od-export" data-kind="xlsx">Excel</button><button class="btn" data-action="tvr-od-export" data-kind="csv">CSV</button></div>`
+    : '<p class="muted">Aucun écart sur les soldes de TVA après OD : pas d\'écriture à passer.</p>'}
+    <p class="muted small">Écarts sous ${eur(seuil)} € : écart d'arrondi, cochés d'office. Au-delà, l'écriture n'est pas cochée : vérifiez d'abord la cause (créances et avances, déclaration, saisie), puis cochez-la si elle est justifiée.</p>
+  </section>`;
+}
+
 function onTvrChange(t) {
   const path = t.dataset.tvr;
   if (path === 'ym') { tvrState().ym = t.value; return tvrRedraw(); }
+  if (path === 'factFor') { tvrState().factFor = t.value; return; }
   const { root, ex } = tvrStore();
   const [kind, a, b] = path.split('|');
   if (kind === 'meta') ex.meta[a] = t.value.trim();
+  else if (kind === 'od' || kind === 'od-on' || kind === 'od-kind' || kind === 'od-cpt') {
+    const od = (ex.od = ex.od || {});
+    const key = path.slice(kind.length + 1);
+    if (kind === 'od') {
+      if (a === 'seuil') { const v = tvrParse(t.value); if (v === undefined) delete od.seuil; else od.seuil = v; }
+      else if (a === 'journal') od.journal = t.value.trim().toUpperCase().slice(0, 6);
+      else if (a === 'date') od.date = t.value;
+    } else {
+      const it = ((od.items = od.items || {})[key] = od.items[key] || {});
+      if (kind === 'od-on') it.on = t.checked;
+      else if (kind === 'od-kind') { it.kind = t.value; delete it.cpt; }
+      else { const v = t.value.trim().toUpperCase(); if (!v) delete it.cpt; else if (/^[1-7][0-9A-Z]{2,19}$/.test(v)) it.cpt = v; else { toast('Numéro de compte invalide.', true); return; } }
+    }
+  }
   else if (kind === 'frs-s' || kind === 'frs-r') {
     const key = path.slice(kind.length + 1);
     const o = (root.frs[key] = root.frs[key] || {});
@@ -487,6 +586,239 @@ function tvrRedraw() {
   }, 0);
 }
 
+// Synthèse du contrôle pour le portefeuille : écarts en valeur absolue (TVA, en euros), à partir de 1 €
+function tvrSummary(r, K) {
+  const abs = (list) => round2(list.reduce((t, v) => t + Math.abs(v || 0), 0));
+  const rows = K.recap.rows.filter((x) => x.odGap !== null);
+  const od = abs(rows.map((x) => x.odGap));
+  const noOd = K.recap.rows.filter((x) => x.odGap === null && x.base).length;
+  const bases = abs(K.R.map((rt) => K.collecte.ecart[rt]));
+  const enc = K.enc.cli === 'ok' ? abs(K.R.map((rt) => K.enc.tva[rt])) : null;
+  const ded = K.deductible.declared === null ? null : round2(Math.abs(K.deductible.exigible - K.deductible.declared));
+  const soldes = abs(K.soldes.coll.map((x) => x.ecart).concat(K.soldes.ded.map((x) => x.ecart)));
+  const odItems = tvrOdItems(r, K).length;
+  const ca3 = K.recap.rows.filter((x) => x.ca3).length;
+  const total = round2(od + bases + (enc || 0) + (ded || 0) + soldes);
+  return { arr: K.arr, periods: K.recap.rows.length, od, noOd, bases, enc, ded, soldes, odItems, ca3, total, ecart: [od, bases, enc || 0, ded || 0, soldes].some((v) => v >= 1) };
+}
+
+// ---------- OD de régularisation ----------
+// Une ligne par écart des soldes de TVA après OD : le compte de TVA est ramené à son solde théorique, contre un compte
+// d'écart d'arrondi (658 / 758) sous le seuil, sinon contre la TVA à régulariser (4458) à reprendre sur la prochaine
+// déclaration. Chaque ligne se coche, et sa contrepartie se change.
+function tvrOdItems(r, K) {
+  const o = K.ex.od || {};
+  const seuil = tvrNum(o.seuil) !== undefined ? tvrNum(o.seuil) : 10;
+  const regul = (r.balance.find((b) => /^4458(0*)$/.test(b.compte)) || {}).compte || '4458'.padEnd(acctLen(r), '0');
+  const label = (what) => `Régularisation ${what} au ${fmtDate(K.arrEnd)}`;
+  const raw = [];
+  K.soldes.coll.forEach((x) => { if (Math.abs(x.ecart) >= 0.01 && K.tvaAcc.coll[x.rate]) raw.push({ id: `coll|${x.rate}`, what: `TVA collectée ${rateTxt(x.rate)}`, tva: K.tvaAcc.coll[x.rate], side: x.ecart > 0 ? 'C' : 'D', amt: Math.abs(x.ecart) }); });
+  K.soldes.ded.forEach((x) => { const acc = K.tvaAcc[x.k]; if (Math.abs(x.ecart) >= 0.01 && acc) raw.push({ id: `ded|${x.k}`, what: x.k === 'abs' ? 'TVA déductible sur biens et services' : 'TVA déductible sur immobilisations', tva: acc, side: x.ecart > 0 ? 'D' : 'C', amt: Math.abs(x.ecart) }); });
+  return raw.map((x) => {
+    const it = (o.items || {})[x.id] || {};
+    const kind = it.kind || (x.amt < seuil ? 'arrondi' : 'regul');
+    // Contrepartie au sens opposé du compte de TVA : charge (658) au débit, produit (758) au crédit
+    const cpSide = x.side === 'D' ? 'C' : 'D';
+    const auto = kind === 'regul' ? regul : acctOf(r, cpSide === 'D' ? '658' : '758');
+    const cp = it.cpt || auto;
+    const amt = round2(x.amt);
+    const lines = [{ compte: x.tva, d: x.side === 'D' ? amt : 0, c: x.side === 'C' ? amt : 0, lib: label(x.what) }, { compte: cp, d: cpSide === 'D' ? amt : 0, c: cpSide === 'C' ? amt : 0, lib: label(x.what) }];
+    // Cochée d'office sous le seuil seulement : un écart plus important se vérifie avant d'être passé
+    return Object.assign(x, { amt, kind, cp, auto, on: it.on !== undefined ? !!it.on : amt < seuil, label: label(x.what), lines });
+  });
+}
+function tvrOdEntries(r, K) {
+  const o = K.ex.od || {};
+  const date = o.date || K.arrEnd;
+  return tvrOdItems(r, K).filter((x) => x.on).map((x, i) => ({ num: i + 1, piece: `TVA${String(i + 1).padStart(3, '0')}`, date, label: x.label, lines: x.lines }));
+}
+async function tvrOdExport(kind) {
+  const r = ui.fec.result;
+  const K = tvrCalc(r);
+  const entries = tvrOdEntries(r, K);
+  if (!entries.length) { toast('Aucune écriture cochée.', true); return; }
+  const ok = await ask({ title: 'Fichier non chiffré', message: "Le fichier d'écritures contient des montants du dossier <strong>non chiffrés</strong>. Importez-le dans votre logiciel (écritures à vérifier avant validation), puis supprimez-le.", okLabel: 'Exporter' });
+  if (!ok) return;
+  const journal = ((K.ex.od || {}).journal || 'OD').toUpperCase().slice(0, 6);
+  const base = `od-tva-${r.meta.siren || 'dossier'}-${K.arr}`;
+  const amt = (v) => (v ? v.toFixed(2).replace('.', ',') : '0,00');
+  const clean = (x) => String(x || '').replace(/[\t\r\n;]+/g, ' ');
+  if (kind === 'fec') {
+    const rows = [['JournalCode', 'JournalLib', 'EcritureNum', 'EcritureDate', 'CompteNum', 'CompteLib', 'CompAuxNum', 'CompAuxLib', 'PieceRef', 'PieceDate', 'EcritureLib', 'Debit', 'Credit', 'EcritureLet', 'DateLet', 'ValidDate', 'Montantdevise', 'Idevise'].join('\t')];
+    entries.forEach((e) => { const d = e.date.replace(/-/g, ''); e.lines.forEach((l) => rows.push([journal, 'Opérations diverses', e.num, d, l.compte, clean(acctLib(r, l.compte)), '', '', e.piece, d, clean(l.lib), amt(l.d), amt(l.c), '', '', '', '', ''].join('\t'))); });
+    download(`${base}.txt`, rows.join('\r\n') + '\r\n', 'text/plain;charset=utf-8');
+  } else {
+    const list = [];
+    entries.forEach((e) => e.lines.forEach((l) => list.push([journal, fmtDate(e.date), e.piece, l.compte, '', '', acctLib(r, l.compte), l.lib, l.d, l.c])));
+    if (kind === 'xlsx') {
+      const t = (v, st) => ({ v, s: st === undefined ? 2 : st });
+      const rows = [ECR_COLS.map((c) => t(c, 1))].concat(list.map((x) => x.slice(0, 8).map((v) => t(v)).concat([{ v: x[8], s: 8 }, { v: x[9], s: 8 }])));
+      const blob = XlsxWriter.build({ sheets: [{ name: 'Écritures', rows, widths: [9, 12, 10, 12, 14, 26, 30, 50, 14, 14], freeze: { row: 1 } }] });
+      download(`${base}.xlsx`, blob, blob.type);
+    } else {
+      const a = (v) => (v ? v.toFixed(2).replace('.', ',') : '');
+      const q = (v) => (/[;"\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+      download(`${base}.csv`, '\ufeff' + [ECR_COLS.join(';')].concat(list.map((x) => x.slice(0, 8).concat([a(x[8]), a(x[9])]).map(q).join(';'))).join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
+    }
+  }
+  const c = clientById(ui.fec.clientId);
+  if (c) { log(c.id, `OD de régularisation de TVA exportée (${entries.length} écriture(s), format ${kind.toUpperCase()}).`, true); persist(); }
+}
+
+// ---------- Import des CA3 déposées ----------
+// Lignes du formulaire → colonnes du récapitulatif. La base des lignes de taux comprend les autoliquidations (A3, B2,
+// B4), reportées à part ; la TVA déductible de la ligne 20 comprend celle des acquisitions intracommunautaires (17).
+function tvrCa3Map(L, file) {
+  const v = (c, i = 0) => (L[c] && L[c][i] !== undefined ? L[c][i] : 0);
+  const ov = {};
+  Object.entries(Ca3Pdf.RATE_LINES).forEach(([c, rt]) => { if (L[c]) ov[`b${rt}`] = round2((ov[`b${rt}`] || 0) + v(c, 0)); });
+  const acq = round2(v('A3') + v('B2') + v('B4'));
+  ov.acq = acq;
+  if (acq && (ov.b20 || 0) >= acq) ov.b20 = round2(ov.b20 - acq);
+  ov.exp = v('E1');
+  ov.exo = round2(v('E2') + v('E3') + v('E4') + v('E5') + v('E6'));
+  ov.lic = v('F2');
+  const abs = round2(v('20') + v('21')), intra = v('17');
+  ov.dImmo = v('19');
+  ov.dIntra = intra && intra <= abs ? intra : 0;
+  ov.dAbs = round2(abs - ov.dIntra);
+  ov.report = round2(v('22') + v('2C'));
+  ov.remb = v('26');
+  ov.add = round2(v('15') + v('5B'));
+  ov._ca3 = { file, l16: v('16'), l23: v('23'), l25: v('25'), l27: v('27'), l28: v('28'), l32: v('32') };
+  return ov;
+}
+async function tvrImportCa3(files) {
+  const st = tvrState();
+  const r = ui.fec.result;
+  const K = tvrCalc(r);
+  const { ex } = tvrStore();
+  st.msg = [];
+  for (const file of Array.from(files || [])) {
+    try {
+      const decls = Ca3Pdf.parse(await PdfReader.read(await file.arrayBuffer()), PdfReader);
+      if (!decls.length) { st.msg.push({ ok: false, t: `${file.name} : aucune déclaration CA3 reconnue (PDF scanné ou mise en page non reconnue).` }); continue; }
+      decls.forEach((d) => {
+        const where = `${file.name}${decls.length > 1 ? ` (page ${d.pages.join(', ')})` : ''}`;
+        if (d.siren && r.meta.siren && d.siren !== r.meta.siren) { st.msg.push({ ok: false, t: `${where} : SIREN ${d.siren}, différent de celui du FEC (${r.meta.siren}) ; non importée.` }); return; }
+        if (!d.key) { st.msg.push({ ok: false, t: `${where} : ${d.warnings.join(' ; ') || 'période non reconnue'} ; non importée.` }); return; }
+        const quarterly = d.key.includes('T');
+        if (quarterly !== (K.kind === 'quarter')) { st.msg.push({ ok: false, t: `${where} : déclaration ${quarterly ? 'trimestrielle' : 'mensuelle'}, alors que les OD de TVA du dossier sont ${K.kind === 'quarter' ? 'trimestrielles' : 'mensuelles'} ; non importée.` }); return; }
+        if (!tvaPeriod(d.key).months.some((ym) => K.months.includes(ym))) { st.msg.push({ ok: false, t: `${where} : ${tvaPeriod(d.key).label}, hors de l'exercice du FEC ; non importée.` }); return; }
+        ex.ca3[d.key] = Object.assign({}, ex.ca3[d.key] || {}, tvrCa3Map(d.lines, file.name));
+        st.msg.push({ ok: true, t: `${where} : ${tvaPeriod(d.key).label} importée${d.key > tvaPeriod(perOfKind(K.kind, K.arr)).key ? ' (après le mois d\'arrêté : visible en le reculant)' : ''}.` });
+      });
+    } catch (e) {
+      st.msg.push({ ok: false, t: `${file.name} : ${e.message || e}` });
+    }
+  }
+  if (clientById(ui.fec.clientId)) persist();
+  tvrRedraw();
+}
+// ---------- Liste de factures non réglées (export du logiciel de facturation) ----------
+// Colonnes reconnues par leur intitulé : n° de facture, date, HT, TVA, TTC, reste dû, taux, statut, HT ou TVA par taux.
+// Reste dû (ou TTC des factures non payées d'après le statut ; toutes, sans l'un ni l'autre) ventilé en HT par taux.
+const TVR_FACT_COLS = [
+  ['htR', /\b(ht|base|hors tax\w*)\b.*?(\d+(?:[.,]\d+)?)\s*%/], ['tvaR', /\b(tva|taxe)\b.*?(\d+(?:[.,]\d+)?)\s*%/], ['taux', /taux/],
+  ['reste', /reste|restant|solde|\bdu\b|a regler|a payer|non regle|impaye|encours|en cours/], ['ttc', /ttc|toutes taxes|net a payer|montant total|^total$/],
+  ['ht', /\bht\b|hors tax/], ['tva', /\btva\b|\btaxes?\b/], ['date', /^date|date (de )?(la )?facture|date d.?emission/],
+  ['num', /n[°o]|numero|^facture$|reference|^piece/], ['statut', /statut|etat|paiement|regle/],
+];
+function tvrAmount(t) {
+  let x = String(t || '').replace(/[\s\u00a0\u202f€]/g, '');
+  if (!x) return null;
+  if (/,\d+$/.test(x)) x = x.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(x)) x = x.replace(/\./g, '');
+  else x = x.replace(/,/g, '');
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+const tvrIso = (t) => { const m = String(t || '').match(/^(\d{4})-(\d{2})-(\d{2})|^(\d{2})[/.-](\d{2})[/.-](\d{4})/); return !m ? '' : m[1] ? `${m[1]}-${m[2]}-${m[3]}` : `${m[6]}-${m[5]}-${m[4]}`; };
+async function tvrImportFactures(file) {
+  const st = tvrState();
+  const which = st.factFor || 'cre';
+  const r = ui.fec.result;
+  const K = tvrCalc(r);
+  const { ex } = tvrStore();
+  st.msgF = [];
+  try {
+    const book = await SheetReader.read(file);
+    const rows = ((book.sheets || [])[0] || {}).rows || [];
+    const txt = (c) => (c && c.text !== undefined ? String(c.text) : '').trim();
+    // Ligne d'en-tête : la première qui nomme au moins deux colonnes connues, dont un montant
+    let hi = -1, map = null;
+    for (let i = 0; i < Math.min(rows.length, 20) && hi < 0; i++) {
+      const m = { htR: [], tvaR: [] };
+      rows[i].forEach((c, j) => {
+        const h = norm(txt(c));
+        if (!h) return;
+        for (const [k, re] of TVR_FACT_COLS) {
+          const mm = h.match(re);
+          if (!mm) continue;
+          if (k === 'htR' || k === 'tvaR') m[k].push([j, parseFloat(mm[2].replace(',', '.'))]);
+          else if (m[k] === undefined) m[k] = j;
+          break;
+        }
+      });
+      if (['reste', 'ttc', 'ht'].some((k) => m[k] !== undefined) || m.htR.length) { hi = i; map = m; }
+    }
+    if (hi < 0) throw new Error('colonnes non reconnues (il faut au moins un montant HT, TTC ou reste dû, avec son intitulé)');
+    const R = K.R, def = R[0] || 20;
+    const out = {};
+    let n = 0, total = 0, guessed = 0, skipped = 0;
+    const cell = (row, k) => (map[k] === undefined ? null : tvrAmount(txt(row[map[k]])));
+    rows.slice(hi + 1).forEach((row) => {
+      const first = norm(row.slice(0, 3).map(txt).join(' '));
+      if (/\btotal\b/.test(first)) return;
+      const date = map.date !== undefined ? tvrIso(txt(row[map.date])) : '';
+      if (date && (which === 'cre' ? date > K.arrEnd : date >= `${K.months[0]}-01`)) { skipped++; return; }
+      // HT par taux de la facture
+      let hts = {};
+      if (map.htR.length) map.htR.forEach(([j, rt]) => { const v = tvrAmount(txt(row[j])); if (v) hts[rt] = (hts[rt] || 0) + v; });
+      else if (map.tvaR.length) map.tvaR.forEach(([j, rt]) => { const v = tvrAmount(txt(row[j])); if (v && rt) hts[rt] = (hts[rt] || 0) + (v * 100) / rt; });
+      const ht = cell(row, 'ht'), tva = cell(row, 'tva'), ttc = cell(row, 'ttc');
+      if (!Object.keys(hts).length) {
+        let rt = map.taux !== undefined ? tvrAmount(txt(row[map.taux]).replace('%', '')) : null;
+        if (rt !== null && rt > 0 && rt < 1) rt = round2(rt * 100);
+        if (rt === null && ht && tva !== null) rt = Math.abs(tva) < 0.005 ? 0 : snapRate(ht, tva);
+        if (rt === null && ht && ttc) rt = snapRate(ht, ttc - ht);
+        if (rt === null) { rt = def; if (ht || ttc) guessed++; }
+        const base = ht !== null ? ht : ttc !== null ? ttc / (1 + rt / 100) : null;
+        if (base) hts[rt] = base;
+      }
+      const ttcCalc = Object.entries(hts).reduce((t, [rt, v]) => t + v * (1 + Number(rt) / 100), 0);
+      const full = ttc !== null ? ttc : ttcCalc;
+      if (!full) return;
+      let due = map.reste !== undefined ? cell(row, 'reste') : null;
+      if (due === null && map.statut !== undefined) {
+        const s2 = norm(txt(row[map.statut]));
+        due = /(non|im)\s?pay|attente|a payer|retard|partiel|ouvert|due?\b/.test(s2) ? full : /pay|regl|sold|encaiss/.test(s2) ? 0 : full;
+      }
+      if (due === null) due = full;
+      if (!due) return;
+      n++;
+      total += due;
+      Object.entries(hts).forEach(([rt, v]) => { const k = Number(rt) === 0 ? 'exo' : R.includes(Number(rt)) ? String(Number(rt)) : 'exo'; out[k] = (out[k] || 0) + (v * due) / full; });
+    });
+    if (!n) throw new Error('aucune facture non réglée trouvée');
+    ex.adj[which] = Object.fromEntries(Object.entries(out).map(([k, v]) => [k, round2(v)]));
+    (ex.factSrc = ex.factSrc || {})[which] = { file: file.name, n, total: round2(total) };
+    st.msgF.push({ ok: true, t: `${file.name} : ${n} facture(s) non réglée(s), ${eur(total)} € TTC, reportées en ${which === 'cre' ? `créances clients au ${fmtDate(K.arrEnd)}` : 'créances clients N-1'} (HT par taux).${skipped ? ` ${skipped} facture(s) ${which === 'cre' ? "postérieure(s) à l'arrêté" : "de l'exercice"} écartée(s).` : ''}${guessed ? ` Taux non indiqué pour ${guessed} facture(s) : ${rateTxt(def)} retenu.` : ''}${map.reste === undefined && map.statut === undefined ? ' Ni reste dû ni statut : toutes les factures de la liste sont comptées comme non réglées.' : ''}` });
+  } catch (e) {
+    st.msgF.push({ ok: false, t: `${file.name} : ${e.message || e}` });
+  }
+  if (clientById(ui.fec.clientId)) persist();
+  tvrRedraw();
+}
+
+const perOfKind = (kind, ym) => (kind === 'quarter' ? quarterOf(ym) : ym);
+function tvrClearPeriod(key) {
+  const { ex } = tvrStore();
+  delete ex.ca3[key];
+  if (clientById(ui.fec.clientId)) persist();
+  tvrRedraw();
+}
+
 // Export Excel : une feuille par partie, valeurs calculées et saisies
 async function tvrExport() {
   const r = ui.fec.result;
@@ -502,9 +834,10 @@ async function tvrExport() {
     [t(`Exercice du ${fmtDate(r.meta.start || r.meta.minDate)} au ${fmtDate(r.meta.closing || r.meta.maxDate)} · arrêté au ${fmtDate(K.arrEnd)}`, 0)],
     [t(`Fait par : ${ex.meta.fait || ''}`, 0), t(`Visa : ${ex.meta.visa || ''}`, 0)], []];
   const ca3Cols = R.map((rt) => [`b${rt}`, `Base ${rateTxt(rt)}`]).concat(TVR_CA3_OTHER);
-  const rec = head('Récapitulatif des déclarations de TVA').concat([H(['Période'].concat(ca3Cols.map(([, l]) => l), ['Total base', 'TVA collectée'], TVR_CA3_DED.map(([, l]) => l), ['Report crédit', 'Total TVA déd.', 'TVA à payer', 'Remboursement', 'Crédit à reporter', 'Écart OD']))]);
-  recap.rows.forEach((row) => rec.push([t(row.label)].concat(ca3Cols.map(([k]) => n(k[0] === 'b' ? row.bases[Number(k.slice(1))] : row.v[k])), [n(row.base), n(row.coll)], TVR_CA3_DED.map(([k]) => n(row.v[k])), [n(row.report), n(row.dTot), n(row.due), n(row.remb), n(row.credit), row.odGap === null ? t('pas d\'OD') : n(row.odGap)])));
-  rec.push([t('Total', 1)].concat(ca3Cols.map(([k]) => n(recap.tot[k], 9)), [n(recap.tot.base, 9), n(recap.tot.coll, 9)], TVR_CA3_DED.map(([k]) => n(recap.tot[k], 9)), [n(recap.tot.report, 9), n(recap.tot.dTot, 9), n(recap.tot.due, 9), n(recap.tot.remb, 9), n(recap.tot.credit, 9)]));
+  const rec = head('Récapitulatif des déclarations de TVA').concat([H(['Période'].concat(ca3Cols.map(([, l]) => l), ['Total base', 'Sommes à ajouter', 'TVA collectée'], TVR_CA3_DED.map(([, l]) => l), ['Report crédit', 'Total TVA déd.', 'TVA à payer', 'Remboursement', 'Crédit à reporter', 'Écart OD', 'Source']))]);
+  recap.rows.forEach((row) => rec.push([t(row.label)].concat(ca3Cols.map(([k]) => n(k[0] === 'b' ? row.bases[Number(k.slice(1))] : row.v[k])), [n(row.base), n(row.v.add), n(row.coll)], TVR_CA3_DED.map(([k]) => n(row.v[k])), [n(row.report), n(row.dTot), n(row.due), n(row.remb), n(row.credit), row.odGap === null ? t('pas d\'OD') : n(row.odGap),
+    t(row.ca3 ? `CA3 importée (${row.ca3.file || ''})${row.ca3Gap >= 1 ? ' : écart avec les lignes 27 / 28' : ''}` : Object.keys(row.ov).length ? 'saisie' : row.decls ? 'OD de TVA' : '')])));
+  rec.push([t('Total', 1)].concat(ca3Cols.map(([k]) => n(recap.tot[k], 9)), [n(recap.tot.base, 9), n(recap.tot.add, 9), n(recap.tot.coll, 9)], TVR_CA3_DED.map(([k]) => n(recap.tot[k], 9)), [n(recap.tot.report, 9), n(recap.tot.dTot, 9), n(recap.tot.due, 9), n(recap.tot.remb, 9), n(recap.tot.credit, 9)]));
   [['rd', 'Régul. à déduire (exercice)'], ['ra', 'Régul. à ajouter (N-1)']].forEach(([k, l]) => rec.push([t(l)].concat(ca3Cols.map(([ck]) => n(tvrNum((ex.adj[k] || {})[ck]) || 0)))));
   rec.push([t('CA déclaré', 1)].concat(ca3Cols.map(([k]) => n(recap.caDecl[k], 9))));
   rec.push([], [t('TVA collectée déclarée (a)', 1), n(recap.tot.coll, 9)], [t('TVA sur le CA déclaré (b)', 1), n(recap.tvaCaDecl, 9)], [t('Écart (a) − (b)', 1), n(recap.ecart, 9)]);
@@ -540,12 +873,15 @@ async function tvrExport() {
     [[], H(['TVA déductible', 'Biens et services', 'Immobilisations'])],
     [['Solde théorique (TVA des prestations non réglées)', 'theo'], ['Solde réel (débiteur) après OD', 'reel'], ['Écart', 'ecart'], ['Base HT à 20 %', 'base']].map(([l, k]) => [t(l)].concat(S.ded.map((x) => n(x[k])))),
     [[], [t('Remarques', 1)], [t(ex.meta.notes || '')]]);
+  const odRows = [H(ECR_COLS)];
+  tvrOdEntries(r, K).forEach((e) => e.lines.forEach((l) => odRows.push([t((ex.od || {}).journal || 'OD'), t(fmtDate(e.date)), t(e.piece), t(l.compte), t(''), t(''), t(acctLib(r, l.compte)), t(l.lib), n(l.d), n(l.c)])));
   const wide = [44, 14].concat(Array(20).fill(14));
   const blob = XlsxWriter.build({ sheets: [
     { name: 'Récapitulatif CA3', rows: rec, widths: [22].concat(Array(24).fill(13)) },
     { name: 'TVA collectée', rows: coll, widths: [14, 40, 10].concat(Array(12).fill(14)) },
     { name: 'TVA déductible', rows: ded, widths: [50, 34, 14, 10, 10, 16] },
     { name: 'Contrôle des soldes', rows: sol, widths: wide },
+    { name: 'OD de régularisation', rows: odRows, widths: [9, 12, 10, 12, 14, 20, 30, 50, 14, 14] },
   ] });
   const base = (c ? clientLabel(c) : r.meta.siren || 'dossier').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '');
   download(`controle-tva-${base}-${K.arr}.xlsx`, blob, blob.type);

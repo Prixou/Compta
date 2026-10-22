@@ -6,7 +6,8 @@
 #     OD « Déclaration de TVA » du 31/03 sans mois (rattachée par les montants), crédit imputé, loyer de mars déduit
 #     alors qu'il n'est pas payé (prestation de services : écart de 400 € sur la TVA déductible) ;
 #   - avril : ventes, pas encore d'OD (mois d'arrêté par défaut : mars) ;
-#   - à-nouveaux : crédit de TVA 300, clients 1 000, acomptes « séjours 10 % » 2 200 TTC (2 000 HT).
+#   - à-nouveaux : crédit de TVA 300, clients 1 000 (réglé en janvier), acomptes « séjours 10 % » 2 200 TTC (2 000 HT) ;
+#   - comptes clients lettrés (ventes, bonis, remises), sauf la vente de mars à la TVA erronée, non réglée au 31/03.
 #   python3 gentvarevue.py [dossier de sortie]   → 600000006FEC20261231.txt et 600000006-attendu.json
 import sys, os, json
 
@@ -31,22 +32,25 @@ def entry(jc, date, lib, lines):
     n += 1
     d = date.replace('-', '')
     assert abs(sum(x[2] for x in lines) - sum(x[3] for x in lines)) < 0.001, lib
-    for compte, aux, deb, cre in lines:
+    for compte, aux, deb, cre, *lt in lines:
         al = {'C001': 'CLIENTS HOTEL', 'SCI': 'SCI DEMO LOCATION', 'GROS': 'GROSSISTE DEMO', 'IMMO': 'EQUIPEMENT DEMO'}.get(aux, '')
-        rows.append([jc, JL[jc], str(n), d, compte, LIB[compte], aux, al, f'P{n:04d}', d, lib, fmt(deb), fmt(cre), '', '', d, '', ''])
+        let = lt[0] if lt else ''
+        rows.append([jc, JL[jc], str(n), d, compte, LIB[compte], aux, al, f'P{n:04d}', d, lib, fmt(deb), fmt(cre), let, d if let else '', d, '', ''])
 
 
-entry('AN', '2026-01-01', 'A nouveaux', [('44567000', '', 300, 0), ('411000', 'C001', 1000, 0), ('419100', '', 0, 2200), ('512000', '', 900, 0)])
+entry('AN', '2026-01-01', 'A nouveaux', [('44567000', '', 300, 0), ('411000', 'C001', 1000, 0, 'Z'), ('419100', '', 0, 2200), ('512000', '', 900, 0)])
+entry('BQ', '2026-01-15', 'Règlement client N-1', [('512000', '', 1000, 0), ('411000', 'C001', 0, 1000, 'Z')])
 SALES = {1: (10000, 5000), 2: (8000, 4000), 3: (12000, 6000), 4: (9000, 0)}
 for m, (h10, h20) in SALES.items():
     d = f'2026-{m:02d}-10'
     ttc = round(h10 * 1.1 + h20 * 1.2, 2)
-    lines = [('411000', 'C001', ttc, 0), ('706100', '', 0, h10), ('44571100', '', 0, round(h10 * 0.1, 2))]
+    lt = 'ABCD'[m - 1]
+    lines = [('411000', 'C001', ttc, 0, lt), ('706100', '', 0, h10), ('44571100', '', 0, round(h10 * 0.1, 2))]
     if h20:
         lines += [('706200', '', 0, h20), ('44571200', '', 0, round(h20 * 0.2, 2))]
     entry('VT', d, f'Ventes du mois {m:02d}/2026', lines)
-    entry('VT', d, f'Bonis clients {m:02d}/2026', [('708800', '', 20, 0), ('411000', 'C001', 0, 20)])
-    entry('BQ', f'2026-{m:02d}-20', 'Remise clients', [('512000', '', ttc - 20, 0), ('411000', 'C001', 0, ttc - 20)])
+    entry('VT', d, f'Bonis clients {m:02d}/2026', [('708800', '', 20, 0), ('411000', 'C001', 0, 20, lt)])
+    entry('BQ', f'2026-{m:02d}-20', 'Remise clients', [('512000', '', ttc - 20, 0), ('411000', 'C001', 0, ttc - 20, lt)])
 # Vente de mars avec une TVA erronée (90 au lieu de 100)
 entry('VT', '2026-03-12', 'Séminaire hébergement', [('411000', 'C001', 1090, 0), ('706100', '', 0, 1000), ('44571100', '', 0, 90)])
 # Loyers (prestation de services) et denrées (biens)
@@ -75,7 +79,11 @@ exp = {
     'caHt': {'10': 31000, '20': 15000, 'exo': -60},
     'ecartBases': {'10': 10, '20': 0},
     'avances': {'10': 2000},
-    'encEcart': {'10': 100},
+    # Créances d'après le lettrage : à-nouveau de 1 000 TTC réglé en janvier, réparti au prorata des factures du client
+    # (TTC : 44 000 à 10 %, 18 000 à 20 %) ; facture de mars non réglée au 31/03 (1 000 HT à 10 %)
+    'cre1': {'10': round(1000 * 44000 / 62000 / 1.1, 2), '20': round(1000 * 18000 / 62000 / 1.2, 2)},
+    'cre': {'10': 1000},
+    'encEcart': {'10': round(31000 + 1000 * 44000 / 62000 / 1.1 - 2000 - 1000 + 2000 - 30900, 2), '20': round(15000 + 1000 * 18000 / 62000 / 1.2 - 15000, 2)},
     'deductible': {'total': 1200, 'nonDed': 400, 'exigible': 800, 'declared': 1200},
 }
 with open(os.path.join(OUTDIR, '600000006-attendu.json'), 'w', encoding='utf-8') as f:
