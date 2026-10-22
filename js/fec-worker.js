@@ -707,9 +707,9 @@ function analyse(buffer, fileName, until, docs) {
 
   const auxList = Array.from(aux.values()).map(({ lines: _l, ...t }) => ({ ...t, d: round2(t.d), c: round2(t.c), s: round2(t.d - t.c) }));
 
-  // Règlements fournisseurs et encaissements clients non affectés à une facture : lignes non lettrées (si le compte
-  // est lettré), rapprochement montant pour montant, puis imputation sur les factures restantes ; les règlements
-  // les plus récents qui restent sans facture sont listés un par un (date, montant, libellé).
+  // Règlements fournisseurs et encaissements clients non affectés à une facture. Compte lettré : chaque règlement non
+  // lettré (à-nouveaux détaillés compris). Compte non lettré : rapprochement montant pour montant, puis imputation sur les
+  // factures restantes. Les règlements les plus récents qui restent sans facture sont listés un par un (date, montant, libellé).
   const trunc = {}; // listes plafonnées : date du plus ancien élément conservé (les plus récents d'abord), sinon ''
   const unmatched = [];
   aux.forEach((t) => {
@@ -722,11 +722,18 @@ function analyse(buffer, fileName, until, docs) {
       const amt = round2(sign * (d - c));
       if (!amt) return;
       const en = !isAn && opEntries.get(remap.get(ek) || ek);
-      // Règlement : écriture hors journaux d'achats et de ventes (banque, caisse, OD, effets…)
-      items.push({ date, amt, lib, bank: !!(en && !factJ.has(en.jc)) });
+      // Règlement : écriture hors journaux d'achats et de ventes (banque, caisse, OD, effets…) ; compte lettré : aussi
+      // l'à-nouveau détaillé d'un règlement de l'exercice précédent resté non lettré
+      items.push({ date, amt, lib, bank: isAn ? lettered && amt < 0 : !!(en && !factJ.has(en.jc)) });
     });
     const pays = items.filter((x) => x.amt < 0 && x.bank).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     if (!pays.length) return;
+    // Compte lettré : le lettrage fait foi, chaque règlement non lettré est sans facture (pas de rapprochement avec les
+    // factures non lettrées, qui sont des factures à payer)
+    if (lettered) {
+      pays.forEach((pm) => unmatched.push({ racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(-pm.amt), brut: round2(-pm.amt), label: String(pm.lib || '').slice(0, 60) }));
+      return;
+    }
     const invs = items.filter((x) => x.amt > 0).map((x) => ({ date: x.date, rest: x.amt })).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     // Avoirs et acomptes (lignes négatives hors banque) imputés sur les factures les plus anciennes
     let cred = -items.filter((x) => x.amt < 0 && !x.bank).reduce((s2, x) => s2 + x.amt, 0);
