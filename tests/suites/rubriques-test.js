@@ -36,12 +36,21 @@ const { fecTab, fecMonth } = require('./lib');
     items: Array.from(x.querySelectorAll('.check.piece')).map((l) => {
       const row = l.closest('.piece-row');
       const sel = row && row.querySelector('select[data-piece-rub]');
-      return { text: l.querySelector('span').textContent, rub: sel ? sel.value : null, compte: row ? row.querySelector('.badge').textContent : null };
+      return { text: l.querySelector('span').textContent, rub: sel ? sel.value : null, compte: row && row.querySelector('.badge') ? row.querySelector('.badge').textContent : null };
     }),
   })));
   const find = (g, re) => g.flatMap((x) => x.items.map((i) => Object.assign({ h: x.h }, i))).find((i) => re.test(i.text));
 
   await load();
+  // Dépenses payées directement : catégorie non demandée par défaut, cochée pour la demande (choix conservé dans le dossier)
+  expect(/Non demandées/.test(await p.textContent('.pieces-group:has(input[data-pieces-justif])')), 'dépenses payées directement : non demandées par défaut');
+  await p.check('input[data-pieces-justif]'); await p.waitForTimeout(150);
+  expect(await p.evaluate(() => clientById(ui.fec.clientId).piecesJustif) === true && (await p.$$('.pieces-group:has(input[data-pieces-justif]) .piece')).length > 0, 'catégorie cochée : pièces listées, choix conservé dans le dossier');
+  // Factures ou échéancier pour un groupe de paiements : choix conservé dans le dossier
+  await p.selectOption('select[data-piece-ech]', '1'); await p.waitForTimeout(150);
+  const ech = await p.$$eval('.piece span', (l) => l.map((x) => x.textContent).filter((t) => /^Échéancier/.test(t)));
+  expect(ech.length === 1 && /WEB SCI EXEMPLE LOYER/.test(ech[0]) && Object.values(await p.evaluate(() => clientById(ui.fec.clientId).piecesEcheanciers)).includes(true), 'échéancier : un seul document, choix conservé', ech.join(' | '));
+  await p.selectOption('select[data-piece-ech]', '0'); await p.waitForTimeout(150);
   let g = await groups();
   console.log(g.map((x) => `${x.h}\n   - ${x.items.map((i) => (i.rub ? `[${i.compte} → ${i.rub}] ` : '') + i.text).join('\n   - ')}`).join('\n'));
   expect(!g.some((x) => x.h === 'Opérations à identifier'), 'plus de rubrique « Opérations à identifier »');

@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '58';
+const ASSET_VERSION = '59';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -348,7 +348,7 @@ function viewFec() {
   } else if (space === 'consult') {
     tabs = { sig: 'SIG et bilan', balance: 'Balance', details: 'Journaux et tiers', conformite: cnt('Conformité du fichier', errors) };
   } else {
-    const nbPieces = r.pieces ? computePieces(r, piecesState().mode, piecesState().arrete).length : 0;
+    const nbPieces = r.pieces ? piecesCount(r, piecesState().mode, piecesState().arrete) : 0;
     const cc = cycleChecks(r);
     const cyc = (k, label) => ({ [k]: cnt(label, cc ? wpProgress(k, cc[k]).left : 0) });
     tabs = Object.assign({ synthese: 'Synthèse' }, pharma ? { tp: 'Tiers payant', catva: 'CA & TVA' } : {},
@@ -368,7 +368,7 @@ function viewFec() {
   if (f.section === 'synthese') {
     const k = r.kpi;
     const tile = (label, value, cls) => `<div class="kpi ${cls || ''}"><strong>${value}</strong><span>${label}</span></div>`;
-    const nbPieces = r.pieces ? computePieces(r, piecesState().mode, piecesState().arrete).length : 0;
+    const nbPieces = r.pieces ? piecesCount(r, piecesState().mode, piecesState().arrete) : 0;
     body = `
       ${nbPieces ? `<div class="banner info"><span><strong>${nbPieces} pièce(s) ou information(s)</strong> à demander au client pour ${piecesState().mode === 'bilan' ? 'le bilan' : 'la situation'} au ${fmtDate(piecesState().arrete)}.</span><button class="btn small" data-action="fec-tab" data-tab="pieces">Voir la liste</button></div>` : ''}
       <div class="kpis fec-kpis">

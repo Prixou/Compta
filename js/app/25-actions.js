@@ -673,6 +673,16 @@ document.addEventListener('change', (e) => {
     refresh();
   } else if (t.dataset.pieceRub && ui.fec) {
     setRubrique(t.dataset.pieceRub, t.value);
+  } else if ('piecesJustif' in t.dataset && ui.fec) {
+    // Dépenses payées directement demandées ou non : choix conservé dans le dossier
+    piecesPrefs().piecesJustif = t.checked;
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
+  } else if (t.dataset.pieceEch && ui.fec) {
+    // Factures ou échéancier pour ce groupe de paiements : choix conservé dans le dossier
+    echeanciers(true)[t.dataset.pieceEch] = t.value === '1';
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
   } else if (t.dataset.compte && ui.fec) {
     // Compte de tiers demandé ou écarté, conservé dans le dossier (le bloc reste ouvert)
     choixComptes(clientById(ui.fec.clientId), true)[t.dataset.compte] = t.checked;

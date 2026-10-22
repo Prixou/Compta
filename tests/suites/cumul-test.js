@@ -38,6 +38,7 @@ fs.writeFileSync(FEC2, fs.readFileSync(FEC, 'utf8').replace(/\n$/, '') + '\n' + 
     await p.fill('#modal input[name=nom]', 'EXEMPLE CONSEIL'); await p.fill('#modal input[name=siren]', '900000009');
     await p.fill('#modal input[name=contact]', 'Madame Exemple'); await p.fill('#modal input[name=email]', 'contact@exemple.fr');
     await p.click('#modal button[type=submit]'); await p.waitForSelector('.grid-detail');
+    await p.evaluate(() => { data.clients[0].piecesJustif = true; persist(); }); // dépenses payées directement demandées
     return p;
   };
   const load = async (p, file, ym) => {

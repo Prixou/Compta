@@ -346,7 +346,7 @@ function monthPieces(r, arrete, flt) {
   const askedM = new Set((p.unmatched || []).filter((u) => inP(u.date)).map((u) => `${u.racine}|${u.num}|${ymOf(u.date)}`));
   // Archive de justificatifs : écritures sans pièce (exact), à la place de la liste des dépenses payées directement.
   // Les abonnements dont la facture n'est pas saisie du tout restent détectés : l'archive ne peut pas les voir.
-  justifPieces(r, push, from, end, flt);
+  justifPieces(r, push, from, end, flt, { charges: true });
   // Abonnements : mois sans facture d'un fournisseur facturé chaque mois pour un montant stable
   p.suppliers.forEach((sp) => {
     let med = null;
@@ -358,9 +358,10 @@ function monthPieces(r, arrete, flt) {
     });
     if (miss.length) push('achats', 'rec:' + sp.num, `${miss.length > 1 ? 'Factures' : 'Facture'} ${sp.lib} : ${fmtMonths(miss)} (abonnement de ${eur(med)} € par mois)`, { keys: miss.map((m) => `abo|${sp.num}|${m}`), tiers: `401|${sp.num}`, tlib: sp.lib });
   });
-  // Dépenses payées directement, acquisitions d'immobilisations, opérations en compte d'attente
-  directPieces(r, push, from, end, flt);
-  immoPieces(r, push, from, end, flt);
+  // Dépenses payées directement (charges externes : locations, assurances, cotisations…) et opérations en compte d'attente.
+  // La demande mensuelle porte sur les fournisseurs, les clients, les comptes d'attente et ces charges, sans les
+  // acquisitions d'immobilisations (demandées pour la situation et le bilan).
+  directPieces(r, push, from, end, flt, { charges: true });
   attentePieces(r, push, from, end, flt);
 
   if (!pharma && cy) {
@@ -377,21 +378,6 @@ function monthPieces(r, arrete, flt) {
       if (miss.length) push('ventes', 'mcli:' + c.num, `Factures de vente à ${c.lib} : ${fmtMonths(miss)} (facturé habituellement chaque mois, environ ${eur(med, 0)} € TTC)`, { keys: miss.map((m) => `cli|${c.num}|${m}`), tiers: `411|${c.num}`, tlib: c.lib });
     });
     numberingPieces(r, push, from, end, flt);
-    // Ventes sans TVA sur des comptes taxables ou non qualifiés (contrôle de la TVA), regroupées par mois ; le paramétrage
-    // de la TVA (coûteux) n'est lu que s'il y en a sur la période.
-    const nvIn = cy.tva && cy.tva.nv ? cy.tva.nv.filter(([date]) => inP(date)) : [];
-    if (nvIn.length) {
-      const TM = tvaModel(r);
-      const byM = new Map();
-      nvIn.filter(([, , , , m]) => Object.keys(m).some((c) => c.startsWith('70') && TM.ca[c] && (typeof TM.ca[c].role === 'number' || TM.ca[c].role === 'sans'))).forEach(([date, , , , m]) => {
-        const x = byM.get(ymOf(date)) || byM.set(ymOf(date), { n: 0, base: 0 }).get(ymOf(date));
-        x.n++;
-        x.base -= Object.values(m).reduce((t, v) => t + v, 0);
-      });
-      const ms = Array.from(byM.keys()).filter((m) => flt.ok([`tvanv|${m}`])).sort();
-      const n = ms.reduce((t, m) => t + byM.get(m).n, 0), base = ms.reduce((t, m) => t + byM.get(m).base, 0);
-      if (ms.length) push('questions', `tvanv:${ms[0]}`, `Ventes sans TVA (${fmtMonths(ms)} : ${n} facture(s), ${eur(base)} € HT) : nature des opérations (export, livraison intracommunautaire avec le n° de TVA du client, opération exonérée) ?`, { keys: ms.map((m) => `tvanv|${m}`) });
-    }
     // Encaissements enregistrés en ventes sans facture client (activité facturée), 15 par mois au plus
     const facture = cy.clients.customers.reduce((s, c) => s + c.ht, 0);
     if (r.kpi.ca > 0 && facture >= r.kpi.ca * 0.5) {
@@ -410,17 +396,21 @@ function monthPieces(r, arrete, flt) {
 // Dépenses payées directement (banque ou caisse → charge, sans facture fournisseur), regroupées par compte et libellé sur
 // la période. `opts.min` / `opts.max` : montant minimal d'un groupe et nombre de groupes ; `opts.large` : groupes sur les
 // deux premiers mots significatifs du libellé (situation et bilan).
+// `opts.charges` : charges externes seules (comptes 61 et 62). Un groupe de paiements (même compte, même libellé) est
+// demandé facture par facture, ou par un échéancier (assurance, location… payées chaque mois) : choix conservé dans le
+// dossier, échéancier proposé d'office pour les assurances (616).
 function directPieces(r, push, from, to, flt, opts = {}) {
   if (justifOk(r)) return; // archive de justificatifs : liste exacte (justifPieces)
+  const ech = echeanciers();
   const K = pieceKeys(r).dir;
   const stop = new Set((r.labelIdx && r.labelIdx.stop) || []);
   const words = (lib) => norm(lib).replace(/[^a-z ]+/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !stop.has(w)).slice(0, 2).join(' ');
   const groups = new Map();
   (r.pieces.directLines || []).forEach(([date, compte, clib, elib, amt], i) => {
-    if (date < from || date > to || !flt.ok(K[i])) return;
+    if (date < from || date > to || (opts.charges && !/^6[12]/.test(compte)) || !flt.ok(K[i])) return;
     const lib = String(elib).replace(/\S*\d\S*/g, '').replace(/\s+/g, ' ').trim() || elib;
     const k = compte + '|' + (opts.large ? words(elib) || norm(lib) : norm(lib));
-    const g = groups.get(k) || groups.set(k, { lib, clib, n: 0, total: 0, ops: [], keys: [], last: '' }).get(k);
+    const g = groups.get(k) || groups.set(k, { k, compte, lib, clib, n: 0, total: 0, ops: [], keys: [], last: '' }).get(k);
     g.n++;
     g.total = round2(g.total + amt);
     g.ops.push({ date, amt, lib: elib });
@@ -431,10 +421,17 @@ function directPieces(r, push, from, to, flt, opts = {}) {
   Array.from(groups.values()).filter((g) => g.total >= (opts.min || 0)).sort((a, b) => b.total - a.total).slice(0, opts.max || Infinity).forEach((g) => {
     g.ops.sort((a, b) => a.date.localeCompare(b.date));
     const lib = g.lib.slice(0, 45);
+    const mois = Array.from(new Set(g.ops.map((o) => ymOf(o.date))));
+    if (typeof ech[g.k] === 'boolean' ? ech[g.k] : g.compte.startsWith('616')) {
+      // Échéancier : un seul document pour tous les paiements
+      push('justif', 'dir:' + g.keys[0], `Échéancier « ${lib} » : ${g.n} paiement(s) (${fmtMonths(mois)}), total ${eur(g.total)} € — ${g.clib}`,
+        { doc: 'Échéancier', ops: [{ amt: g.total, lib: g.ops[g.ops.length - 1].lib, doc: `Échéancier (${g.n} paiement${g.n > 1 ? 's' : ''} : ${fmtMonths(mois)})` }], ym: mois[0], keys: g.keys, ech: g.k, echOn: true });
+      return;
+    }
     push('justif', 'dir:' + g.keys[0], g.n === 1
       ? `${docName(g.lib)} « ${lib} » du ${fmtDate(g.ops[0].date)} (${eur(g.total)} €) — ${g.clib}`
-      : `Factures « ${lib} » : ${g.n} paiements (${fmtMonths(Array.from(new Set(g.ops.map((o) => ymOf(o.date)))))}), total ${eur(g.total)} € — ${g.clib}`,
-    { doc: g.n === 1 || docName(g.lib) !== 'Facture' ? docName(g.lib) : 'Factures', doc1: docName(g.lib), ops: g.ops, keys: g.keys });
+      : `Factures « ${lib} » : ${g.n} paiements (${fmtMonths(mois)}), total ${eur(g.total)} € — ${g.clib}`,
+    { doc: g.n === 1 || docName(g.lib) !== 'Facture' ? docName(g.lib) : 'Factures', doc1: docName(g.lib), ops: g.ops, keys: g.keys, ech: g.k, echOn: false });
   });
 }
 
@@ -872,10 +869,21 @@ function piecesState() {
 
 function selectedPieces() {
   const st = piecesState();
-  return computePieces(ui.fec.result, st.mode, st.arrete).filter((i) => !st.excluded.has(i.id));
+  return computePieces(ui.fec.result, st.mode, st.arrete).filter((i) => retenue(st, i));
 }
 
 // Contenu de l'onglet : pièces à demander (jamais demandées), déjà demandées (en attente du client), écartées.
+// Choix conservés dans le dossier (à défaut, dans l'analyse en cours) : dépenses payées directement demandées ou non (non par
+// défaut : demande occasionnelle), et échéancier plutôt que factures pour un groupe de paiements (clé : compte|libellé).
+const piecesPrefs = () => { const f = ui.fec || {}; return clientById(f.clientId) || f; };
+const justifOn = () => piecesPrefs().piecesJustif === true;
+function echeanciers(create) {
+  const o = piecesPrefs();
+  return o.piecesEcheanciers || (create ? (o.piecesEcheanciers = {}) : {});
+}
+// Pièce retenue pour la demande : cochée, et de la catégorie des dépenses payées directement seulement si elle est demandée
+const retenue = (st, i) => !st.excluded.has(i.id) && (i.cat !== 'justif' || justifOn());
+
 // Pièces demandées au choix : toutes, factures fournisseurs seules ou ventes et encaissements seuls ; les opérations en
 // compte d'attente (non affectées) restent toujours demandées.
 const TIERS_FILTRES = { fournisseurs: 'achats', clients: 'ventes' };
@@ -890,7 +898,8 @@ function piecesView(r, st) {
 // Pièces encore dues par le client à la date : à demander et déjà demandées (compteurs de l'onglet et du portefeuille).
 function piecesCount(r, mode, arrete) {
   const S = piecesSuivi(r);
-  return computePieces(r, mode, arrete, S).length;
+  const justif = S.c ? S.c.piecesJustif === true : justifOn(); // dépenses payées directement : comptées si demandées
+  return computePieces(r, mode, arrete, S).filter((i) => justif || i.cat !== 'justif').length;
 }
 
 // Rubrique d'une étape (libellé enregistré) ; les « opérations à identifier » des premières demandes vont en opérations diverses.
@@ -909,7 +918,7 @@ function piecesText(items, pending = []) {
 function piecesCopyText() {
   const st = piecesState();
   const v = piecesView(ui.fec.result, st);
-  return piecesText(v.fresh.filter((i) => !st.excluded.has(i.id)), v.pending.filter((x) => !x.comptab));
+  return piecesText(v.fresh.filter((i) => retenue(st, i)), v.pending.filter((x) => !x.comptab));
 }
 
 // Familles dont la liste du moteur est tronquée (fichier volumineux) à une date postérieure au début de la période.
@@ -927,7 +936,7 @@ function viewPieces() {
   const mois = st.mode === 'mois';
   const v = piecesView(r, st);
   const items = v.fresh;
-  const kept = items.filter((i) => !st.excluded.has(i.id));
+  const kept = items.filter((i) => retenue(st, i));
   const c = clientById(f.clientId);
   const req = c && openRequest(c, st, r);
   const nAttente = items.filter((i) => i.src === 'attente').length;
@@ -939,6 +948,8 @@ function viewPieces() {
   const rubSel = (key, cat) => `<select data-piece-rub="${esc(key)}" aria-label="Rubrique de la demande">${ATTENTE_RUBRIQUES.map((k) => `<option value="${k}"${k === cat ? ' selected' : ''}>${esc(PIECES_CATS[k])}</option>`).join('')}</select>`;
   const piece = (i) => {
     const box = `<label class="check piece"><input type="checkbox" data-piece="${esc(i.id)}"${st.excluded.has(i.id) ? '' : ' checked'}><span>${esc(i.text)}</span></label>`;
+    // Dépenses payées directement : factures ou échéancier, au choix (conservé dans le dossier)
+    if (i.ech) return `<div class="piece-row">${box}<span class="piece-rub"><select data-piece-ech="${esc(i.ech)}" aria-label="Pièce demandée"><option value="0"${i.echOn ? '' : ' selected'}>Factures</option><option value="1"${i.echOn ? ' selected' : ''}>Échéancier</option></select></span></div>`;
     if (i.src !== 'attente') return box;
     // Opération en compte d'attente : rubrique de la demande au choix
     return `<div class="piece-row">${box}<span class="piece-rub"><span class="badge" title="Opération en compte d'attente">${esc(i.compte)}</span>${rubSel(i.key, i.cat)}</span></div>`;
@@ -956,7 +967,10 @@ function viewPieces() {
   const nComptab = v.pending.filter((x) => x.comptab).length;
   const attLive = new Set(pieceKeys(r).att.map((ks) => ks[0]));
   const action = kept.length ? (req ? 'Compléter la demande en cours et préparer le mail' : 'Créer la demande et préparer le mail') : v.pending.length ? 'Préparer la relance' : 'Créer la demande et préparer le mail';
-  const group = (k, list, fn) => `<div class="pieces-group"><h3>${esc(PIECES_CATS[k])} <span class="count">${list.length}</span></h3>${list.map(fn).join('')}</div>`;
+  // Dépenses payées directement : demande occasionnelle, la catégorie entière se coche ou se décoche (choix du dossier)
+  const group = (k, list, fn) => (k === 'justif' && fn === piece
+    ? `<div class="pieces-group"><h3><label class="check"><input type="checkbox" data-pieces-justif${justifOn() ? ' checked' : ''}> ${esc(PIECES_CATS[k])}</label> <span class="count">${list.length}</span></h3>${justifOn() ? list.map(fn).join('') : '<p class="muted small">Non demandées : cochez la catégorie pour les ajouter à la demande.</p>'}</div>`
+    : `<div class="pieces-group"><h3>${esc(PIECES_CATS[k])} <span class="count">${list.length}</span></h3>${list.map(fn).join('')}</div>`);
   return `
     <section class="card">
       <h2>${mois ? `Pièces manquantes au ${esc(dateLongue(st.arrete))}` : 'Pièces à demander au client'}</h2>
@@ -1172,7 +1186,7 @@ function createPiecesRequest() {
   if (solved && $('#toast').textContent === t0) toast(`${solved} pièce(s) comptabilisée(s) depuis la demande cochée(s) reçue(s).`);
   adoptKeys(c, r, st);
   const all = tiersFilter(st, computePieces(r, st.mode, st.arrete));
-  const items = all.filter((i) => !st.excluded.has(i.id));
+  const items = all.filter((i) => retenue(st, i));
   const off = all.filter((i) => st.excluded.has(i.id) && i.keys && i.keys.length);
   let m = openRequest(c, st, r);
   if (!items.length && !m) {
@@ -1236,7 +1250,7 @@ function exportPiecesXlsx() {
   const c = clientById(ui.fec.clientId);
   // Pièces à demander retenues, puis pièces déjà demandées et toujours attendues
   const v = piecesView(ui.fec.result, st);
-  const blob = XlsxWriter.build({ sheets: [piecesSheet(v.fresh.filter((i) => !st.excluded.has(i.id)), st, c)] });
+  const blob = XlsxWriter.build({ sheets: [piecesSheet(v.fresh.filter((i) => retenue(st, i)), st, c)] });
   // Nom de fichier sans accent ni caractère interdit : certains navigateurs remplacent sinon le nom par « download ».
   const name = `Documents a fournir${c ? ` - ${c.nom}` : ''} - ${piecesLabel(st.mode, st.arrete)}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/\//g, '-').replace(/[\\:*?"<>|]+|[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim();

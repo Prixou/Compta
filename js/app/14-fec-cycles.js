@@ -503,8 +503,8 @@ function justifCard(r) {
 }
 
 // Écritures sans justificatif sur la période, regroupées par tiers ; `flt` écarte les pièces déjà reçues, déjà demandées ou
-// écartées (voir piecesSuivi).
-function justifPieces(r, push, from, to, flt = ALL_PIECES) {
+// écartées (voir piecesSuivi) ; `opts.charges` : dépenses payées directement des charges externes seules (61, 62).
+function justifPieces(r, push, from, to, flt = ALL_PIECES, opts = {}) {
   if (!justifOk(r)) return;
   const d = fmtDate;
   const K = pieceKeys(r).jus;
@@ -525,7 +525,7 @@ function justifPieces(r, push, from, to, flt = ALL_PIECES) {
     else push('ventes', `jv:${x0.num}`, `${l.length > 1 ? 'Factures de vente' : 'Facture de vente'} à ${x0.tlib} : ${items}`, extra);
   });
   // Dépenses payées directement sans justificatif : les 200 plus récentes de la période
-  list.filter(({ x }) => x.kind === 'direct').sort((a, b) => b.x.date.localeCompare(a.x.date)).slice(0, 200).forEach(({ x, keys }) => push('justif', `jd:${keys[0]}`, `Justificatif « ${x.lib} » du ${d(x.date)} (${eur(x.amt)} €)`,
+  list.filter(({ x }) => x.kind === 'direct' && (!opts.charges || /^6[12]/.test(x.compte || ''))).sort((a, b) => b.x.date.localeCompare(a.x.date)).slice(0, 200).forEach(({ x, keys }) => push('justif', `jd:${keys[0]}`, `Justificatif « ${x.lib} » du ${d(x.date)} (${eur(x.amt)} €)`,
     { doc: 'Justificatif', ops: [{ date: x.date, amt: x.amt, lib: x.lib }], keys }));
 }
 
