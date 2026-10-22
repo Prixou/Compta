@@ -359,6 +359,7 @@ function analyse(buffer, fileName, until, docs) {
     if (attIdx >= 0 && !oe.att && f[attIdx] && f[attIdx].trim()) oe.att = f[attIdx].trim();
     if (/^5[13]/.test(compte)) oe.has5 = true;
     if (/^4[01]/.test(compte)) oe.has4 = true;
+    if (/^[67]/.test(compte)) oe.has67 = true;
     if (/^41/.test(compte) && !oe.lib41 && elib) oe.lib41 = elib; // libellé de la ligne client (n° de facture chez Pennylane)
     if (compte[0] === '4' && !compte.startsWith('445') && g('EcritureLet') && date && !an) (oe.lt = oe.lt || []).push(compte + '|' + auxNum);
     if (date && !an) {
@@ -513,6 +514,22 @@ function analyse(buffer, fileName, until, docs) {
       remap.set(k, h);
     });
     opEntries.set(h, merged);
+  });
+
+  // Journaux d'achats et de ventes (factures et avoirs) : d'après leur libellé ou leur code, sinon d'après leurs écritures
+  // (au moins 80 % de factures : charge ou produit et tiers, sans banque ni caisse). Les pièces demandées au client n'en
+  // reprennent rien ; les autres journaux (banque, caisse, OD, effets…) sont retenus.
+  const factJ = new Set();
+  const jStat = new Map();
+  opEntries.forEach((en) => {
+    if (en.an) return;
+    const x = jStat.get(en.jc) || jStat.set(en.jc, { n: 0, f: 0 }).get(en.jc);
+    x.n++;
+    if (en.has67 && en.has4 && !en.has5) x.f++;
+  });
+  journals.forEach((j) => {
+    const x = jStat.get(j.code) || { n: 0, f: 0 };
+    if (/achat|vente|purchas|\bsales?\b|factur/i.test(j.lib || '') || /^(HA|AC|ACH|ACHAT|ACHATS|VT|VE|VEN|VTE|VENTE|VENTES)\d*$/i.test(j.code || '') || (x.n >= 10 && x.f >= x.n * 0.8)) factJ.add(j.code);
   });
 
   // Écritures déséquilibrées, dates atypiques, numérotation
@@ -705,7 +722,8 @@ function analyse(buffer, fileName, until, docs) {
       const amt = round2(sign * (d - c));
       if (!amt) return;
       const en = !isAn && opEntries.get(remap.get(ek) || ek);
-      items.push({ date, amt, lib, bank: !!(en && en.has5) });
+      // Règlement : écriture hors journaux d'achats et de ventes (banque, caisse, OD, effets…)
+      items.push({ date, amt, lib, bank: !!(en && !factJ.has(en.jc)) });
     });
     const pays = items.filter((x) => x.amt < 0 && x.bank).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     if (!pays.length) return;
@@ -855,6 +873,7 @@ function analyse(buffer, fileName, until, docs) {
   const invIdx = buildInvIndex(opEntries, auxNames, aux);
   // Comptes d'attente : lignes encore ouvertes, les plus récentes
   const attOpen = settleAttente(attenteLines, accounts, opEntries, remap);
+  attOpen.forEach((l) => { l.fact = factJ.has((opEntries.get(remap.get(l.ek) || l.ek) || {}).jc); }); // ligne d'un journal d'achats ou de ventes
   // Nombre de lignes ouvertes par mois, avant troncature
   const attMois = {};
   attOpen.forEach((l) => { attMois[l.date.slice(0, 7)] = (attMois[l.date.slice(0, 7)] || 0) + 1; });
@@ -867,7 +886,7 @@ function analyse(buffer, fileName, until, docs) {
       .map((x) => ({ num: x.num, lib: x.lib, months: Object.fromEntries(Object.entries(x.months).map(([k, v]) => [k, round2(v)])) })),
     payroll,
     // bank : ligne d'une écriture de banque ou de caisse (opération à justifier) ; sinon OD ou facture passée en attente.
-    attente: attOpen.map((l) => ({ date: l.date, compte: l.compte, lib: l.lib, d: l.d, c: l.c, lettre: l.lettre, bank: l.bank, soldeCompte: soldeOf(l.compte),
+    attente: attOpen.map((l) => ({ date: l.date, compte: l.compte, lib: l.lib, d: l.d, c: l.c, lettre: l.lettre, bank: l.bank, fact: l.fact, soldeCompte: soldeOf(l.compte),
       sug: invSug(invIdx, l.lib, l.c > 0) || labelIdx[labelKey(l.lib)] || null })),
     attenteMax: !!trunc.att,
     attenteMois: attMois,

@@ -298,14 +298,14 @@ function syncAttenteStep(key, cat) {
 // l'organisme et non par une facture : jamais demandé au client.
 const tiersPayantEnc = (lib, amt) => amt > 0 && ui.fecProfile === 'pharmacie' && (RE_AMO.test(norm(lib)) || RE_AMC.test(norm(lib)));
 
-// Une demande par opération de banque ou de caisse restée en attente, rangée dans sa rubrique : le client reçoit des
-// factures, des ventes ou des opérations diverses à justifier, et non des « opérations à identifier ». Les OD et factures
-// passées en attente ne sont pas demandées (à reclasser au cabinet), ni les encaissements qui citent une facture client.
+// Une demande par opération restée en attente (banque, caisse, OD, effets…), rangée dans sa rubrique : le client reçoit des
+// factures, des ventes ou des opérations diverses à justifier, et non des « opérations à identifier ». Les lignes des
+// journaux d'achats et de ventes ne sont pas demandées, ni les encaissements qui citent une facture client.
 function attentePieces(r, push, from, to, flt) {
   const store = ui.fec && ui.fec.result === r ? rubriquesStore() : {};
   const K = pieceKeys(r).att;
   (r.pieces.attente || []).forEach((l, i) => {
-    if (l.date < from || l.date > to || l.lettre || Math.abs(l.soldeCompte) < 0.01 || l.bank === false || (l.sug && l.sug[7]) || tiersPayantEnc(l.lib, l.c) || !flt.ok(K[i])) return;
+    if (l.date < from || l.date > to || l.lettre || Math.abs(l.soldeCompte) < 0.01 || l.fact || (l.sug && l.sug[7]) || tiersPayantEnc(l.lib, l.c) || !flt.ok(K[i])) return;
     const key = K[i][0].slice(4);
     const cat = ATTENTE_RUBRIQUES.includes(store[key]) ? store[key] : attenteDefaut(l);
     const amt = l.c || l.d;
@@ -336,8 +336,8 @@ function monthPieces(r, arrete, flt) {
   const from = exStart(r, end);
   const inP = (date) => date >= from && date <= end;
   const pharma = ui.fecProfile === 'pharmacie';
-  // Seules les opérations des journaux de paiement (banque, caisse) sont demandées : rien des journaux d'achats et de
-  // ventes (factures ou avoirs sans justificatif, numéros de facture manquants, factures habituelles absentes).
+  // Rien n'est demandé d'après les journaux d'achats et de ventes (factures ou avoirs sans justificatif, numéros de facture
+  // manquants) ; les règlements et opérations en attente viennent de tous les autres journaux (banque, caisse, OD, effets…).
 
   // Règlements fournisseurs et encaissements clients non affectés à une facture (paiement par paiement)
   unmatchedPieces(r, push, from, end, flt);
