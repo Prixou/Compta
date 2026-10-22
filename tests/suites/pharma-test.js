@@ -41,6 +41,17 @@ const { fecTab, fecMonth } = require('./lib');
     await c411().locator('input[data-compte]').first().click(); await p.waitForTimeout(150);
     console.log('après clic sur le premier :', (await boxes())[0], '| liste ouverte :', (await c411().getAttribute('open')) !== null);
   } else console.log('Comptes de tiers : aucun encaissement sans facture');
+  // Demande mensuelle d'officine : paiements fournisseurs de moins de 100 € enlevés si la case est cochée
+  await fecTab(p, 'mois-pieces', 0); await p.waitForTimeout(150);
+  const fourn = () => p.$$eval('.pieces-group', (g) => g.filter((x) => /Factures fournisseurs/i.test(x.querySelector('h3').textContent)).flatMap((x) => Array.from(x.querySelectorAll('.piece span')).map((s) => s.textContent)));
+  const petit = (l) => l.filter((t) => { const m = /de ([\d\u202f\u00a0 ]+,\d\d) €/.exec(t); return m && Number(m[1].replace(/[^\d,]/g, '').replace(',', '.')) < 100; }).length;
+  const avant = await fourn();
+  if (await p.$('input[data-pieces-seuil]')) {
+    await p.check('input[data-pieces-seuil]'); await p.waitForTimeout(150);
+    const apres = await fourn();
+    console.log(`moins de 100 € : ${petit(avant)} paiement(s) avant, ${petit(apres)} après la case ; ${avant.length} → ${apres.length} pièce(s) | case cochée : ${await p.isChecked('input[data-pieces-seuil]')}`);
+    await p.uncheck('input[data-pieces-seuil]'); await p.waitForTimeout(150);
+  } else console.log('case « moins de 100 € » absente');
   // 3. Profil changé à la main (sans dossier rattaché) : les onglets suivent
   await p.selectOption('select[data-fec=profile]', 'classique'); await p.waitForTimeout(150);
   console.log('forcé en classique — onglet Tiers payant ?', !!(await p.$('.fec-tabs button[data-tab=tp]')), '| profil :', await prof());

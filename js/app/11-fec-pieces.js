@@ -198,12 +198,15 @@ const payMt = (u, old) => (old || !u.brut ? u.amt : u.brut);
 
 // Règlements et encaissements non affectés à une facture, regroupés par tiers : une demande par tiers, chaque paiement daté.
 // `flt.ok(clés)` : opération à proposer ; `flt.gone(clé)` : facture déjà demandée ou reçue.
-function unmatchedPieces(r, push, from, to, flt, old = false) {
-  const d = fmtDate;
+// `seuil` : règlements fournisseurs de moins de ce montant non demandés (officine, demande mensuelle). Un à-nouveau est daté
+// du règlement d'origine (dateOp).
+function unmatchedPieces(r, push, from, to, flt, old = false, seuil = 0) {
+  const d = (date) => fmtDate(date);
+  const dop = (u) => u.dateOp || u.date;
   const K = pieceKeys(r).unm;
   const groups = new Map();
   (r.pieces.unmatched || []).forEach((u, i) => {
-    if (u.date < from || u.date > to || !flt.ok(K[i].keys) || flt.gone(K[i].alias)) return;
+    if (u.date < from || u.date > to || !flt.ok(K[i].keys) || flt.gone(K[i].alias) || (seuil && u.racine === '401' && payMt(u) < seuil)) return;
     const k = u.racine + '|' + u.num;
     (groups.get(k) || groups.set(k, []).get(k)).push({ u, keys: K[i].keys });
   });
@@ -211,9 +214,9 @@ function unmatchedPieces(r, push, from, to, flt, old = false) {
     const list = g.map((x) => x.u);
     const u0 = list[0];
     const total = list.reduce((s2, u) => s2 + payMt(u, old), 0);
-    const det = list.slice(0, 8).map((u) => `du ${d(u.date)} (${eur(payMt(u, old))} €)`).join(', ') + (list.length > 8 ? ` et ${list.length - 8} autre(s), total ${eur(total)} €` : '');
-    const one = (u) => `de ${eur(payMt(u, old))} € du ${d(u.date)}`;
-    const x = { ops: list.map((u) => ({ date: u.date, amt: payMt(u), lib: u.label || u.lib })), keys: g.flatMap((y) => y.keys) };
+    const det = list.slice(0, 8).map((u) => `du ${d(old ? u.date : dop(u))} (${eur(payMt(u, old))} €)`).join(', ') + (list.length > 8 ? ` et ${list.length - 8} autre(s), total ${eur(total)} €` : '');
+    const one = (u) => `de ${eur(payMt(u, old))} € du ${d(old ? u.date : dop(u))}`;
+    const x = { ops: list.map((u) => ({ date: dop(u), amt: payMt(u), lib: u.label || u.lib })), keys: g.flatMap((y) => y.keys) };
     if (u0.racine === '401') push('achats', `nf:${u0.num}`, list.length === 1
       ? `Facture ${u0.lib} correspondant au paiement ${one(u0)}`
       : `Factures ${u0.lib} correspondant aux paiements ${det}`,
@@ -301,7 +304,7 @@ const tiersPayantEnc = (lib, amt) => amt > 0 && ui.fecProfile === 'pharmacie' &&
 // Une demande par opération restée en attente (banque, caisse, OD, effets…), rangée dans sa rubrique : le client reçoit des
 // factures, des ventes ou des opérations diverses à justifier, et non des « opérations à identifier ». Les lignes des
 // journaux d'achats et de ventes ne sont pas demandées, ni les encaissements qui citent une facture client.
-function attentePieces(r, push, from, to, flt) {
+function attentePieces(r, push, from, to, flt, seuil = 0) {
   const store = ui.fec && ui.fec.result === r ? rubriquesStore() : {};
   const K = pieceKeys(r).att;
   (r.pieces.attente || []).forEach((l, i) => {
@@ -309,6 +312,7 @@ function attentePieces(r, push, from, to, flt) {
     const key = K[i][0].slice(4);
     const cat = ATTENTE_RUBRIQUES.includes(store[key]) ? store[key] : attenteDefaut(l);
     const amt = l.c || l.d;
+    if (seuil && cat === 'achats' && !(l.c > 0) && amt < seuil) return; // petit paiement non demandé (officine, demande mensuelle)
     push(cat, key, `${attenteDoc(l, cat)} du ${fmtDate(l.date)} (${eur(amt)} €)`,
       { id: 'attente:' + key, src: 'attente', key, compte: l.compte, doc: attenteDoc(l, cat, false), ops: [{ date: l.date, amt, lib: l.lib }], keys: K[i] });
   });
@@ -339,14 +343,16 @@ function monthPieces(r, arrete, flt) {
   // Rien n'est demandé d'après les journaux d'achats et de ventes (factures ou avoirs sans justificatif, numéros de facture
   // manquants) ; les règlements et opérations en attente viennent de tous les autres journaux (banque, caisse, OD, effets…).
 
+  // Officine : paiements fournisseurs de moins de 100 € non demandés si la case est cochée (passés directement en charge)
+  const seuil = pharma && ui.fec && ui.fec.result === r && piecesPrefs().piecesSeuil100 ? 100 : 0;
   // Règlements fournisseurs et encaissements clients non affectés à une facture (paiement par paiement)
-  unmatchedPieces(r, push, from, end, flt);
+  unmatchedPieces(r, push, from, end, flt, false, seuil);
   // Archive de justificatifs : dépenses payées directement sans pièce (exact), à la place de la liste ci-dessous
   justifPieces(r, push, from, end, flt, { charges: true, paiements: true });
   // Dépenses payées directement (charges externes : locations, assurances, cotisations…) et opérations en compte d'attente,
   // sans les acquisitions d'immobilisations (demandées pour la situation et le bilan).
   directPieces(r, push, from, end, flt, { charges: true });
-  attentePieces(r, push, from, end, flt);
+  attentePieces(r, push, from, end, flt, seuil);
   // Encaissements enregistrés en ventes sans facture client (activité facturée), 15 par mois au plus
   if (!pharma && cy) {
     const facture = cy.clients.customers.reduce((s, c) => s + c.ht, 0);
@@ -938,7 +944,11 @@ function viewPieces() {
   const attLive = new Set(pieceKeys(r).att.map((ks) => ks[0]));
   const action = kept.length ? (req ? 'Compléter la demande en cours et préparer le mail' : 'Créer la demande et préparer le mail') : v.pending.length ? 'Préparer la relance' : 'Créer la demande et préparer le mail';
   // Dépenses payées directement : demande occasionnelle, la catégorie entière se coche ou se décoche (choix du dossier)
-  const group = (k, list, fn) => (k === 'justif' && fn === piece
+  const seuilBox = `<label class="check small pieces-seuil"><input type="checkbox" data-pieces-seuil${piecesPrefs().piecesSeuil100 ? ' checked' : ''}> Enlever les paiements de moins de 100 €</label>`;
+  const withSeuil = mois && ui.fecProfile === 'pharmacie';
+  const group = (k, list, fn) => (k === 'achats' && fn === piece && withSeuil
+    ? `<div class="pieces-group"><h3>${esc(PIECES_CATS[k])} <span class="count">${list.length}</span> ${seuilBox}</h3>${list.map(fn).join('')}</div>`
+    : k === 'justif' && fn === piece
     ? `<div class="pieces-group"><h3><label class="check"><input type="checkbox" data-pieces-justif${justifOn() ? ' checked' : ''}> ${esc(PIECES_CATS[k])}</label> <span class="count">${list.length}</span></h3>${justifOn() ? list.map(fn).join('') : '<p class="muted small">Non demandées : cochez la catégorie pour les ajouter à la demande.</p>'}</div>`
     : `<div class="pieces-group"><h3>${esc(PIECES_CATS[k])} <span class="count">${list.length}</span></h3>${list.map(fn).join('')}</div>`);
   return `
@@ -962,6 +972,7 @@ function viewPieces() {
         <span class="muted small">${kept.length} élément(s) retenu(s) sur ${items.length}${v.pending.length ? ` · ${v.pending.length} déjà demandé(s)` : ''}</span>
       </div>
       <h3 class="pieces-head">À demander <span class="count">${items.length}</span></h3>
+      ${withSeuil && !items.some((i) => i.cat === 'achats') ? group('achats', [], piece) : ''}
       ${items.length ? byCat(items, (i) => i.cat).map(([k, list]) => group(k, list, piece)).join('') : `<p class="muted">Aucune nouvelle pièce à demander${mois ? ` du ${esc(fmtDate(st.from))} au ${esc(fmtDate(st.arrete))}` : ' pour cette période'}. 👍</p>`}
       ${v.pending.length ? `<h3 class="pieces-head">Déjà demandées, en attente du client <span class="count">${v.pending.length}</span></h3>
         <p class="muted small">Pièces des demandes en cours, toujours attendues : elles figurent dans le mail (« Pour rappel ») et la liste Excel, sans être redemandées. « Reçue » coche la pièce dans sa demande. Une pièce « comptabilisée depuis la demande » (facture saisie, opération reclassée) n'est plus réclamée : elle est cochée reçue à la prochaine demande ou relance, ou tout de suite avec le bouton ci-dessous.</p>
@@ -1032,7 +1043,7 @@ function supplierMail(r, c, x) {
   }
   if (x.pays.length) {
     lines.push('- le duplicata des factures correspondant aux règlements suivants :');
-    x.pays.forEach((u) => lines.push(`    • règlement du ${fmtDate(u.date)} : ${eur(payMt(u))} €${u.label ? ` (${u.label})` : ''}`));
+    x.pays.forEach((u) => lines.push(`    • règlement du ${fmtDate(u.dateOp || u.date)} : ${eur(payMt(u))} €${u.label ? ` (${u.label})` : ''}`));
   }
   if (x.months.length) lines.push(`- les factures de ${fmtMonths(x.months)}`);
   lines.push(`- un relevé de compte (factures, avoirs et règlements) pour la période ${periode}`);
