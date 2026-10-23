@@ -1,0 +1,30 @@
+{
+ "accounts": 3,
+ "lines": 12,
+ "groups": 3,
+ "lettered": 7,
+ "amount": 4950.0,
+ "open": 4,
+ "byAccount": {
+  "FALPHA": {
+   "groups": 2,
+   "open": 1,
+   "methods": [
+    "Plus anciennes d'abord",
+    "Plus anciennes d'abord"
+   ]
+  },
+  "FBETA": {
+   "groups": 1,
+   "open": 2,
+   "skipped": 1,
+   "methods": [
+    "Montant identique"
+   ]
+  },
+  "FGAMMA": {
+   "groups": 0,
+   "open": 1
+  }
+ }
+}

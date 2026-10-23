@@ -256,6 +256,12 @@ const actions = {
   'brap-clear': () => { ui.brap = null; refresh(); },
   'brap-export': (el) => brapExport(el.dataset.kind),
   'tvr-export': () => tvrExport(),
+  'lett-pick': () => pickFiles('.pdf,.txt,.csv,.tsv,.zip').then((f) => lettFile(f[0])),
+  'lett-fec': () => lettUseOpenFec(),
+  'lett-text': () => lettText(($('#lett-tx') || {}).value),
+  'lett-copy': () => lettCopy(),
+  'lett-xlsx': () => lettExport(),
+  'lett-clear': () => { ui.lett = null; refresh(); },
   'tvr-ca3-clear': (el) => tvrClearPeriod(el.dataset.key),
   'tvr-od-export': (el) => tvrOdExport(el.dataset.kind),
   'cmp-pick': async (el) => { const f = await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true); if (f) cmpDrop([f], el.dataset.side); },
@@ -659,6 +665,8 @@ document.addEventListener('change', (e) => {
     // Paramétrage du contrôle de TVA : nature ou taux d'un compte
     if (t.dataset.tvap === 'ca') setTvaParam('ca', t.dataset.c, t.value);
     else setTvaParam('acc', t.dataset.c, t.value, t.dataset.tvap === 'acc-rate' ? 'rate' : 'role');
+  } else if (t.dataset.lett) {
+    onLettChange(t);
   } else if (t.dataset.tvrFact !== undefined && ui.fec && ui.fec.result) {
     if (t.files && t.files[0]) tvrImportFactures(t.files[0]);
     t.value = '';

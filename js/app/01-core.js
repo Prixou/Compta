@@ -125,6 +125,7 @@ const ICONS = {
   note: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
   compare: '<path d="M4 7h14M15 4l3 3-3 3M20 17H6M9 14l-3 3 3 3"/>',
   bank: '<path d="M3 10h18M12 3 3 8v2h18V8zM5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5"/>',
 };
 
 function icon(name, cls) {

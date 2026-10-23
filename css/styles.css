@@ -912,3 +912,19 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .tvr-msg { margin: .5rem 0; padding-left: 1.2rem; font-size: .85rem; }
 .tvr-msg .ok { color: var(--ok); }
 .tvr-msg .bad { color: var(--danger); }
+
+/* Lettrage proposé */
+.lett-opts { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: flex-end; margin: .5rem 0; }
+.lett-opts label:not(.check) { display: flex; flex-direction: column; gap: .2rem; font-size: .85rem; min-width: 12rem; }
+.lett-paste textarea { width: 100%; box-sizing: border-box; font: .8rem/1.4 ui-monospace, Menlo, monospace; margin: .5rem 0; }
+.lett-acc summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.lett-acc .badge.wait { background: var(--warn-soft); color: var(--warn); }
+.lett-t { min-width: 640px; }
+.lett-t tbody tr { cursor: default; }
+.lett-t td.n, .lett-t th.n { text-align: right; font-variant-numeric: tabular-nums; }
+.lett-t td.lbl { white-space: normal; }
+.lett-t tr.lett-o td { background: var(--warn-soft); }
+.lett-l { display: inline-block; min-width: 1.8rem; text-align: center; font-weight: 700; border-radius: 4px; padding: 0 .3rem; background: var(--primary); color: var(--primary-ink, #fff); }
+.lett-open { color: var(--warn); font-size: .8rem; font-weight: 600; }
+.lett-acc .grid-wrap { position: relative; }
+.lett-paste summary { cursor: pointer; color: var(--primary); text-decoration: underline; width: max-content; max-width: 100%; }

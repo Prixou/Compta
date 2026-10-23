@@ -982,6 +982,7 @@ function analyse(buffer, fileName, until, docs) {
     bankCp,
     invIdx,
     tvaCli: clientOpen(aux, opEntries, remap),
+    lettOpen: lettOpen(aux, opEntries, remap),
     cycles,
     kpi: {
       ca: P(['70']), marge, va, ebe, rex, resultat,
@@ -1037,6 +1038,32 @@ function clientOpen(aux, opEntries, remap) {
     if (lines.length) accs.push({ num: t.num, lib: t.lib, lines });
   });
   return { accs, lettered: inv ? round2(invLet / inv) : null, invoices: inv, truncated: n > 60000 };
+}
+
+// Lignes non lettrées des comptes de tiers (fournisseurs 401 et 404, clients 411), pour le lettrage proposé :
+// [date ('' pour un à-nouveau), montant (débit +), journal, libellé, pièce, nature de l'écriture ('b' banque ou caisse,
+// 'c' charge, produit ou immobilisation, '' autre)].
+function lettOpen(aux, opEntries, remap) {
+  const out = [];
+  let n = 0;
+  aux.forEach((t) => {
+    if (!/^(401|404|411)$/.test(t.racine) || n > 80000) return;
+    const lines = [];
+    t.lines.forEach(([date, d, c, lt, lib, an, oek]) => {
+      const amt = round2(d - c);
+      if (lt || !amt) return;
+      const en = oek ? opEntries.get(remap.get(oek) || oek) : null;
+      let kind = '';
+      if (en && !an) {
+        const L = en.l || [];
+        for (let i = 0; i < L.length; i += 4) { if (/^5[1-3]/.test(L[i])) { kind = 'b'; break; } if (/^[267]/.test(L[i])) kind = 'c'; }
+      }
+      lines.push([an ? '' : date, amt, en ? en.jc || '' : an ? 'AN' : '', String(lib || '').slice(0, 80), en ? en.piece || '' : '', kind]);
+      n++;
+    });
+    if (lines.length) out.push({ racine: t.racine, num: t.num, lib: t.lib, lines });
+  });
+  return { accs: out, truncated: n > 80000 };
 }
 
 // Factures d'un fournisseur : part des services (comptes 6 hors 60) dans le HT, et taux de TVA le plus fréquent.

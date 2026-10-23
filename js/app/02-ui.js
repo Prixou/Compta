@@ -148,6 +148,7 @@ function renderShell() {
           <a href="#/calcul" data-nav="calcul">${icon('calc')}<span>Calcul TVA</span></a>
           <a href="#/releves" data-nav="releves">${icon('file')}<span>Relevés PDF</span></a>
           <a href="#/rapprochement" data-nav="rapprochement">${icon('bank')}<span>Rapprochement</span></a>
+          <a href="#/lettrage" data-nav="lettrage">${icon('link')}<span>Lettrage</span></a>
           <a href="#/parametres" data-nav="parametres">${icon('gear')}<span>Paramètres</span></a>
         </nav>
         <div class="side-actions">
@@ -210,6 +211,7 @@ function route() {
     case 'comparer': main.innerHTML = viewCompare(); break;
     case 'releves': main.innerHTML = viewReleves(); break;
     case 'rapprochement': main.innerHTML = viewBrap(); break;
+    case 'lettrage': main.innerHTML = viewLettrage(); break;
     case 'calcul': main.innerHTML = viewCalc(); calcUpdate(); break;
     case 'parametres': main.innerHTML = viewSettings(); break;
     default: main.innerHTML = viewDashboard();
