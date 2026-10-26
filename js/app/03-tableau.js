@@ -18,7 +18,7 @@ function viewDashboard() {
   const active = data.clients.filter((c) => !c.archive && inPortfolio(c, r));
   const open = data.missions.filter((m) => isOpen(m) && inScope(m));
   const late = open.filter(isLate).sort(byDue);
-  const soon = open.filter((m) => m.echeance && daysUntil(m.echeance) >= 0 && daysUntil(m.echeance) <= 14).sort(byDue);
+  const soon = open.filter((m) => m.echeance && daysToDue(m) >= 0 && daysToDue(m) <= 14).sort(byDue);
   const wait = open.filter((m) => m.statut === 'attente_client').sort(byDue);
   const relances = wait.filter(relanceDue);
   const review = open.filter((m) => m.statut === 'a_valider').sort(byDue);
@@ -56,7 +56,7 @@ function viewDashboard() {
     const g = (groups[key] = groups[key] || { key, total: 0, done: 0, due: '9999' });
     g.total++;
     if (!isOpen(m)) g.done++;
-    else if (m.echeance && m.echeance < g.due) g.due = m.echeance;
+    else if (m.echeance && effDue(m.echeance) < g.due) g.due = effDue(m.echeance);
   });
   const campaigns = Object.values(groups)
     .filter((g) => g.total >= 2 && g.done < g.total && g.due <= horizon)

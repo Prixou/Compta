@@ -83,7 +83,7 @@ function renderDossierList() {
           ${issues ? '<span class="badge warn" title="Conformité à vérifier">Conformité</span>' : ''}
         </div>
         ${open.length ? `<div class="prog">${bar(p)}<span class="pct">${p} %</span></div>` : '<div class="uptodate">À jour ✓</div>'}
-        <div class="muted small">${next ? 'Prochaine échéance : ' + fmtDate(next.echeance) : '&nbsp;'}</div>
+        <div class="muted small">${next ? 'Prochaine échéance : ' + esc(dueTxt(next.echeance)) : '&nbsp;'}</div>
       </a>`;
   }).join('');
   applyWidths(el);

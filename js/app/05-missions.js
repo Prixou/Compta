@@ -38,7 +38,7 @@ function renderMissionList() {
     if (f.type && m.type !== f.type) return false;
     if (f.resp && !missionInPortfolio(m, f.resp)) return false;
     if (f.periode === 'retard' && !isLate(m)) return false;
-    if ((f.periode === '7' || f.periode === '30') && !(m.echeance && daysUntil(m.echeance) >= 0 && daysUntil(m.echeance) <= Number(f.periode))) return false;
+    if ((f.periode === '7' || f.periode === '30') && !(m.echeance && daysToDue(m) >= 0 && daysToDue(m) <= Number(f.periode))) return false;
     if (f.periode === 'mois' && !(m.echeance || '').startsWith(month)) return false;
     if (q && !norm([m.titre, m.exercice, clientLabel(c), c.code, m.responsable].join(' ')).includes(q)) return false;
     return true;
@@ -112,7 +112,7 @@ function missionSheet(id) {
       <div class="modal-body">
         <div class="sheet-top">
           <label>Statut<select data-action-change="mission-status" data-id="${m.id}">${options(STATUTS, m.statut)}</select></label>
-          <div><div class="muted small">Échéance</div>${dueBadge(m)}${m.echeance && isOpen(m) && daysUntil(m.echeance) <= 7 ? `<div class="muted small">${fmtDate(m.echeance)}</div>` : ''}</div>
+          <div><div class="muted small">Échéance</div>${dueBadge(m)}${m.echeance && isOpen(m) && (daysToDue(m) <= 7 || effDue(m.echeance) !== m.echeance) ? `<div class="muted small">${esc(dueTxt(m.echeance))}</div>` : ''}</div>
           <div><div class="muted small">Responsable</div>${esc(m.responsable || '—')}</div>
           <div><div class="muted small">Récurrence</div>${esc(RECURRENCES[m.recurrence] || 'Aucune')}</div>
         </div>
@@ -172,7 +172,7 @@ function missionForm(m, presetClient) {
           ${isNew ? `<label class="span2">Modèle<select name="type">${options(Object.fromEntries(data.templates.map((t) => [t.id, t.nom])), m.type)}</select></label>` : ''}
           <label class="span2">Intitulé *<input name="titre" required value="${esc(m.titre)}"></label>
           <label>Exercice / période<input name="exercice" value="${esc(m.exercice)}" placeholder="2025, 08/2026, T3 2026…"></label>
-          <label>Échéance<input type="date" name="echeance" value="${esc(m.echeance)}"></label>
+          <label>Échéance<input type="date" name="echeance" value="${esc(m.echeance)}">${m.echeance && effDue(m.echeance) !== m.echeance ? `<span class="muted small">Tombe un ${jourOf(m.echeance)} : reportée au ${jourOf(effDue(m.echeance))} ${fmtDate(effDue(m.echeance))}, premier jour ouvré.</span>` : ''}</label>
           <label>Statut<select name="statut">${options(STATUTS, m.statut)}</select></label>
           <label>Priorité<select name="priorite">${options({ normale: 'Normale', haute: 'Haute' }, m.priorite)}</select></label>
           <label>Responsable<input name="responsable" list="collabs" value="${esc(m.responsable)}"></label>

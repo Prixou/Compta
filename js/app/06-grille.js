@@ -225,7 +225,7 @@ function grilleCellView(m, mode) {
   const amt = hasTvaAmount(m) && tvaNetSet(m);
   if (amt) html += `<span class="g-amt${m.tvaNet < 0 ? ' cred' : ''}">${esc(tvaNetLabel(m, true))}</span>`;
   const hint = mode === 'pointage' ? `Cliquer pour ${isOpen(m) ? 'pointer OK' : 'annuler'}` : mode === 'etapes' ? 'Cliquer pour choisir l\'étape atteinte' : 'Cliquer pour ouvrir la mission';
-  const title = [`${m.titre} — ${STATUTS[m.statut]}${m.echeance ? ' — échéance ' + fmtDate(m.echeance) : ''}`]
+  const title = [`${m.titre} — ${STATUTS[m.statut]}${m.echeance ? ' — échéance ' + dueTxt(m.echeance) : ''}`]
     .concat(amt ? [`Montant déclaré — ${tvaNetLabel(m)}`] : [], m.etapes.map((e) => `${e.done ? '✓' : '○'} ${e.label}`), [hint]).join('\n');
   return { cls, html, title };
 }
@@ -270,7 +270,7 @@ function openGrillePop(td, m, focusI) {
   const req = per && missionsOf(m.clientId).find((x) => isOpen(x) && x.demandePieces && x.demandePieces.mode === 'mois'
     && ymOf(x.demandePieces.from || x.demandePieces.arrete) <= pym && ymOf(x.demandePieces.arrete) >= pym);
   const reqLeft = req ? req.etapes.filter((e) => !e.done && stepYm(req, e) <= pym).length : 0;
-  pop.innerHTML = `<div class="gp-head"><div><strong>${esc(c ? clientLabel(c) : '')}</strong><span class="muted small">${esc(m.titre)}${m.echeance ? ` · échéance ${fmtDate(m.echeance)}` : ''}</span>
+  pop.innerHTML = `<div class="gp-head"><div><strong>${esc(c ? clientLabel(c) : '')}</strong><span class="muted small">${esc(m.titre)}${m.echeance ? ` · échéance ${esc(dueTxt(m.echeance))}` : ''}</span>
       <span class="gp-state ${isOpen(m) ? '' : 'ok'}">${isOpen(m) ? `${nd} / ${n} étape(s) faite(s)` : 'Terminée'}</span></div>
       <button class="icon-btn gp-close" data-action="grille-pop-close" title="Fermer (Échap)" aria-label="Fermer">✕</button></div>
     ${m.etapes.length ? `<ol class="gp-steps">${m.etapes.map((e, i) => { const [ga, gb] = stepGroup(m.etapes, i); return `<li class="${ga !== gb ? 'gp-par' : ''}"><button class="${e.done ? 'done' : ''}${i + 1 === k ? ' current' : ''}" data-action="grille-step" data-id="${m.id}" data-i="${i}" aria-pressed="${e.done}"><span aria-hidden="true">${e.done ? '✓' : i + 1}</span>${esc(e.label)}</button></li>`; }).join('')}</ol>

@@ -19,11 +19,13 @@ function bar(p) {
 function dueBadge(m) {
   if (!m.echeance) return '<span class="due muted">Sans échéance</span>';
   if (!isOpen(m)) return `<span class="due muted">${fmtDate(m.echeance)}</span>`;
-  const d = daysUntil(m.echeance);
-  if (d < 0) return `<span class="due late" title="${fmtDate(m.echeance)}">Retard ${-d} j</span>`;
-  if (d === 0) return `<span class="due soon" title="${fmtDate(m.echeance)}">Aujourd'hui</span>`;
-  if (d <= 7) return `<span class="due soon" title="${fmtDate(m.echeance)}">Dans ${d} j</span>`;
-  return `<span class="due">${fmtDate(m.echeance)}</span>`;
+  // Retard et jours restants comptés depuis l'échéance effective (week-end ou jour férié : premier jour ouvré suivant)
+  const d = daysToDue(m);
+  const t = esc(dueTxt(m.echeance));
+  if (d < 0) return `<span class="due late" title="${t}">Retard ${-d} j</span>`;
+  if (d === 0) return `<span class="due soon" title="${t}">Aujourd'hui</span>`;
+  if (d <= 7) return `<span class="due soon" title="${t}">Dans ${d} j</span>`;
+  return `<span class="due" title="${t}">${fmtDate(effDue(m.echeance))}</span>`;
 }
 
 function missionRow(m, showClient) {

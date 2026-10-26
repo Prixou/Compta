@@ -395,7 +395,21 @@ function clientBySiren(siren) {
 }
 const templateById = (id) => data.templates.find((t) => t.id === id);
 const isOpen = (m) => m.statut !== 'termine';
-const isLate = (m) => isOpen(m) && !!m.echeance && daysUntil(m.echeance) < 0;
+// Échéance effective : une date qui tombe un samedi, un dimanche ou un jour férié est reportée au premier jour ouvré
+// suivant (règle des déclarations fiscales et sociales). La date saisie ou importée est conservée telle quelle.
+const effDueCache = new Map();
+function effDue(s) {
+  if (!s) return '';
+  let v = effDueCache.get(s);
+  if (v === undefined) effDueCache.set(s, (v = nextWorkingDay(s)));
+  return v;
+}
+const JOURS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+const jourOf = (s) => JOURS[parseYmd(s).getDay()];
+// « 17/11/2026 » ; échéance reportée : « 17/11/2026 (échéance du dimanche 15/11/2026 reportée au premier jour ouvré) »
+const dueTxt = (s) => (!s ? '' : effDue(s) === s ? fmtDate(s) : `${fmtDate(effDue(s))} (échéance du ${jourOf(s)} ${fmtDate(s)} reportée au premier jour ouvré)`);
+const daysToDue = (m) => daysUntil(effDue(m.echeance));
+const isLate = (m) => isOpen(m) && !!m.echeance && daysToDue(m) < 0;
 const byDue = (a, b) => (a.echeance || '9999').localeCompare(b.echeance || '9999');
 
 function progress(m) {
@@ -506,6 +520,18 @@ function piecesReceived(m) {
   if (done.length) toast(`Pièces reçues — ${done.join(' ; ')}.`);
 }
 
+// Échéance de l'occurrence suivante, à partir de la date légale (un report au jour ouvré suivant n'est pas reconduit) :
+// jour limite TVA du dossier pour la TVA, le 15 pour les acomptes et la CFE, sinon même jour quelques mois plus tard.
+function nextDue(m, months) {
+  if (!m.echeance) return '';
+  const d = addMonths(m.echeance, months);
+  const y = Number(d.slice(0, 4)), mo = Number(d.slice(5, 7)) - 1;
+  const c = clientById(m.clientId);
+  if (m.type === 'tva' && c && c.jourTva) return dayOfMonth(y, mo, c.jourTva);
+  if (['acompte_is', 'acompte_ca12', 'cfe'].includes(m.type)) return dayOfMonth(y, mo, 15);
+  return d;
+}
+
 function createNextOccurrence(m) {
   const months = RECURRENCE_MOIS[m.recurrence];
   if (!months || m.suiteCreee) return;
@@ -518,7 +544,7 @@ function createNextOccurrence(m) {
     createdAt: nowIso(),
     updatedAt: nowIso(),
     exercice,
-    echeance: m.echeance ? addMonths(m.echeance, months) : '',
+    echeance: nextDue(m, months),
     etapes: m.etapes.map((e) => ({ id: uid(), label: e.label, done: false, doneAt: null })),
   });
   delete next.tvaNet;

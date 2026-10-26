@@ -149,7 +149,7 @@ function buildIcs({ months, names, reminder, resp }) {
   const end = addMonths(today, months);
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const list = data.missions
-    .filter((m) => isOpen(m) && m.echeance && m.echeance >= today && m.echeance <= end)
+    .filter((m) => isOpen(m) && m.echeance && effDue(m.echeance) >= today && effDue(m.echeance) <= end)
     .filter((m) => {
       const c = clientById(m.clientId);
       return c && !c.archive && missionInPortfolio(m, resp);
@@ -163,8 +163,8 @@ function buildIcs({ months, names, reminder, resp }) {
       'BEGIN:VEVENT',
       `UID:${m.id}@suivi-dossiers`,
       `DTSTAMP:${stamp}`,
-      `DTSTART;VALUE=DATE:${m.echeance.replace(/-/g, '')}`,
-      `DTEND;VALUE=DATE:${addDays(m.echeance, 1).replace(/-/g, '')}`,
+      `DTSTART;VALUE=DATE:${effDue(m.echeance).replace(/-/g, '')}`,
+      `DTEND;VALUE=DATE:${addDays(effDue(m.echeance), 1).replace(/-/g, '')}`,
       `SUMMARY:${icsEscape(`${m.titre} — ${who}`)}`,
       `DESCRIPTION:${icsEscape(`Statut : ${STATUTS[m.statut]}${m.responsable ? `\nResponsable : ${m.responsable}` : ''}\nDétails dans l'application Suivi Dossiers.`)}`,
       'TRANSP:TRANSPARENT'
