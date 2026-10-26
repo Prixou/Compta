@@ -7,7 +7,10 @@
 #     facture de mars ouverte ;
 #   - FBETA (sur deux pages) : factures 1 000 et 2 500, LCR de 2 500 (montant identique), facture de 600 sur deux lignes,
 #     écart EI ignoré ;
-#   - FGAMMA : une facture, aucun lettrage possible.
+#   - FGAMMA : une facture, aucun lettrage possible ;
+#   - C0001 (client) : facture de 900 payée en trois fois (300, 250, 350) alors qu'une facture plus ancienne de 500 reste
+#     impayée (le cumul des plus anciennes ne tombe jamais juste) ;
+#   - FEPS : un virement de 500 règle deux factures (200 et 300), une facture plus ancienne de 1 000 restant ouverte.
 import sys, os, json
 
 OUTDIR = sys.argv[1] if len(sys.argv) > 1 else '.'
@@ -47,6 +50,19 @@ ACCOUNTS = [
     ]),
     ('FGAMMA', 'FOURNISSEUR GAMMA', [
         ('03/03/2026', 'B0007', 'AC', ['FOURNISSEUR GAMMA F-5'], 9990, 'C'),
+    ]),
+    ('C0001', 'CLIENT DELTA', [
+        ('05/01/2026', 'V0001', 'VT', ['CLIENT DELTA FACTURE 2026-010'], 50000, 'D'),
+        ('10/01/2026', 'V0002', 'VT', ['CLIENT DELTA FACTURE 2026-011'], 90000, 'D'),
+        ('15/01/2026', 'R0010', 'BQ', ['VIR CLIENT DELTA ACOMPTE 2026-011'], 30000, 'C'),
+        ('05/02/2026', 'R0011', 'BQ', ['VIR CLIENT DELTA 2026-011'], 25000, 'C'),
+        ('05/03/2026', 'R0012', 'BQ', ['CHQ CLIENT DELTA SOLDE 2026-011'], 35000, 'C'),
+    ]),
+    ('FEPS', 'FOURNISSEUR EPSILON', [
+        ('02/01/2026', 'B0010', 'AC', ['FOURNISSEUR EPSILON F-300'], 100000, 'C'),
+        ('01/02/2026', 'B0011', 'AC', ['FOURNISSEUR EPSILON F-301'], 20000, 'C'),
+        ('03/02/2026', 'B0012', 'AC', ['FOURNISSEUR EPSILON F-302'], 30000, 'C'),
+        ('10/02/2026', 'R0013', 'BQ', ['VIR FOURNISSEUR EPSILON F-301 F-302'], 50000, 'D'),
     ]),
 ]
 PAGE_BREAK_AFTER = ('FBETA', 3)  # le compte FBETA continue sur la page 2 après sa 3e écriture
@@ -138,10 +154,12 @@ with open(os.path.join(OUTDIR, 'grand-livre.pdf'), 'wb') as f:
 with open(os.path.join(OUTDIR, 'grand-livre.txt'), 'w', encoding='utf-8') as f:
     f.write('\n'.join(text_lines) + '\n')
 exp = {
-    'accounts': 3, 'lines': 12, 'groups': 3, 'lettered': 7, 'amount': 4950.00, 'open': 4,
+    'accounts': 5, 'lines': 21, 'groups': 5, 'lettered': 14, 'amount': 6350.00, 'open': 6,
     'byAccount': {'FALPHA': {'groups': 2, 'open': 1, 'methods': ["Plus anciennes d'abord", "Plus anciennes d'abord"]},
                   'FBETA': {'groups': 1, 'open': 2, 'skipped': 1, 'methods': ['Montant identique']},
-                  'FGAMMA': {'groups': 0, 'open': 1}},
+                  'FGAMMA': {'groups': 0, 'open': 1},
+                  'C0001': {'groups': 1, 'open': 1, 'methods': ['Plusieurs règlements'], 'sizes': [4]},
+                  'FEPS': {'groups': 1, 'open': 1, 'methods': ['Règlement de plusieurs factures'], 'sizes': [3]}},
 }
 with open(os.path.join(OUTDIR, 'attendu.json'), 'w', encoding='utf-8') as f:
     json.dump(exp, f, indent=1)

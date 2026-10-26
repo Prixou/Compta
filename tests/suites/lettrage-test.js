@@ -25,7 +25,7 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
     st.accs.forEach((a) => {
       a.groups.forEach((g) => { tot.groups++; tot.lettered += g.lines.length; tot.amount += g.lines.filter((x) => x.side === 'D').reduce((s, x) => s + x.a, 0) / 100; });
       tot.open += a.rest.length;
-      by[a.code] = { groups: a.groups.length, open: a.rest.length, skipped: a.skipped, methods: a.groups.map((g) => g.m), letters: a.groups.map((g) => g.l) };
+      by[a.code] = { groups: a.groups.length, open: a.rest.length, skipped: a.skipped, methods: a.groups.map((g) => g.m), letters: a.groups.map((g) => g.l), sizes: a.groups.map((g) => g.lines.length) };
     });
     return { tot, by, src: st.src, msg: st.msg };
   });
@@ -33,8 +33,8 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
     const t = s.tot;
     expect(t.accounts === EXP.accounts && t.lines === EXP.lines && t.groups === EXP.groups && t.lettered === EXP.lettered && Math.abs(t.amount - EXP.amount) < 0.01 && t.open === EXP.open,
       `${what} : ${EXP.groups} lettrages, ${EXP.lettered} écritures, ${EXP.amount} € lettrables, ${EXP.open} ouvertes`, JSON.stringify(t));
-    const ok = Object.entries(EXP.byAccount).every(([code, e]) => { const b = s.by[code]; return b && b.groups === e.groups && b.open === e.open && (e.skipped === undefined || b.skipped === e.skipped) && (!e.methods || e.methods.join() === b.methods.join()); });
-    expect(ok, `${what} : par compte, plus anciennes d'abord (FALPHA, à-nouveau compris), montant identique (FBETA), EI ignoré, compte continué sur la page suivante`, JSON.stringify(s.by));
+    const ok = Object.entries(EXP.byAccount).every(([code, e]) => { const b = s.by[code]; return b && b.groups === e.groups && b.open === e.open && (e.skipped === undefined || b.skipped === e.skipped) && (!e.methods || e.methods.join() === b.methods.join()) && (!e.sizes || e.sizes.join() === b.sizes.join()); });
+    expect(ok, `${what} : par compte, plus anciennes d'abord (FALPHA, à-nouveau compris), montant identique (FBETA), facture client payée en trois fois malgré une facture plus ancienne impayée (C0001), virement de deux factures (FEPS), EI ignoré, compte continué sur la page suivante`, JSON.stringify(s.by));
   };
 
   // 1. Grand livre PDF
@@ -43,11 +43,12 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   await pg.waitForFunction(() => ui.lett && ui.lett.status === 'done' && ui.lett.accs.length, null, { timeout: 15000 });
   await pg.waitForTimeout(200);
   check(await S(), 'grand livre PDF');
-  expect(await pg.$$eval('details.lett-acc', (x) => x.length) === 2, 'compte sans lettrage possible masqué');
+  expect(await pg.$$eval('details.lett-acc', (x) => x.length) === 4, 'compte sans lettrage possible masqué');
+  expect(await pg.$eval('details.lett-acc:has-text("C0001")', (x) => x.textContent.includes('dont 1 en plusieurs règlements') && x.textContent.includes('en plusieurs fois')), 'facture payée en plusieurs fois signalée');
   expect(await pg.$eval('details.lett-acc:has-text("FALPHA") .lett-l', (x) => x.textContent) === 'AA', 'lettres AA, AB… par compte');
   await pg.screenshot({ path: O + 'lettrage.png', fullPage: true });
   await pg.uncheck('input[data-lett=hide]'); await pg.waitForTimeout(150);
-  expect(await pg.$$eval('details.lett-acc', (x) => x.length) === 3, 'tous les comptes affichés quand la case est décochée');
+  expect(await pg.$$eval('details.lett-acc', (x) => x.length) === 5, 'tous les comptes affichés quand la case est décochée');
   await pg.fill('input[data-lett=q]', 'beta'); await pg.dispatchEvent('input[data-lett=q]', 'change'); await pg.waitForTimeout(150);
   expect(await pg.$$eval('details.lett-acc', (x) => x.length) === 1, 'recherche par compte ou nom');
   await pg.fill('input[data-lett=q]', ''); await pg.dispatchEvent('input[data-lett=q]', 'change'); await pg.waitForTimeout(150);

@@ -8,7 +8,9 @@
 // ---------- Lettrage proposé ----------
 // Compte par compte, les factures les plus anciennes sont réglées en premier : factures et règlements, triés par date,
 // sont cumulés tant que leurs totaux ne sont pas égaux ; à l'égalité, le groupe forme un lettrage. Les écritures restées
-// ouvertes sont ensuite rapprochées par montant identique (un règlement, une facture).
+// ouvertes (une facture ancienne impayée bloque le cumul) sont ensuite rapprochées : montant identique (un règlement, une
+// facture), puis facture réglée en plusieurs fois (plusieurs règlements dont la somme est son montant, les plus proches
+// de sa date d'abord), puis règlement de plusieurs factures.
 // Grand livre : « Compte <code> <nom> » ouvre chaque compte (répété en haut de page), puis une écriture par ligne (ou sur
 // plusieurs lignes) : date, pièce, journal, libellé, montant et solde progressif ; le sens se déduit de la variation du
 // solde. Un à-nouveau qui cite sa date et son journal d'origine (« 15/12/2025 -AC- ») les reprend. Seules les écritures
@@ -20,7 +22,7 @@
 const lettState = () => (ui.lett = ui.lett || { src: '', fileName: '', text: '', fec: null, accs: [], msg: '', hide: true, q: '', tiers: 'frs', status: 'idle', runId: 0 });
 function lettJournals() {
   const s = data.settings.lettrage || {};
-  return { ja: s.ja !== undefined ? s.ja : 'AC, AH, HA', jr: s.jr !== undefined ? s.jr : 'OD, BQ, LCR' };
+  return { ja: s.ja !== undefined ? s.ja : 'AC, AH, HA, VT, VE', jr: s.jr !== undefined ? s.jr : 'OD, BQ, LCR' };
 }
 const lettList = (s) => String(s || '').toUpperCase().split(/[,;\s]+/).filter(Boolean);
 const lettCents = (s) => Math.round(parseFloat(s.replace(/\s/g, '').replace(',', '.')) * 100);
@@ -98,12 +100,70 @@ function lettRun(a) {
   const rc = [...gc, ...C.slice(ic)], rd = [...gd, ...D.slice(id)];
   const used = new Set();
   rd.forEach((d) => { const k = rc.findIndex((c) => c.a === d.a); if (k >= 0) { const c = rc.splice(k, 1)[0]; used.add(d); a.groups.push({ l: nxt(), m: 'Montant identique', lines: [c, d] }); } });
-  a.rest = [...rc, ...rd.filter((d) => !used.has(d))];
+  // Une écriture d'un côté, plusieurs de l'autre : facture réglée en plusieurs fois, puis règlement de plusieurs factures
+  const open = [...rc, ...rd.filter((d) => !used.has(d))].sort(key);
+  const done = new Set();
+  // Compte très chargé (compte collectif « clients divers », ventes en carte) : deux règlements par facture au plus, parmi
+  // les dix plus proches, sauf s'ils citent sa référence ou son nom ; sinon jusqu'à quatre parmi vingt. Une somme exacte de
+  // nombreux règlements a d'autant plus de chances de tomber juste par hasard qu'il y a d'écritures ouvertes.
+  const crowded = open.length > 80;
+  [['achat', 'reglement', 'Plusieurs règlements'], ['reglement', 'achat', 'Règlement de plusieurs factures']].forEach(([one, many, m]) => {
+    open.filter((x) => x.type === one).forEach((x) => {
+      if (done.has(x)) return;
+      // Règlements d'un an avant (acomptes) à six mois après la facture ; factures d'un an avant à un mois après le
+      // règlement. Ceux qui citent la même référence ou le même nom d'abord, puis les plus proches en date.
+      const days = (y) => (Date.parse(y.d) - Date.parse(x.d)) / 864e5 * (one === 'achat' ? 1 : -1);
+      const [lo, hi] = one === 'achat' ? [-366, 183] : [-31, 366];
+      const dated = !x.d.startsWith('0000');
+      const tx = lettTok(x.label);
+      const near = (y) => { for (const w of lettTok(y.label)) if (tx.has(w)) return 1; return 0; };
+      const cands = open.filter((y) => !done.has(y) && y.type === many && y.side !== x.side && y.a < x.a && (!dated || y.d.startsWith('0000') || (days(y) >= lo && days(y) <= hi)))
+        .map((y) => ({ y, s: near(y), dd: Math.abs(days(y) || 0) }));
+      cands.sort((p, q) => q.s - p.s || p.dd - q.dd || p.y.i - q.y.i);
+      const cited = cands.filter((c) => c.s);
+      const pick = (cited.length >= 2 && lettSubset(x.a, cited.slice(0, 20).map((c) => c.y), 4))
+        || lettSubset(x.a, cands.slice(0, crowded ? 10 : 20).map((c) => c.y), crowded ? 2 : 4);
+      if (!pick) return;
+      done.add(x);
+      pick.forEach((y) => done.add(y));
+      a.groups.push({ l: nxt(), m, lines: [x, ...pick] });
+    });
+  });
+  a.rest = open.filter((x) => !done.has(x));
   a.bal = L.reduce((s, x) => s + (x.side === 'D' ? x.a : -x.a), 0);
   a.skipped = a.lines.filter((x) => x.type === 'autre').length;
   a.map = new Map();
   a.groups.forEach((g) => g.lines.forEach((x) => a.map.set(x, g)));
   return a;
+}
+
+// Mots qui rapprochent une facture de ses règlements : nom (au moins 4 lettres), référence (au moins 3 chiffres :
+// « F100 », « 2026-011 », hors années seules), hors mots courants des libellés de règlement
+const LETT_STOP = new Set(['facture', 'factures', 'client', 'clients', 'fournisseur', 'virement', 'sepa', 'cheque', 'paiement', 'reglement', 'acompte', 'solde', 'remise', 'recu', 'prlv', 'prelevement', 'avoir', 'divers', 'carte']);
+const lettTok = (s) => new Set(norm(s).replace(/[^a-z0-9]+/g, ' ').split(' ').filter((w) => ((/\d{3,}/.test(w) && !/^(19|20)\d\d$/.test(w)) || (w.length >= 4 && !/\d/.test(w))) && !LETT_STOP.has(w)));
+
+// Sous-ensemble de `cands` (dans l'ordre de préférence) dont la somme fait exactement `target` (centimes) : au plus
+// maxK écritures, recherche bornée (le premier trouvé, donc le plus proche en date, est retenu).
+function lettSubset(target, cands, maxK = 6, budget = 30000) {
+  const suf = [];
+  for (let i = cands.length - 1, t = 0; i >= 0; i--) { t += cands[i].a; suf[i] = t; }
+  const pick = [];
+  let steps = 0;
+  // Exactement k écritures, pour k = 2, 3… : la solution la plus courte d'abord
+  const dfs = (i, rem, k) => {
+    if (pick.length === k) return rem === 0;
+    if (i >= cands.length || suf[i] < rem) return false;
+    for (let j = i; j <= cands.length - (k - pick.length); j++) {
+      if (++steps > budget) return false;
+      if (cands[j].a > rem) continue;
+      pick.push(cands[j]);
+      if (dfs(j + 1, rem - cands[j].a, k)) return true;
+      pick.pop();
+    }
+    return false;
+  };
+  for (let k = 2; k <= Math.min(maxK, cands.length); k++) if (dfs(0, target, k)) return pick.slice();
+  return null;
 }
 
 // Calcul d'après la source chargée (grand livre ou FEC) et les journaux indiqués
@@ -192,10 +252,10 @@ function viewLettrage() {
   const q = norm(st.q || '');
   const shown = accs.filter((a) => a.lines.length && (!st.hide || a.groups.length) && (!q || norm(`${a.code} ${a.name}`).includes(q)));
   const openFec = ui.fec && ui.fec.result && ui.fec.result.lettOpen ? ui.fec.result.meta.fileName : '';
-  const kindOf = (x, g) => (g ? `<span class="lett-l" title="${esc(g.m)}">${esc(g.l)}</span>` : x.type === 'autre' ? '<span class="muted" title="Journal ni d\'achat ni de règlement : non lettré">—</span>' : '<span class="lett-open">ouvert</span>');
+  const kindOf = (x, g) => (g ? `<span class="lett-l" title="${esc(g.m)}">${esc(g.l)}</span>${g.m === 'Plusieurs règlements' || g.m === 'Règlement de plusieurs factures' ? ` <span class="muted small">${g.m === 'Plusieurs règlements' ? 'en plusieurs fois' : 'plusieurs factures'}</span>` : ''}` : x.type === 'autre' ? '<span class="muted" title="Journal ni d\'achat ni de règlement : non lettré">—</span>' : '<span class="lett-open">ouvert</span>');
   return `<div class="page-head"><h1>Lettrage des comptes de tiers</h1>
       <div class="head-actions">${accs.some((a) => a.groups.length) ? '<button class="btn" data-action="lett-copy">Copier les lettrages (tableur)</button><button class="btn" data-action="lett-xlsx">Exporter en Excel</button>' : ''}${st.src ? '<button class="btn" data-action="lett-clear">Effacer</button>' : ''}</div></div>
-    <p class="muted">Chargez le grand livre non lettré (PDF de l'édition « Grands-livres », ou son texte) ou un FEC : l'outil propose, compte par compte, les écritures à lettrer en réglant d'abord les factures les plus anciennes, puis en rapprochant les montants identiques. Rien n'est envoyé ni conservé.</p>
+    <p class="muted">Chargez le grand livre non lettré (PDF de l'édition « Grands-livres », ou son texte) ou un FEC : l'outil propose, compte par compte, les écritures à lettrer en réglant d'abord les factures les plus anciennes, puis en rapprochant les montants identiques, les factures réglées en plusieurs fois et les règlements de plusieurs factures. Rien n'est envoyé ni conservé.</p>
     <div class="fec-drop card" data-action="lett-pick" role="button" tabindex="0">
       ${icon('file', 'fec-drop-ico')}
       <p><strong>${st.fileName ? esc(st.fileName) : 'Sélectionnez ou déposez ici le grand livre (PDF, texte) ou un FEC'}</strong></p>
@@ -224,7 +284,7 @@ function viewLettrage() {
     ${shown.map((a) => {
       const ok = !a.rest.length && a.groups.length;
       const rows = a.lines.slice().sort((x, y) => (x.d < y.d ? -1 : x.d > y.d ? 1 : x.i - y.i));
-      return `<details class="card lett-acc"${ok ? '' : ' open'}><summary><strong>${esc(a.code)}</strong> <span class="muted">${esc(a.name)} · ${a.groups.length} lettrage(s) · ${a.rest.length} ouverte(s)</span> <span class="badge ${ok ? 'ok' : 'wait'}">${ok ? 'Soldé' : `Solde ouvert ${lettFmt(Math.abs(a.bal))} €`}</span></summary>
+      return `<details class="card lett-acc"${ok ? '' : ' open'}><summary><strong>${esc(a.code)}</strong> <span class="muted">${esc(a.name)} · ${a.groups.length} lettrage(s)${(() => { const k = a.groups.filter((g) => g.m === 'Plusieurs règlements').length; return k ? ` dont ${k} en plusieurs règlements` : ''; })()} · ${a.rest.length} ouverte(s)</span> <span class="badge ${ok ? 'ok' : 'wait'}">${ok ? 'Soldé' : `Solde ouvert ${lettFmt(Math.abs(a.bal))} €`}</span></summary>
         <div class="grid-wrap"><table class="dtable lett-t"><thead><tr><th>Lettre</th><th>Date</th><th>Jnl</th><th>Libellé</th><th class="n">Débit</th><th class="n">Crédit</th></tr></thead><tbody>
         ${rows.map((x) => { const g = a.map.get(x); return `<tr class="${x.type === 'autre' ? 'muted' : g ? '' : 'lett-o'}"><td>${kindOf(x, g)}</td><td>${esc(x.date)}</td><td>${esc(x.j)}</td><td class="lbl">${esc(x.label)}</td><td class="n">${x.side === 'D' ? lettFmt(x.a) : ''}</td><td class="n">${x.side === 'C' ? lettFmt(x.a) : ''}</td></tr>`; }).join('')}
         </tbody></table></div>${a.skipped ? `<p class="muted small">${a.skipped} écriture(s) hors journaux d'achat et de règlement, non lettrée(s).</p>` : ''}</details>`;
