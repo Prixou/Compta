@@ -7,10 +7,14 @@
 #     facture de mars ouverte ;
 #   - FBETA (sur deux pages) : factures 1 000 et 2 500, LCR de 2 500 (montant identique), facture de 600 sur deux lignes,
 #     écart EI ignoré ;
-#   - FGAMMA : une facture, aucun lettrage possible ;
+#   - FGAMMA : facture de 99,90 et règlement du même montant daté deux jours avant : pas de lettrage (un règlement ne
+#     solde pas une facture postérieure) ;
 #   - C0001 (client) : facture de 900 payée en trois fois (300, 250, 350) alors qu'une facture plus ancienne de 500 reste
-#     impayée (le cumul des plus anciennes ne tombe jamais juste) ;
-#   - FEPS : un virement de 500 règle deux factures (200 et 300), une facture plus ancienne de 1 000 restant ouverte.
+#     impayée (le cumul des plus anciennes ne tombe jamais juste) ; paiement de 120 deux jours avant la facture de 120 :
+#     pas de lettrage ;
+#   - FEPS : un virement de 500 règle deux factures de février (200 et 300), une facture plus ancienne de 1 000 restant
+#     ouverte ; un virement de 400 ferait le total de deux factures de mois différents (150 en février, 250 en mars) : pas
+#     de lettrage.
 import sys, os, json
 
 OUTDIR = sys.argv[1] if len(sys.argv) > 1 else '.'
@@ -49,6 +53,7 @@ ACCOUNTS = [
         ('25/02/2026', 'OD0001', 'EI', ['ECART DE CONVERSION'], 50, 'C'),
     ]),
     ('FGAMMA', 'FOURNISSEUR GAMMA', [
+        ('01/03/2026', 'R0009', 'BQ', ['VIR FOURNISSEUR GAMMA F-5'], 9990, 'D'),
         ('03/03/2026', 'B0007', 'AC', ['FOURNISSEUR GAMMA F-5'], 9990, 'C'),
     ]),
     ('C0001', 'CLIENT DELTA', [
@@ -57,12 +62,17 @@ ACCOUNTS = [
         ('15/01/2026', 'R0010', 'BQ', ['VIR CLIENT DELTA ACOMPTE 2026-011'], 30000, 'C'),
         ('05/02/2026', 'R0011', 'BQ', ['VIR CLIENT DELTA 2026-011'], 25000, 'C'),
         ('05/03/2026', 'R0012', 'BQ', ['CHQ CLIENT DELTA SOLDE 2026-011'], 35000, 'C'),
+        ('18/03/2026', 'R0014', 'BQ', ['VIR CLIENT DELTA 2026-012'], 12000, 'C'),
+        ('20/03/2026', 'V0003', 'VT', ['CLIENT DELTA FACTURE 2026-012'], 12000, 'D'),
     ]),
     ('FEPS', 'FOURNISSEUR EPSILON', [
         ('02/01/2026', 'B0010', 'AC', ['FOURNISSEUR EPSILON F-300'], 100000, 'C'),
         ('01/02/2026', 'B0011', 'AC', ['FOURNISSEUR EPSILON F-301'], 20000, 'C'),
         ('03/02/2026', 'B0012', 'AC', ['FOURNISSEUR EPSILON F-302'], 30000, 'C'),
         ('10/02/2026', 'R0013', 'BQ', ['VIR FOURNISSEUR EPSILON F-301 F-302'], 50000, 'D'),
+        ('25/02/2026', 'B0013', 'AC', ['FOURNISSEUR EPSILON F-303'], 15000, 'C'),
+        ('02/03/2026', 'B0014', 'AC', ['FOURNISSEUR EPSILON F-304'], 25000, 'C'),
+        ('10/03/2026', 'R0015', 'BQ', ['VIR FOURNISSEUR EPSILON'], 40000, 'D'),
     ]),
 ]
 PAGE_BREAK_AFTER = ('FBETA', 3)  # le compte FBETA continue sur la page 2 après sa 3e écriture
@@ -154,12 +164,12 @@ with open(os.path.join(OUTDIR, 'grand-livre.pdf'), 'wb') as f:
 with open(os.path.join(OUTDIR, 'grand-livre.txt'), 'w', encoding='utf-8') as f:
     f.write('\n'.join(text_lines) + '\n')
 exp = {
-    'accounts': 5, 'lines': 21, 'groups': 5, 'lettered': 14, 'amount': 6350.00, 'open': 6,
+    'accounts': 5, 'lines': 27, 'groups': 5, 'lettered': 14, 'amount': 6350.00, 'open': 12,
     'byAccount': {'FALPHA': {'groups': 2, 'open': 1, 'methods': ["Plus anciennes d'abord", "Plus anciennes d'abord"]},
                   'FBETA': {'groups': 1, 'open': 2, 'skipped': 1, 'methods': ['Montant identique']},
-                  'FGAMMA': {'groups': 0, 'open': 1},
-                  'C0001': {'groups': 1, 'open': 1, 'methods': ['Plusieurs règlements'], 'sizes': [4]},
-                  'FEPS': {'groups': 1, 'open': 1, 'methods': ['Règlement de plusieurs factures'], 'sizes': [3]}},
+                  'FGAMMA': {'groups': 0, 'open': 2},
+                  'C0001': {'groups': 1, 'open': 3, 'methods': ['Plusieurs règlements'], 'sizes': [4]},
+                  'FEPS': {'groups': 1, 'open': 4, 'methods': ['Règlement de plusieurs factures'], 'sizes': [3]}},
 }
 with open(os.path.join(OUTDIR, 'attendu.json'), 'w', encoding='utf-8') as f:
     json.dump(exp, f, indent=1)

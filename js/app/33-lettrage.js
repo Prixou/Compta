@@ -10,7 +10,8 @@
 // sont cumulés tant que leurs totaux ne sont pas égaux ; à l'égalité, le groupe forme un lettrage. Les écritures restées
 // ouvertes (une facture ancienne impayée bloque le cumul) sont ensuite rapprochées : montant identique (un règlement, une
 // facture), puis facture réglée en plusieurs fois (plusieurs règlements dont la somme est son montant, les plus proches
-// de sa date d'abord), puis règlement de plusieurs factures.
+// de sa date d'abord), puis règlement de plusieurs factures d'un même mois. Un règlement n'est jamais lettré avec une
+// facture postérieure.
 // Grand livre : « Compte <code> <nom> » ouvre chaque compte (répété en haut de page), puis une écriture par ligne (ou sur
 // plusieurs lignes) : date, pièce, journal, libellé, montant et solde progressif ; le sens se déduit de la variation du
 // solde. Un à-nouveau qui cite sa date et son journal d'origine (« 15/12/2025 -AC- ») les reprend. Seules les écritures
@@ -86,48 +87,88 @@ function lettFromFec(open, JA, JR, tiers) {
 function lettRun(a) {
   const L = a.lines.filter((x) => x.type !== 'autre');
   const key = (x, y) => (x.d < y.d ? -1 : x.d > y.d ? 1 : x.i - y.i);
+  // Côté des factures : celui des écritures d'achat (fournisseur : crédit) ou de vente (client : débit). Un règlement est
+  // de l'autre côté ; un avoir aussi, mais sans contrainte de date.
+  const tot = { C: 0, D: 0 };
+  L.forEach((x) => { if (x.type === 'achat') tot[x.side] += x.a; });
+  const invSide = tot.D > tot.C ? 'D' : 'C';
+  const isInv = (x) => x.side === invSide;
+  const isPay = (x) => !isInv(x) && x.type === 'reglement';
+  // Un règlement ne solde que des factures datées au plus tard de son jour (factures soldées dans l'ordre, plus anciennes
+  // d'abord)
+  const inOrder = (lines) => {
+    const inv = lines.filter(isInv).sort(key), pay = lines.filter((x) => !isInv(x)).sort(key);
+    let k = 0, left = inv.length ? inv[0].a : 0;
+    for (const p of pay) {
+      let amt = p.a;
+      while (amt > 0 && k < inv.length) {
+        if (isPay(p) && p.d < inv[k].d) return false;
+        const t = Math.min(amt, left);
+        amt -= t;
+        left -= t;
+        if (!left) { k++; left = k < inv.length ? inv[k].a : 0; }
+      }
+    }
+    return true;
+  };
   const C = L.filter((x) => x.side === 'C').sort(key), D = L.filter((x) => x.side === 'D').sort(key);
   let n = 0;
   const nxt = () => { const k = n++; return String.fromCharCode(65 + (Math.floor(k / 26) % 26)) + String.fromCharCode(65 + (k % 26)); };
   a.groups = [];
+  const rejected = [];
   let ic = 0, id = 0, sc = 0, sd = 0, gc = [], gd = [];
   while (ic < C.length || id < D.length) {
     if (sc <= sd && ic < C.length) { sc += C[ic].a; gc.push(C[ic++]); }
     else if (id < D.length) { sd += D[id].a; gd.push(D[id++]); }
     else break;
-    if (sc === sd && gc.length && gd.length) { a.groups.push({ l: nxt(), m: 'Plus anciennes d\'abord', lines: [...gc, ...gd] }); gc = []; gd = []; sc = sd = 0; }
+    if (sc === sd && gc.length && gd.length) {
+      const g = [...gc, ...gd];
+      if (inOrder(g)) a.groups.push({ l: nxt(), m: 'Plus anciennes d\'abord', lines: g });
+      else rejected.push(...g);
+      gc = []; gd = []; sc = sd = 0;
+    }
   }
-  const rc = [...gc, ...C.slice(ic)], rd = [...gd, ...D.slice(id)];
-  const used = new Set();
-  rd.forEach((d) => { const k = rc.findIndex((c) => c.a === d.a); if (k >= 0) { const c = rc.splice(k, 1)[0]; used.add(d); a.groups.push({ l: nxt(), m: 'Montant identique', lines: [c, d] }); } });
-  // Une écriture d'un côté, plusieurs de l'autre : facture réglée en plusieurs fois, puis règlement de plusieurs factures
-  const open = [...rc, ...rd.filter((d) => !used.has(d))].sort(key);
+  const open = [...rejected, ...gc, ...C.slice(ic), ...gd, ...D.slice(id)].sort(key);
   const done = new Set();
-  // Compte très chargé (compte collectif « clients divers », ventes en carte) : deux règlements par facture au plus, parmi
-  // les dix plus proches, sauf s'ils citent sa référence ou son nom ; sinon jusqu'à quatre parmi vingt. Une somme exacte de
-  // nombreux règlements a d'autant plus de chances de tomber juste par hasard qu'il y a d'écritures ouvertes.
-  const crowded = open.length > 80;
-  [['achat', 'reglement', 'Plusieurs règlements'], ['reglement', 'achat', 'Règlement de plusieurs factures']].forEach(([one, many, m]) => {
-    open.filter((x) => x.type === one).forEach((x) => {
-      if (done.has(x)) return;
-      // Règlements d'un an avant (acomptes) à six mois après la facture ; factures d'un an avant à un mois après le
-      // règlement. Ceux qui citent la même référence ou le même nom d'abord, puis les plus proches en date.
-      const days = (y) => (Date.parse(y.d) - Date.parse(x.d)) / 864e5 * (one === 'achat' ? 1 : -1);
-      const [lo, hi] = one === 'achat' ? [-366, 183] : [-31, 366];
-      const dated = !x.d.startsWith('0000');
-      const tx = lettTok(x.label);
-      const near = (y) => { for (const w of lettTok(y.label)) if (tx.has(w)) return 1; return 0; };
-      const cands = open.filter((y) => !done.has(y) && y.type === many && y.side !== x.side && y.a < x.a && (!dated || y.d.startsWith('0000') || (days(y) >= lo && days(y) <= hi)))
-        .map((y) => ({ y, s: near(y), dd: Math.abs(days(y) || 0) }));
-      cands.sort((p, q) => q.s - p.s || p.dd - q.dd || p.y.i - q.y.i);
-      const cited = cands.filter((c) => c.s);
-      const pick = (cited.length >= 2 && lettSubset(x.a, cited.slice(0, 20).map((c) => c.y), 4))
-        || lettSubset(x.a, cands.slice(0, crowded ? 10 : 20).map((c) => c.y), crowded ? 2 : 4);
-      if (!pick) return;
-      done.add(x);
-      pick.forEach((y) => done.add(y));
-      a.groups.push({ l: nxt(), m, lines: [x, ...pick] });
-    });
+  const take = (m, lines) => { lines.forEach((y) => done.add(y)); a.groups.push({ l: nxt(), m, lines }); };
+  const ok = (p, f) => !isPay(p) || p.d >= f.d;
+  // Montant identique : la facture la plus ancienne de ce montant, datée au plus tard du règlement
+  open.filter((x) => !isInv(x)).forEach((p) => {
+    const f = open.find((y) => isInv(y) && !done.has(y) && y.a === p.a && ok(p, y));
+    if (f) take('Montant identique', [f, p]);
+  });
+  // Compte très chargé (compte collectif « clients divers », ventes en carte) : peu d'écritures par lettrage, sauf si
+  // elles citent la référence ou le nom ; une somme exacte de nombreuses écritures a d'autant plus de chances de tomber
+  // juste par hasard qu'il y a d'écritures ouvertes.
+  const crowded = open.filter((x) => !done.has(x)).length > 80;
+  const days = (from, to) => (Date.parse(to) - Date.parse(from)) / 864e5;
+  const ranked = (x, list) => {
+    const tx = lettTok(x.label);
+    const cite = (y) => { for (const w of lettTok(y.label)) if (tx.has(w)) return 1; return 0; };
+    return list.map((y) => ({ y, s: cite(y), dd: Math.abs(days(x.d, y.d) || 0) })).sort((p, q) => q.s - p.s || p.dd - q.dd || p.y.i - q.y.i);
+  };
+  // Facture réglée en plusieurs fois : règlements du jour de la facture à six mois après
+  open.filter((x) => isInv(x) && x.type === 'achat').forEach((f) => {
+    if (done.has(f)) return;
+    const cands = ranked(f, open.filter((y) => isPay(y) && !done.has(y) && y.a < f.a && y.d >= f.d && (f.d.startsWith('0000') || days(f.d, y.d) <= 183)));
+    const cited = cands.filter((c) => c.s);
+    const pick = (cited.length >= 2 && lettSubset(f.a, cited.slice(0, 20).map((c) => c.y), 4))
+      || lettSubset(f.a, cands.slice(0, crowded ? 10 : 20).map((c) => c.y), crowded ? 2 : 4);
+    if (pick) take('Plusieurs règlements', [f, ...pick]);
+  });
+  // Règlement de plusieurs factures d'un même mois, toutes datées au plus tard du règlement (d'un an avant au plus) :
+  // le mois le plus proche d'abord ; toutes les factures ouvertes du mois quand leur total fait le règlement.
+  open.filter((x) => isPay(x)).forEach((p) => {
+    if (done.has(p)) return;
+    const byMonth = new Map();
+    open.filter((y) => isInv(y) && !done.has(y) && y.a < p.a && y.d <= p.d && (y.d.startsWith('0000') || days(y.d, p.d) <= 366))
+      .forEach((y) => { const k = y.d.slice(0, 7); (byMonth.get(k) || byMonth.set(k, []).get(k)).push(y); });
+    for (const month of Array.from(byMonth.keys()).sort().reverse()) {
+      const list = byMonth.get(month);
+      if (list.length < 2) continue;
+      const pick = list.reduce((t, y) => t + y.a, 0) === p.a ? list : lettSubset(p.a, ranked(p, list).map((c) => c.y), crowded ? 2 : 8);
+      if (pick) { take('Règlement de plusieurs factures', [p, ...pick]); break; }
+    }
   });
   a.rest = open.filter((x) => !done.has(x));
   a.bal = L.reduce((s, x) => s + (x.side === 'D' ? x.a : -x.a), 0);

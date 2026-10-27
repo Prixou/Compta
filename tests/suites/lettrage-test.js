@@ -34,7 +34,7 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
     expect(t.accounts === EXP.accounts && t.lines === EXP.lines && t.groups === EXP.groups && t.lettered === EXP.lettered && Math.abs(t.amount - EXP.amount) < 0.01 && t.open === EXP.open,
       `${what} : ${EXP.groups} lettrages, ${EXP.lettered} écritures, ${EXP.amount} € lettrables, ${EXP.open} ouvertes`, JSON.stringify(t));
     const ok = Object.entries(EXP.byAccount).every(([code, e]) => { const b = s.by[code]; return b && b.groups === e.groups && b.open === e.open && (e.skipped === undefined || b.skipped === e.skipped) && (!e.methods || e.methods.join() === b.methods.join()) && (!e.sizes || e.sizes.join() === b.sizes.join()); });
-    expect(ok, `${what} : par compte, plus anciennes d'abord (FALPHA, à-nouveau compris), montant identique (FBETA), facture client payée en trois fois malgré une facture plus ancienne impayée (C0001), virement de deux factures (FEPS), EI ignoré, compte continué sur la page suivante`, JSON.stringify(s.by));
+    expect(ok, `${what} : par compte, plus anciennes d'abord (FALPHA, à-nouveau compris), montant identique (FBETA), facture client payée en trois fois malgré une facture plus ancienne impayée (C0001), virement de deux factures du même mois (FEPS), jamais de règlement avant sa facture (FGAMMA, C0001) ni de factures de mois différents (FEPS), EI ignoré, compte continué sur la page suivante`, JSON.stringify(s.by));
   };
 
   // 1. Grand livre PDF

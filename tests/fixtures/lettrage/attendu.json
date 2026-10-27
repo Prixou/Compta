@@ -1,10 +1,10 @@
 {
  "accounts": 5,
- "lines": 21,
+ "lines": 27,
  "groups": 5,
  "lettered": 14,
  "amount": 6350.0,
- "open": 6,
+ "open": 12,
  "byAccount": {
   "FALPHA": {
    "groups": 2,
@@ -24,11 +24,11 @@
   },
   "FGAMMA": {
    "groups": 0,
-   "open": 1
+   "open": 2
   },
   "C0001": {
    "groups": 1,
-   "open": 1,
+   "open": 3,
    "methods": [
     "Plusieurs r\u00e8glements"
    ],
@@ -38,7 +38,7 @@
   },
   "FEPS": {
    "groups": 1,
-   "open": 1,
+   "open": 4,
    "methods": [
     "R\u00e8glement de plusieurs factures"
    ],
