@@ -283,27 +283,18 @@ function chkTreso(r, ref, coh) {
       else out.add('ok', 'Valeurs mobilières justifiées par leur valorisation', `Valeur à la clôture ${eur(val)} € pour ${eur(tot)} € inscrits${dep >= 0.01 ? `, dépréciation ${eur(dep)} €` : ''}.`);
     } else out.add('info', `Valeurs mobilières de placement : ${eur(tot, 0)} €`, "À justifier par le document de valorisation à la date de clôture : saisissez la valeur de chaque compte dans « Comptes du cycle » (moins-value latente à déprécier en 590, plus-value latente non comptabilisée).");
   }
-  // Compte courant d'associé : jamais débiteur, ni à la fin de la période (compte par compte) ni en cours d'exercice (solde
-  // de fin de journée des comptes 455 cumulés, d'après leurs écritures)
+  // Compte courant d'associé et caisse : contrôlés sur leur solde à la date de révision (fin de la période du FEC)
   const ccaEnd = balOf(r, ['455']).filter((b) => b.s >= 0.01);
-  const ccaLines = ((r.pieces && r.pieces.cca) || []).slice().sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
-  const per = [];
-  let cs = sums(r).opening(['455']), from = '', max = 0, maxD = '';
-  ccaLines.forEach((l, i) => {
-    cs += l.d - l.c;
-    if (ccaLines[i + 1] && ccaLines[i + 1].date === l.date) return;
-    if (cs >= 0.01) { if (!from) { from = l.date; max = 0; } if (cs > max) { max = cs; maxD = l.date; } }
-    else if (from) { per.push(`Débiteur du ${fmtDate(from)} au ${fmtDate(addDays(l.date, -1))}, jusqu'à ${eur(max)} € le ${fmtDate(maxD)}`); from = ''; }
-  });
-  if (from && !ccaEnd.length) per.push(`Débiteur depuis le ${fmtDate(from)}, jusqu'à ${eur(max)} € le ${fmtDate(maxD)}`);
-  if (ccaEnd.length || per.length) out.add('error', "Compte courant d'associé débiteur", "Un compte courant d'associé ne doit jamais être débiteur, même quelques jours : avance interdite aux associés personnes physiques des SARL et aux dirigeants des SA et SAS (art. L223-21, L225-43 et L227-12 du code de commerce), risque d'abus de biens sociaux et de réintégration fiscale.", ccaEnd.map((b) => `${b.compte} ${b.lib} : solde débiteur de ${eur(b.s)} € à la fin de la période`).concat(per), { full: ccaLines.length < 300 });
-  else if (balOf(r, ['455']).length) out.add('ok', "Compte courant d'associé jamais débiteur", ccaLines.length >= 300 ? "Solde créditeur ou nul à la fin de la période (contrôle en cours d'exercice sur les 300 premières écritures)." : "Solde créditeur ou nul tout au long de la période.");
+  if (ccaEnd.length) out.add('error', "Compte courant d'associé débiteur", "Un compte courant d'associé ne doit pas être débiteur à la date de révision : avance interdite aux associés personnes physiques des SARL et aux dirigeants des SA et SAS (art. L223-21, L225-43 et L227-12 du code de commerce), risque d'abus de biens sociaux et de réintégration fiscale.", ccaEnd.map((b) => `${b.compte} ${b.lib} : solde débiteur de ${eur(b.s)} €`));
+  else if (balOf(r, ['455']).length) out.add('ok', "Compte courant d'associé non débiteur", 'Solde créditeur ou nul à la date de révision.');
   const banks = t.accounts.filter((a) => /^51[2-9]/.test(a.compte));
   banks.filter((a) => a.negDays > 0).forEach((a) => out.add(a.negDays > 30 ? 'warn' : 'info', `Découvert : ${a.lib || a.compte}`, `${a.negDays} jour(s) à découvert en comptabilité, plus bas ${eur(a.min)} € le ${fmtDate(a.minDate)} : autorisation de découvert, agios et rapprochement à vérifier.`));
   if (banks.length && !banks.some((a) => a.negDays)) out.add('ok', 'Aucun découvert bancaire en comptabilité', `${banks.length} compte(s) bancaire(s) toujours créditeurs.`);
   if (t.cash.n) out.add('warn', 'Opérations en espèces de 1 000 € ou plus', `${t.cash.n} opération(s), ${eur(t.cash.total, 0)} € : paiement en espèces limité à 1 000 € entre professionnels et avec les particuliers résidents (art. L112-6 et D112-3 du code monétaire et financier), amende jusqu'à 5 % des sommes.`, t.cash.ex, { full: t.cash.ex.length >= t.cash.n });
   else if (t.accounts.some((a) => a.compte.startsWith('53'))) out.add('ok', 'Pas de paiement en espèces de 1 000 € ou plus', '');
   const caisses = t.accounts.filter((a) => a.compte.startsWith('53'));
+  const neg = caisses.filter((a) => a.solde <= -0.01);
+  if (neg.length) out.add('error', 'Caisse créditrice', 'Une caisse ne peut pas être créditrice à la date de révision : recettes non comptabilisées ou dépenses en trop, risque de rejet de comptabilité.', neg.map((a) => `${a.compte} ${a.lib} : ${eur(a.solde)} €`));
   const high = caisses.filter((a) => a.solde > 10000);
   if (high.length) out.add('warn', 'Solde de caisse élevé', "Plus de 10 000 € d'espèces en caisse, montant inhabituel : à justifier par le procès-verbal de caisse (remises en banque, recettes ou dépenses non comptabilisées ?).", high.map((a) => `${a.compte} ${a.lib} : ${eur(a.solde)} €`));
   caisses.filter((a) => a.last && Math.abs(a.solde) >= 1 && daysUntilFrom(a.last, ref) > 60).forEach((a) => out.add('info', `Caisse sans mouvement depuis le ${fmtDate(a.last)}`, `${a.lib} : solde de ${eur(a.solde)} € inchangé : espèces réellement détenues ?`));
@@ -528,7 +519,7 @@ function viewTreso() {
       ${kpiTile('Jours de découvert', neg, neg ? 'kpi-wait' : '')}
       ${kpiTile('Frais et agios bancaires', eurK(mv(['627', '6615'])), '', prev ? eurK(sums(prev).mv(['627', '6615'])) : null)}
     </div>
-    ${cycleHead('treso', "Banques justifiées par le relevé à la date de clôture, emprunts par leur tableau d'amortissement (capital restant dû), caisse par le procès-verbal (10 000 € au plus), valeurs mobilières par leur valorisation, compte courant d'associé jamais débiteur ; découverts, espèces de 1 000 € ou plus, comptes dormants. Le rapprochement détaillé avec le relevé se fait dans l'onglet Rapprochement.")}
+    ${cycleHead('treso', "Banques justifiées par le relevé à la date de clôture, emprunts par leur tableau d'amortissement (capital restant dû), caisse par le procès-verbal (ni créditrice ni au-delà de 10 000 €), valeurs mobilières par leur valorisation, compte courant d'associé non débiteur à la date de révision ; découverts, espèces de 1 000 € ou plus, comptes dormants. Le rapprochement détaillé avec le relevé se fait dans l'onglet Rapprochement.")}
     ${r.monthly.length ? `<section class="card"><h2>Encaissements et décaissements par mois</h2>
       ${legend([['--series-1', 'Encaissements'], ['--series-2', 'Décaissements']])}
       ${barChart(r.monthly, [{ key: 'enc', label: 'Encaissements', color: '--series-1' }, { key: 'dec', label: 'Décaissements', color: '--series-2' }], { aria: 'Encaissements et décaissements par mois', xLabel: (x) => moisLabel(x.mois), tipTitle: (x) => moisLabel(x.mois).replace(/ \d+$/, '') + ' ' + x.mois.slice(0, 4) })}

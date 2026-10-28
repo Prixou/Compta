@@ -106,16 +106,19 @@ const CYCLES = ['regul', 'treso', 'achats', 'charges', 'clients', 'stocks', 'imm
   console.log('cycle B :', JSON.stringify(cb));
   ko(cb.cca.length === 1 && /^error .*455000 .*débiteur/.test(cb.cca[0]) && cb.gen === 0, 'B : compte courant débiteur dans le cycle B seulement');
   ko(cb.caisse.join() === 'warn Solde de caisse élevé', 'B : caisse de plus de 10 000 €');
-  // Compte courant débiteur quelques jours, créditeur à la fin : périodes débitrices signalées
-  const inYear = await p.evaluate(() => {
-    const r = ui.fec.result; const b = r.balance.find((x) => x.compte === '455000'); const lines = r.pieces.cca; const s0 = b.s;
-    r.pieces.cca = lines.concat([{ date: '2025-12-20', lib: 'Apport associé', d: 0, c: 3500 }]); b.s = -500; delete r._cc;
-    const x = cycleChecks(r).treso.filter((y) => /Compte courant/.test(y.label)).map((y) => `${y.level} ${y.examples.join(' / ')}`);
-    r.pieces.cca = lines; b.s = s0; delete r._cc;
-    return x;
+  // Compte courant et caisse : solde à la date de révision seulement (débiteur ou négative en cours d'exercice : rien)
+  const atDate = await p.evaluate(() => {
+    const r = ui.fec.result; const b = r.balance.find((x) => x.compte === '455000'); const s0 = b.s;
+    const c = r.cycles.treso.accounts.find((x) => x.compte.startsWith('53')); const c0 = c.solde;
+    b.s = -500; delete r._cc;
+    const ok = cycleChecks(r).treso.filter((y) => /Compte courant|Caisse créditrice/.test(y.label)).map((y) => `${y.level} ${y.label}`);
+    c.solde = -120; delete r._cc;
+    const neg = cycleChecks(r).treso.filter((y) => /Caisse créditrice/.test(y.label)).map((y) => `${y.level} ${y.label} : ${y.examples.join(' / ')}`);
+    b.s = s0; c.solde = c0; delete r._cc;
+    return { ok, neg, gen: genPoints(r).filter((y) => /Caisse créditrice/.test(y.label)).length };
   });
-  console.log('compte courant en cours d\'exercice :', inYear.join(' | '));
-  ko(inYear.length === 1 && /^error Débiteur du \d\d\/\d\d\/2025 au 19\/12\/2025, jusqu'à 3\s000,00 €/.test(inYear[0]), 'B : compte courant débiteur en cours d\'exercice');
+  console.log('date de révision :', JSON.stringify(atDate));
+  ko(atDate.ok.join() === "ok Compte courant d'associé non débiteur" && atDate.gen === 0 && /^error Caisse créditrice : 530000/.test(atDate.neg.join()), 'B : compte courant et caisse contrôlés à la date de révision');
 
   // Points généraux : statut commun avec la synthèse
   const gen = await p.evaluate(() => { const r = ui.fec.result; const cc = cycleChecks(r); return Object.keys(cc).map((k) => `${k}:${cc[k].filter((x) => x.via).length}`).join(' ') + ` / gen:${genPoints(r).length}`; });
