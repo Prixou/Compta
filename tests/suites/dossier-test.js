@@ -115,7 +115,7 @@ const CYCLES = ['regul', 'treso', 'achats', 'charges', 'clients', 'stocks', 'imm
     return x;
   });
   console.log('compte courant en cours d\'exercice :', inYear.join(' | '));
-  ko(inYear.length === 1 && /^error Débiteur du \d\d\/\d\d\/2025 au 19\/12\/2025, jusqu'à 3 000,00 €/.test(inYear[0]), 'B : compte courant débiteur en cours d\'exercice');
+  ko(inYear.length === 1 && /^error Débiteur du \d\d\/\d\d\/2025 au 19\/12\/2025, jusqu'à 3\s000,00 €/.test(inYear[0]), 'B : compte courant débiteur en cours d\'exercice');
 
   // Points généraux : statut commun avec la synthèse
   const gen = await p.evaluate(() => { const r = ui.fec.result; const cc = cycleChecks(r); return Object.keys(cc).map((k) => `${k}:${cc[k].filter((x) => x.via).length}`).join(' ') + ` / gen:${genPoints(r).length}`; });
