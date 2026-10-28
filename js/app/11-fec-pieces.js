@@ -814,9 +814,6 @@ function computePiecesRaw(r, mode, arrete, flt = ALL_PIECES) {
       { doc: `Justificatif ${o.amount > 0 ? "de l'encaissement" : 'du paiement'} (opération du relevé non comptabilisée)`, ops: [{ date: o.date, amt: Math.abs(o.amount), lib: o.label }], keys });
   });
 
-  // Caisse
-  if (r.alerts.some((a) => a.label === 'Caisse créditrice')) push('caisse', 'neg', 'Brouillard de caisse et justificatifs des dépenses en espèces (la caisse devient négative à certaines dates)');
-
   if (bilan) {
     const f = p.flags;
     push('cloture', 'fnp', `Factures fournisseurs reçues après le ${d(arrete)} mais concernant l'exercice (factures non parvenues)`);
