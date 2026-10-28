@@ -50,6 +50,8 @@ const { fecTab, fecMonth } = require('./lib');
     await p.check('input[data-pieces-seuil]'); await p.waitForTimeout(150);
     const apres = await fourn();
     console.log(`moins de 100 € : ${petit(avant)} paiement(s) avant, ${petit(apres)} après la case ; ${avant.length} → ${apres.length} pièce(s) | case cochée : ${await p.isChecked('input[data-pieces-seuil]')}`);
+    await p.fill('input[data-pieces-seuil-mt]', '250'); await p.press('input[data-pieces-seuil-mt]', 'Enter'); await p.waitForTimeout(150);
+    console.log('montant choisi :', await p.inputValue('input[data-pieces-seuil-mt]'), '| conservé :', await p.evaluate(() => piecesPrefs().piecesSeuilMt));
     await p.uncheck('input[data-pieces-seuil]'); await p.waitForTimeout(150);
   } else console.log('case « moins de 100 € » absente');
   // 3. Profil changé à la main (sans dossier rattaché) : les onglets suivent

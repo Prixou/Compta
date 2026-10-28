@@ -702,8 +702,13 @@ document.addEventListener('change', (e) => {
     refresh();
   } else if (t.dataset.pieceRub && ui.fec) {
     setRubrique(t.dataset.pieceRub, t.value);
+  } else if ('piecesSeuilMt' in t.dataset && ui.fec) {
+    // Officine : montant sous lequel les paiements fournisseurs ne sont pas demandés (conservé dans le dossier)
+    piecesPrefs().piecesSeuilMt = Math.max(1, Math.round(Number(t.value) || 100));
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
   } else if ('piecesSeuil' in t.dataset && ui.fec) {
-    // Officine : paiements fournisseurs de moins de 100 € enlevés de la demande mensuelle (choix conservé dans le dossier)
+    // Officine : paiements fournisseurs sous le montant choisi enlevés de la demande mensuelle (choix conservé dans le dossier)
     piecesPrefs().piecesSeuil100 = t.checked;
     if (clientById(ui.fec.clientId)) persist();
     refresh();
