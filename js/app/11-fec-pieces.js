@@ -360,8 +360,8 @@ function monthPieces(r, arrete, flt) {
   // Rien n'est demandé d'après les journaux d'achats et de ventes (factures ou avoirs sans justificatif, numéros de facture
   // manquants) ; les règlements et opérations en attente viennent de tous les autres journaux (banque, caisse, OD, effets…).
 
-  // Officine : paiements fournisseurs de moins de 100 € non demandés si la case est cochée (passés directement en charge)
-  const seuil = pharma && ui.fec && ui.fec.result === r && piecesPrefs().piecesSeuil100 ? 100 : 0;
+  // Officine : paiements fournisseurs sous le montant choisi non demandés si la case est cochée (passés directement en charge)
+  const seuil = pharma && ui.fec && ui.fec.result === r && piecesPrefs().piecesSeuil100 ? seuilMt() : 0;
   // Règlements fournisseurs et encaissements clients non affectés à une facture (paiement par paiement)
   unmatchedPieces(r, push, from, end, flt, false, seuil);
   // Archive de justificatifs : dépenses payées directement sans pièce (exact), à la place de la liste ci-dessous
@@ -860,6 +860,8 @@ function selectedPieces() {
 // défaut : demande occasionnelle), et échéancier plutôt que factures pour un groupe de paiements (clé : compte|libellé).
 const piecesPrefs = () => { const f = ui.fec || {}; return clientById(f.clientId) || f; };
 const justifOn = () => piecesPrefs().piecesJustif === true;
+// Officine : montant sous lequel les paiements fournisseurs ne sont pas demandés (100 € par défaut)
+const seuilMt = () => { const v = Number(piecesPrefs().piecesSeuilMt); return v > 0 ? v : 100; };
 function echeanciers(create) {
   const o = piecesPrefs();
   return o.piecesEcheanciers || (create ? (o.piecesEcheanciers = {}) : {});
@@ -953,7 +955,7 @@ function viewPieces() {
   const attLive = new Set(pieceKeys(r).att.map((ks) => ks[0]));
   const action = kept.length ? (req ? 'Compléter la demande en cours et préparer le mail' : 'Créer la demande et préparer le mail') : v.pending.length ? 'Préparer la relance' : 'Créer la demande et préparer le mail';
   // Dépenses payées directement : demande occasionnelle, la catégorie entière se coche ou se décoche (choix du dossier)
-  const seuilBox = `<label class="check small pieces-seuil"><input type="checkbox" data-pieces-seuil${piecesPrefs().piecesSeuil100 ? ' checked' : ''}> Enlever les paiements de moins de 100 €</label>`;
+  const seuilBox = `<span class="check small pieces-seuil"><label><input type="checkbox" data-pieces-seuil${piecesPrefs().piecesSeuil100 ? ' checked' : ''}> Enlever les paiements de moins de</label> <input type="number" min="1" step="1" class="seuil-mt" data-pieces-seuil-mt value="${seuilMt()}" aria-label="Montant"> €</span>`;
   const withSeuil = mois && ui.fecProfile === 'pharmacie';
   const group = (k, list, fn) => (k === 'achats' && fn === piece && withSeuil
     ? `<div class="pieces-group"><h3>${esc(PIECES_CATS[k])} <span class="count">${list.length}</span> ${seuilBox}</h3>${list.map(fn).join('')}</div>`
