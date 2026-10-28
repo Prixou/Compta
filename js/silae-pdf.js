@@ -2,9 +2,11 @@
  * Éditions de paie Silae en PDF (journal de paie, détail des cotisations, solde de repos) → lignes chiffrées avec leur
  * libellé et l'intitulé de la colonne de chaque montant, pour les rapprocher des comptes du cycle Personnel.
  *
- * SilaePdf.parse(doc, PdfReader) → { kind, title, rows: [{ page, lab, amounts: [{ v, col }] }] }
- *   kind : 'journal' (journal de paie), 'cotis' (détail des cotisations), 'repos' (solde de repos), '' si non reconnu ;
+ * SilaePdf.parse(doc, PdfReader) → { kind, title, rows: [{ page, lab, group, amounts: [{ v, col }] }] }
+ *   kind : 'journal' (journal de paie), 'cotis' (détail des cotisations), 'repos' (solde de repos), '' si non reconnu (à titre
+ *   indicatif : l'application demande quelle édition est déposée) ;
  *   rows : lignes portant au moins un montant (nombre à deux décimales) ; lab : texte de la ligne avant le premier montant ;
+ *   group : dernier intitulé de groupe lu au-dessus (ligne de texte seule sous l'en-tête des colonnes : organisme…) ;
  *   col : intitulé de la colonne du montant (textes courts des lignes d'en-tête de la page situés au-dessus de lui).
  * SilaePdf.pick(rows, key, memo) → { row, amount } : ligne et montant retenus pour un contrôle ('brut', 'pat', 'cp', 'cpch')
  *   d'après les intitulés (« brut », « part patronale », « indemnité », « charges », ligne de total…), ou le choix mémorisé
@@ -27,7 +29,7 @@
   function kindOf(text) {
     const t = norm(text);
     if (/journal de paie|livre de paie/.test(t)) return 'journal';
-    if (/(detail|recapitulatif|etat|journal) des cotisations/.test(t)) return 'cotis';
+    if (/(details?|recapitulatif|etat|journal) des cotisations/.test(t)) return 'cotis';
     if (/soldes? (de|des) (repos|conges)/.test(t)) return 'repos';
     return '';
   }
@@ -52,7 +54,7 @@
   }
 
   function parse(doc, PdfReader) {
-    let kind = '', title = '';
+    let kind = '', title = '', group = '';
     const rows = [];
     (doc.pages || []).forEach((page, pi) => {
       const lines = PdfReader.lines(page).map((l) => cells(l, PdfReader));
@@ -61,14 +63,24 @@
         kind = kindOf(top.join(' '));
         if (kind) title = top.find((t) => kindOf(t)) || '';
       }
-      // En-tête : lignes sans montant au-dessus de la première ligne chiffrée de la page
+      // En-tête : lignes sans montant au-dessus de la première ligne chiffrée de la page ; il se termine à la dernière ligne
+      // dont un texte surplombe une colonne de montants (intitulés des colonnes)
       const first = lines.findIndex((l) => l.some((s) => RE_NUM.test(s.t)));
       const heads = first < 0 ? [] : [].concat(...lines.slice(0, first));
-      lines.forEach((l) => {
+      const numSegs = [].concat(...lines).filter((s) => RE_NUM.test(s.t));
+      const overNum = (s) => numSegs.some((n) => s.x0 - 3 <= n.x1 && s.x1 + 3 >= n.x0);
+      let headEnd = -1;
+      for (let i = 0; i < first; i++) if (lines[i].some(overNum)) headEnd = i;
+      lines.forEach((l, li) => {
         const nums = l.filter((s) => RE_NUM.test(s.t));
-        if (!nums.length) return;
+        if (!nums.length) {
+          // Intitulé de groupe (organisme…) : texte seul sous l'en-tête des colonnes, hors pied de page
+          const t = l.map((s) => s.t).join(' ');
+          if (first >= 0 && li > headEnd && !l.some(overNum) && !/^page\b|\d+ ?\/ ?\d+$/.test(norm(t))) group = t;
+          return;
+        }
         const lab = l.filter((s) => !RE_NUM.test(s.t) && s.x0 < nums[0].x0).map((s) => s.t).join(' ');
-        rows.push({ page: pi + 1, lab, amounts: nums.map((s) => ({ v: num(s.t), col: colOf(heads, s) })) });
+        rows.push({ page: pi + 1, lab, group, amounts: nums.map((s) => ({ v: num(s.t), col: colOf(heads, s) })) });
       });
     });
     return { kind, title, rows };

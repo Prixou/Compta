@@ -16,10 +16,10 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
 endobj
 6 0 obj
-<< /Length 2122 >>
+<< /Length 2120 >>
 stream
 BT /F2 12 Tf 1 0 0 1 40.00 802.00 Tm (JOURNAL DE PAIE) Tj ET
-BT /F1 8 Tf 1 0 0 1 40.00 784.00 Tm (SARL DOSSIER FICTIF - SIRET 123 456 789 00012) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 784.00 Tm (SARL PAIE FICTIVE - SIRET 456 456 456 00018) Tj ET
 BT /F1 8 Tf 1 0 0 1 40.00 772.00 Tm (Période du 01/01/2025 au 31/12/2025) Tj ET
 BT /F2 8 Tf 1 0 0 1 40.00 738.00 Tm (Salarié) Tj ET
 BT /F2 8 Tf 1 0 0 1 202.00 746.00 Tm (Salaire) Tj ET
@@ -70,5 +70,5 @@ xref
 trailer
 << /Size 7 /Root 1 0 R >>
 startxref
-2630
+2628
 %%EOF

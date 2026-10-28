@@ -2,8 +2,9 @@
 # (FEC 2025 : salaires 641000 = 30 500,00 €, charges sociales 645000 = 12 600,00 €) :
 #   - silae-journal-de-paie.pdf : salariés en lignes, colonnes Salaire brut / Cotisations salariales / Cotisations patronales
 #     / Net imposable / Net à payer (intitulés sur deux lignes), ligne « Total » ;
-#   - silae-detail-cotisations.pdf : organismes en lignes, colonnes Base / Part salariale / Part patronale / Total, ligne
-#     « Total général », flux compressé ;
+#   - silae-detail-cotisations.pdf : titre « DÉTAILS DES COTISATIONS » (pluriel), organismes en groupes (intitulé seul, lignes de
+#     cotisations, « Total <organisme> »), colonnes Base / Part salariale / Part patronale / Total, ligne « Total général »,
+#     flux compressé (organismes du FEC fictif 456456456 : URSSAF, Klesia, AG2R, Harmonie, France Travail, OPCO) ;
 #   - silae-solde-de-repos.pdf : salariés en lignes, colonnes Acquis / Pris / Solde (jours) / Indemnité / Charges, ligne
 #     « Total » (indemnité 2 150,00 €, charges 903,00 €).
 #   python3 gensilae_pdf.py [dossier de sortie]
@@ -62,7 +63,7 @@ def write_pdf(path, contents, compress):
 
 def table(title, sub, heads, rows, total_label, edges, label_x=40):
     """heads : [(ligne 1, ligne 2)] par colonne chiffrée ; rows : [(libellé, [montants])] ; edges : bord droit de chaque colonne."""
-    s = [txt(40, 40, title, 12, True), txt(40, 58, 'SARL DOSSIER FICTIF - SIRET 123 456 789 00012', 8), txt(40, 70, sub, 8)]
+    s = [txt(40, 40, title, 12, True), txt(40, 58, 'SARL PAIE FICTIVE - SIRET 456 456 456 00018', 8), txt(40, 70, sub, 8)]
     s.append(txt(label_x, 104, heads[0][0], 8, True))
     for (h1, h2), xr in zip(heads[1:], edges):
         s.append(txt(xr, 96, h1, 8, True, right=True))
@@ -78,18 +79,55 @@ def table(title, sub, heads, rows, total_label, edges, label_x=40):
     return '\n'.join(s)
 
 
+def grouped(title, sub, heads, items, edges, label_x=40):
+    """items : ('g', intitulé de groupe) ou (libellé, [montants ou None], gras)."""
+    s = [txt(40, 40, title, 12, True), txt(40, 58, 'SARL PAIE FICTIVE - SIRET 456 456 456 00018', 8), txt(40, 70, sub, 8)]
+    s.append(txt(label_x, 104, heads[0][0], 8, True))
+    for (h1, h2), xr in zip(heads[1:], edges):
+        s.append(txt(xr, 96, h1, 8, True, right=True))
+        if h2:
+            s.append(txt(xr, 104, h2, 8, True, right=True))
+    top = 122
+    for it in items:
+        if it[0] == 'g':
+            top += 4
+            s.append(txt(label_x, top, it[1], 8, True))
+        else:
+            lab, vals, bold = it
+            s.append(txt(label_x + (0 if bold else 10), top, lab, 8, bold))
+            for v, xr in zip(vals, edges):
+                if v is not None:
+                    s.append(txt(xr, top, fr(v), 8, bold, right=True))
+        top += 14
+    return '\n'.join(s)
+
+
+ORGS = [('URSSAF', [('Maladie', 0, 3965.00), ('Vieillesse plafonnée', 2097.50, 2592.50), ('Allocations familiales', 0, 1067.50),
+                    ('Accident du travail', 0, 915.00), ('CSG / CRDS', 800.00, 0)]),
+        ('KLESIA RETRAITE', [('Retraite complémentaire tranche 1', 1220.00, 1830.00)]),
+        ('AG2R PRÉVOYANCE', [('Prévoyance non cadres', 150.00, 380.00)]),
+        ('HARMONIE MUTUELLE', [('Mutuelle obligatoire', 300.00, 300.00)]),
+        ('FRANCE TRAVAIL', [('Assurance chômage', 0, 1220.00)]),
+        ('OPCO / FORMATION', [('Formation professionnelle', 0, 210.00), ("Taxe d'apprentissage", 0, 120.00)])]
+items = []
+for org, lines in ORGS:
+    items.append(('g', org))
+    for lab, sal, pat in lines:
+        items.append((lab, [30500.00, sal, pat, round(sal + pat, 2)], False))
+    ts, tp = round(sum(x[1] for x in lines), 2), round(sum(x[2] for x in lines), 2)
+    items.append((f'Total {org}', [None, ts, tp, round(ts + tp, 2)], True))
+TS, TP = round(sum(x[1] for _, l in ORGS for x in l), 2), round(sum(x[2] for _, l in ORGS for x in l), 2)
+items.append(('Total général', [None, TS, TP, round(TS + TP, 2)], True))
+cotis = grouped('DÉTAILS DES COTISATIONS', 'Période du 01/01/2025 au 31/12/2025',
+                [('Organisme / cotisation', None), ('Base', None), ('Part', 'salariale'), ('Part', 'patronale'), ('Total', None)], items, [300, 380, 460, 550])
+
+
 SAL = [('DUPONT Jean', 12000.00), ('MARTIN Claire', 10500.00), ('LEROY Paul', 8000.00)]
 PAT = [4957.38, 4337.70, 3304.92]  # 12 600,00
 journal = table('JOURNAL DE PAIE', 'Période du 01/01/2025 au 31/12/2025',
                 [('Salarié', None), ('Salaire', 'brut'), ('Cotisations', 'salariales'), ('Cotisations', 'patronales'), ('Net', 'imposable'), ('Net', 'à payer')],
                 [(n, [b, round(b * 0.22, 2), p, round(b * 0.81, 2), round(b * 0.78, 2)]) for (n, b), p in zip(SAL, PAT)],
                 'Total', [230, 310, 390, 470, 550])
-cotis = table('DÉTAIL DES COTISATIONS', 'Période du 01/01/2025 au 31/12/2025',
-              [('Organisme', None), ('Base', None), ('Part', 'salariale'), ('Part', 'patronale'), ('Total', None)],
-              [('URSSAF', [30500.00, 2897.50, 8540.00, 11437.50]), ('Retraite complémentaire AGIRC-ARRCO', [30500.00, 1220.00, 1830.00, 3050.00]),
-               ('Prévoyance', [30500.00, 150.00, 380.00, 530.00]), ('Mutuelle', [30500.00, 300.00, 300.00, 600.00]),
-               ('France Travail', [30500.00, 0.00, 1220.00, 1220.00]), ('Formation professionnelle et apprentissage', [30500.00, 0.00, 330.00, 330.00])],
-              'Total général', [300, 380, 460, 550])
 repos = table('SOLDE DE REPOS', 'Situation au 31/12/2025 - Congés payés',
               [('Salarié', None), ('Acquis', None), ('Pris', None), ('Solde', '(jours)'), ('Indemnité', None), ('Charges', None)],
               [('DUPONT Jean', [25.00, 18.00, 7.00, 980.00, 411.60]), ('MARTIN Claire', [25.00, 20.00, 5.00, 650.00, 273.00]),

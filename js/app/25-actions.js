@@ -356,7 +356,7 @@ const actions = {
     refresh();
   },
   'wp-print': () => printHtml(workpaperHtml()),
-  'silae-pick': async () => silaeRead(await pickFiles('.pdf,application/pdf')),
+  'silae-pick': async (el) => silaeRead(el.dataset.doc, await pickFile('.pdf,application/pdf', true)),
   'tva-kind': (el) => {
     const st = tvaState();
     const ym = st.kind === 'quarter' ? tvaPeriod(st.key).months.filter((k) => ui.fec.result.cycles.tva.months[k]).pop() : st.key;
@@ -621,9 +621,11 @@ document.addEventListener('change', (e) => {
     it[t.dataset.supp] = t.value.trim();
     persist();
   } else if (t.dataset.silae && ui.fec && ui.fec.result) {
-    const k = t.dataset.silae, d = (ui.fec.silae || {})[SILAE[k].doc];
-    if (!t.value) delete silaeStore()[k];
-    else if (d) { const [ri, ai] = t.value.split(':').map(Number); silaeSet(k, d, ri, ai, true); }
+    // Ligne de l'édition choisie pour un compte : retenue pour les éditions suivantes
+    const c = silaeControls(ui.fec.result).find((x) => x.id === t.dataset.silae), d = c && (ui.fec.silae || {})[c.doc];
+    if (!c) return;
+    if (!t.value) delete silaeStore()[c.id];
+    else if (d) { const [ri, ai] = t.value.split(':').map(Number); silaeSet(c, d, ri, ai, true); }
     wpSave();
     persist();
     refresh();
