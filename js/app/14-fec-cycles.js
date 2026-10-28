@@ -591,13 +591,28 @@ function anCheck(r, prev, out) {
   else out.add('ok', "À-nouveaux conformes à la clôture de l'exercice précédent", `${an.size} compte(s) de bilan rapproché(s) de ${prev.meta.fileName}.`);
 }
 
+// Comptes d'attente (471 à 475, 478) soldés, et compte 471 vide : chaque opération est imputée directement sur son compte,
+// sans écriture de reclassement. Anomalie à la clôture si un solde subsiste.
+function attenteCheck(r, out) {
+  const acc = balOf(r, ['47'], ['476', '477']).filter((b) => b.dm + b.cm >= 0.01 || Math.abs(b.an) >= 0.01 || Math.abs(b.s) >= 0.01);
+  if (!acc.length) return out.add('ok', "Comptes d'attente vides", "Aucune écriture en compte d'attente : chaque opération est imputée sur son compte.");
+  const open = acc.filter((b) => Math.abs(b.s) >= 0.01);
+  const ops = ((r.pieces && r.pieces.attente) || []).filter((l) => /^47[1-58]/.test(l.compte));
+  const ex = acc.map((b) => `${b.compte} ${b.lib} : ${Math.abs(b.an) >= 0.01 ? `à-nouveau ${dcTxt(b.an)}, ` : ''}${eur(b.dm)} € au débit et ${eur(b.cm)} € au crédit dans l'exercice, solde ${Math.abs(b.s) < 0.005 ? 'nul' : dcTxt(b.s)}`)
+    .concat(ops.slice(0, 40).map((l) => `${fmtDate(l.date)} · ${l.compte} · « ${l.lib} » · ${eur(l.d || l.c)} € ${l.d ? 'au débit' : 'au crédit'} : opération à imputer`));
+  const rule = "le compte 471 doit rester vide : chaque opération est imputée directement sur son compte, sans écriture de reclassement";
+  if (open.length) out.add(yearEnd(r) ? 'error' : 'warn', "Comptes d'attente non soldés", `${open.length} compte(s) non soldé(s), ${ops.length} opération(s) en attente (demandées avec les pièces) : les comptes d'attente doivent être soldés et ${rule}.`, ex, { full: ops.length <= 40 && !r.pieces.attenteMax });
+  else out.add('warn', "Écritures passées en compte d'attente", `Comptes soldés, mais ${rule}.`, ex, { full: true });
+}
+
 function chkRegul(r, coh) {
   const out = checksList();
   genIn(r, out, 'regul');
   cohIn(coh, out, 'regul');
+  attenteCheck(r, out);
   const vi = balOf(r, ['58']);
   const open = vi.filter((b) => Math.abs(b.s) >= 0.01);
-  if (open.length) out.add('warn', 'Virements internes non soldés', 'Le compte 58 doit être soldé : virement de compte à compte dont une seule moitié est comptabilisée.', open.map((b) => accLine(b)));
+  if (open.length) out.add(yearEnd(r) ? 'error' : 'warn', 'Virements internes non soldés', "Le compte 58 doit être soldé : virement de compte à compte dont une seule moitié est comptabilisée, ou fonds en transit à la date d'arrêté.", open.map((b) => accLine(b)));
   else if (vi.length) out.add('ok', 'Virements internes soldés', 'Compte 58 à zéro en fin de période.');
   anCheck(r, ui.fec.prev, out);
   const odd = r.balance.filter(oddSide);
@@ -805,7 +820,8 @@ function cycleAccounts(r, key) {
     const delta = n1 === null ? null : same ? Math.abs(a.s) - Math.abs(n1) : a.s - n1;
     const pct = n1 !== null && same && Math.abs(n1) >= 0.005 ? delta / Math.abs(n1) : null;
     const flagged = n1 !== null && Math.abs(delta) >= seuil && (pct === null || Math.abs(pct) >= 0.2);
-    return Object.assign(a, { bilan, n1, same, delta, pct, flagged, todo: (bilan && Math.abs(a.s) >= 1) || flagged });
+    // Compte 471 : à traiter dès qu'il contient une écriture, même soldé (il doit rester vide)
+    return Object.assign(a, { bilan, n1, same, delta, pct, flagged, todo: (bilan && Math.abs(a.s) >= 1) || flagged || (a.compte.startsWith('471') && a.mvt >= 0.01) });
   }).filter((a) => Math.abs(a.s) >= 0.005 || a.mvt >= 0.005 || Math.abs(a.an) >= 0.005 || (a.n1 !== null && Math.abs(a.n1) >= 0.005))
     .sort((x, y) => x.compte.localeCompare(y.compte));
   memo.set(mk, out);
@@ -982,7 +998,7 @@ function dossierPieces(r, arrete, push) {
 }
 
 const CYCLE_INTRO = {
-  regul: "Virements internes, à-nouveaux comparés à la clôture de l'exercice précédent, sens des soldes, comptes d'attente, doublons et dates atypiques.",
+  regul: "Comptes d'attente soldés et compte 471 vide (aucune écriture), virements internes soldés ; à-nouveaux comparés à la clôture de l'exercice précédent, sens des soldes, doublons et dates atypiques.",
   clients: "Officine : le tiers payant, le chiffre d'affaires et la TVA par taux ont leurs onglets.",
   stocks: "Variation de stock comparée aux stocks d'ouverture et de clôture, inventaire, dépréciation et évolution du stock.",
   immo: 'Investissements, cessions, dotations aux amortissements, immobilisations en cours et crédit-bail.',

@@ -51,6 +51,19 @@ const CYCLES = ['regul', 'treso', 'achats', 'charges', 'clients', 'stocks', 'imm
     await p.screenshot({ path: O + `dossier-${k}.png`, fullPage: true });
   }
 
+  // Cycle A : comptes d'attente soldés et 471 vide (un seul point), virements internes
+  const att = await p.evaluate(() => {
+    const r = ui.fec.result; const cc = cycleChecks(r);
+    const list = cc.regul.filter((x) => /attente/.test(x.label)).map((x) => `${x.level} ${x.label} (${x.examples.length})`);
+    // 471 soldé mais mouvementé : point « Écritures passées en compte d'attente »
+    const b = r.balance.find((x) => x.compte.startsWith('471')); const s = b.s; b.s = 0; delete r._cc;
+    const solde = cycleChecks(r).regul.filter((x) => /attente/.test(x.label)).map((x) => `${x.level} ${x.label}`);
+    b.s = s; delete r._cc;
+    return { list, solde };
+  });
+  console.log('comptes d\'attente :', JSON.stringify(att));
+  ko(att.list.length === 1 && /^error Comptes d'attente non soldés \([1-9]/.test(att.list[0]) && att.solde.join() === "warn Écritures passées en compte d'attente", 'A : comptes d\'attente soldés et 471 vide');
+
   // Cycle J : capital, résultat N-1 et pièces
   await fecTab(p, 'capitaux', 0); await p.waitForTimeout(120);
   const j = await p.$$eval('.cyc-docs li', (l) => l.map((x) => x.textContent));

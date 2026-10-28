@@ -36,9 +36,11 @@ const FEC_FAIL = {
   lettrage: 'Lettrage incomplet', devise: 'Devise incomplète', negatif: 'Montants négatifs', debcred: 'Lignes au débit et au crédit',
 };
 
-// Points de révision du profil affiché (officine : alertes adaptées + contrôles spécifiques).
+// Points de révision du profil affiché (officine : alertes adaptées + contrôles spécifiques). Les comptes d'attente ont leur
+// contrôle détaillé dans le cycle A (attenteCheck) : le point général n'est pas repris.
 function fecPoints(r) {
-  return ui.fecProfile === 'pharmacie' ? fecAlerts(r).concat(pharmaChecks(r).filter((x) => x.level !== 'ok')) : r.alerts;
+  const list = ui.fecProfile === 'pharmacie' ? fecAlerts(r).concat(pharmaChecks(r).filter((x) => x.level !== 'ok')) : r.alerts;
+  return list.filter((a) => a.label !== "Comptes d'attente non soldés");
 }
 
 // Points généraux après application de la mémoire du dossier (éléments déjà justifiés).
@@ -402,7 +404,7 @@ function viewFec() {
           <tbody>${r.monthly.map((x) => `<tr><td>${x.mois.slice(5)}/${x.mois.slice(0, 4)}</td><td>${eur(x.ca)}</td><td>${eur(x.charges)}</td><td>${eur(x.tvaCollectee)}</td><td>${eur(x.tvaDeductible)}</td><td>${eur(x.tresorerie)}</td></tr>`).join('')}</tbody></table></div>
         </details>
       </section>` : ''}
-      <section class="card"><h2>Points de révision <span class="count">${genPoints(r).filter((x) => x.level !== 'ok').length}</span></h2><p class="muted small">Chaque point figure aussi dans son cycle du dossier de révision, avec le même statut.</p>${wpCycleBar('gen', genPoints(r))}${wpCheckList(genPoints(r), 'gen')}</section>
+      <section class="card"><h2>Points de révision <span class="count">${genPoints(r).filter((x) => x.level !== 'ok').length}</span></h2><p class="muted small">Points repris dans leur cycle du dossier de révision, avec le même statut. Les comptes d'attente sont contrôlés dans le cycle A.</p>${wpCycleBar('gen', genPoints(r))}${wpCheckList(genPoints(r), 'gen')}</section>
       ${errors ? `<section class="card"><h2>Anomalies de conformité du fichier</h2>${checkList(r.checks.filter((c) => c.level === 'error'))}<button class="btn small" data-action="fec-tab" data-tab="conformite">Voir tous les contrôles</button></section>` : ''}`;
   } else if (f.section === 'mois-pieces') {
     body = viewPieces();
