@@ -33,6 +33,8 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
   `genlettrage.py` produit un grand livre fournisseurs non lettré (`fixtures/lettrage/` : PDF de l'édition « Grands-livres »
   sur trois pages et son texte ; relevé saisi en plus, avoirs, hypothèse entre deux comptes, compte d'attente LCR, doublons,
   compte BNC ignoré) et les résultats attendus, pour la page « Lettrage » (`suites/lettrage-test.js`).
+  `genlcr.py` produit des relevés LCR en PDF (relevés d'effets à payer au format Crédit Agricole, relevé de lettres de
+  change au format CIC) et deux listings fournisseurs (`fixtures/lcr/`) pour la page « Écritures LCR » (`suites/lcr-test.js`).
 - `suites/` : une suite par fonction (analyse FEC, cycles, TVA, pièces, portefeuille, suivi mensuel, sécurité…) ; `suites/lib.js` regroupe les aides de navigation (onglets et espaces Mois / Révision / Consultation de l'analyse FEC, choix du mois).
 - `out/` : captures d'écran, fichiers exportés et journal de chaque suite (non versionné).
 
