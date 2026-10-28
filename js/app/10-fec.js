@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '73';
+const ASSET_VERSION = '74';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -36,9 +36,9 @@ const FEC_FAIL = {
   lettrage: 'Lettrage incomplet', devise: 'Devise incomplète', negatif: 'Montants négatifs', debcred: 'Lignes au débit et au crédit',
 };
 
-// Points de révision du profil affiché (officine : alertes adaptées + contrôles spécifiques). Comptes d'attente et compte
-// courant d'associé : contrôles détaillés des cycles A et B, le point général n'est pas repris.
-const CYCLE_ONLY = ["Comptes d'attente non soldés", "Compte courant d'associé débiteur"];
+// Points de révision du profil affiché (officine : alertes adaptées + contrôles spécifiques). Comptes d'attente, compte
+// courant d'associé et caisse : contrôlés dans les cycles A et B (à la date de révision), le point général n'est pas repris.
+const CYCLE_ONLY = ["Comptes d'attente non soldés", "Compte courant d'associé débiteur", 'Caisse créditrice'];
 function fecPoints(r) {
   const list = ui.fecProfile === 'pharmacie' ? fecAlerts(r).concat(pharmaChecks(r).filter((x) => x.level !== 'ok')) : r.alerts;
   return list.filter((a) => !CYCLE_ONLY.includes(a.label));
@@ -405,7 +405,7 @@ function viewFec() {
           <tbody>${r.monthly.map((x) => `<tr><td>${x.mois.slice(5)}/${x.mois.slice(0, 4)}</td><td>${eur(x.ca)}</td><td>${eur(x.charges)}</td><td>${eur(x.tvaCollectee)}</td><td>${eur(x.tvaDeductible)}</td><td>${eur(x.tresorerie)}</td></tr>`).join('')}</tbody></table></div>
         </details>
       </section>` : ''}
-      <section class="card"><h2>Points de révision <span class="count">${genPoints(r).filter((x) => x.level !== 'ok').length}</span></h2><p class="muted small">Points repris dans leur cycle du dossier de révision, avec le même statut. Les comptes d'attente (cycle A) et le compte courant d'associé (cycle B) sont contrôlés dans leur cycle.</p>${wpCycleBar('gen', genPoints(r))}${wpCheckList(genPoints(r), 'gen')}</section>
+      <section class="card"><h2>Points de révision <span class="count">${genPoints(r).filter((x) => x.level !== 'ok').length}</span></h2><p class="muted small">Points repris dans leur cycle du dossier de révision, avec le même statut. Les comptes d'attente (cycle A), le compte courant d'associé et la caisse (cycle B) sont contrôlés dans leur cycle.</p>${wpCycleBar('gen', genPoints(r))}${wpCheckList(genPoints(r), 'gen')}</section>
       ${errors ? `<section class="card"><h2>Anomalies de conformité du fichier</h2>${checkList(r.checks.filter((c) => c.level === 'error'))}<button class="btn small" data-action="fec-tab" data-tab="conformite">Voir tous les contrôles</button></section>` : ''}`;
   } else if (f.section === 'mois-pieces') {
     body = viewPieces();
