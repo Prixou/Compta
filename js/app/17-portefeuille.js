@@ -42,7 +42,7 @@ function batchSummary(it) {
     const { errors, warnings } = fecCounts(r);
     const cc = cycleChecks(r);
     const left = {};
-    Object.keys(cc).forEach((k) => { left[k] = wpProgress(k, cc[k]).left; });
+    Object.keys(cc).forEach((k) => { left[k] = wpProgress(k, cc[k].filter((x) => !x.via)).left; });
     left.gen = wpProgress('gen', genPoints(r)).left;
     const mode = isSituation(r) ? 'situation' : 'bilan';
     const pieces = computePieces(r, mode, defaultArrete(r, mode)).length;
@@ -122,7 +122,7 @@ function viewBatch() {
     const c = x.st && clientById(x.st.clientId);
     return c ? `${c.code ? esc(c.code) + ' — ' : ''}${esc(clientLabel(c))}` : `<span class="muted">${esc(x.fileName)}</span>`;
   };
-  const cyc = (x) => ['achats', 'charges', 'clients', 'treso'].filter((k) => x.sum.left[k]).map((k) => `${{ achats: 'Ach.', charges: 'Ch. ext.', clients: 'Cli.', treso: 'Tréso.' }[k]} ${x.sum.left[k]}`).join(' · ');
+  const cyc = (x) => Object.keys(CYCLE_DEF).filter((k) => x.sum.left[k]).map((k) => `${CYCLE_DEF[k].l} ${x.sum.left[k]}`).join(' · ');
   return `${head}
     ${b.running ? `<section class="card fec-loading"><p><strong>Analyse ${b.done + 1} / ${b.total}</strong> : ${esc(b.current || '')}</p>
       <div class="fec-progress"><span data-w="${Math.round((b.done / b.total) * 100)}"></span></div></section>` : ''}

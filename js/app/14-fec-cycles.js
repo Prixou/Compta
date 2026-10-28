@@ -4,9 +4,33 @@
  */
 'use strict';
 
-// ---------- Cycles de révision : achats, charges externes, clients, trésorerie ----------
+// ---------- Dossier de révision : cycles A à K ----------
 
-const CYCLES = { achats: 'Achats et fournisseurs', charges: 'Charges externes', clients: 'Ventes et clients', treso: 'Trésorerie' };
+// Cycles dans l'ordre du dossier et rangement des comptes : le préfixe le plus long l'emporte (627 en B, le reste des 62
+// en D ; 654 en E et 655 en K, le reste des 65 en D ; 58 en A, le reste de la classe 5 en B) ; un compte des classes 1 à 7
+// sans préfixe connu va en K. Les clés achats, charges, clients et treso sont celles des premières versions : les statuts
+// déjà saisis dans les feuilles de travail sont conservés.
+const CYCLE_DEF = {
+  regul: { l: 'A', nom: 'Régularité formelle', court: 'Régularité', pref: ['47', '58'] },
+  treso: { l: 'B', nom: 'Trésorerie et financement', court: 'Trésorerie', pref: ['16', '17', '45', '5', '627', '66', '76', '686', '786', '796'] },
+  achats: { l: 'C', nom: 'Achats et fournisseurs', court: 'Achats', pref: ['40', '60', '765'] },
+  charges: { l: 'D', nom: 'Charges externes', court: 'Charges externes', pref: ['606', '61', '62', '65', '79'] },
+  clients: { l: 'E', nom: 'Ventes et clients', court: 'Ventes', pref: ['41', '491', '654', '665', '70', '73', '6817', '7817'] },
+  stocks: { l: 'F', nom: 'Stocks et en-cours', court: 'Stocks', pref: ['3', '603', '71'] },
+  immo: { l: 'G', nom: 'Immobilisations', court: 'Immobilisations', pref: ['2', '675', '6811', '6812', '6816', '72', '775', '7811', '7816'] },
+  social: { l: 'H', nom: 'Personnel', court: 'Personnel', pref: ['42', '43', '64', '691'] },
+  etat: { l: 'I', nom: 'État', court: 'État', pref: ['44', '63', '6712', '69'] },
+  capitaux: { l: 'J', nom: 'Capitaux propres et provisions', court: 'Capitaux propres', pref: ['10', '11', '12', '13', '14', '15', '6815', '687', '74', '777', '7815', '787'] },
+  autres: { l: 'K', nom: 'Autres comptes', court: 'Autres comptes', pref: ['18', '46', '48', '49', '655', '67', '68', '75', '77', '78', '797'] },
+};
+const CYCLES = Object.fromEntries(Object.entries(CYCLE_DEF).map(([k, c]) => [k, `${c.l} · ${c.nom}`]));
+const CYCLE_PREF = Object.entries(CYCLE_DEF).flatMap(([k, c]) => c.pref.map((p) => [p, k])).sort((a, b) => b[0].length - a[0].length);
+const cycleMemo = new Map();
+function cycleOf(compte) {
+  if (!/^[1-7]/.test(compte)) return null;
+  if (!cycleMemo.has(compte)) cycleMemo.set(compte, (CYCLE_PREF.find(([p]) => compte.startsWith(p)) || [0, 'autres'])[1]);
+  return cycleMemo.get(compte);
+}
 const pctFr = (x, dec) => (x * 100).toLocaleString('fr-FR', { maximumFractionDigits: dec === undefined ? 1 : dec }) + ' %';
 const fecTerme = () => Math.max(0, Math.min(180, Math.round(Number(ui.fec.terme) || 30)));
 const fecPrev = () => { const p = cmpPrev(); return p && p.cycles ? p : null; };
@@ -26,9 +50,21 @@ function checksList() {
   return out;
 }
 
-// Points de révision généraux repris dans un cycle (non recomptés dans les totaux).
-function linkedAlerts(r, out, labels) {
-  fecAlerts(r).filter((a) => labels.includes(a.label)).forEach((a) => out.push(Object.assign({}, a, { linked: true })));
+// Points de révision généraux rangés dans leur cycle (A par défaut) : statut et mémoire communs avec la synthèse (feuille
+// « gen »), non recomptés dans les totaux.
+const GEN_CYCLE = [[/^(Caisse|Banque|Compte courant)|transit|^Écarts de caisse/, 'treso'], [/^Fournisseurs débiteurs|remise/i, 'achats'],
+  [/^Clients créditeurs|tiers payant|^Trop-perçus|^Honoraires de dispensation/, 'clients'], [/TVA|^Ventes sans taux/, 'etat']];
+const genCycle = (label) => (GEN_CYCLE.find(([re]) => re.test(label)) || [0, 'regul'])[1];
+function genIn(r, out, key) {
+  genPoints(r).filter((a) => genCycle(a.label) === key).forEach((a) => out.push(Object.assign({}, a, { via: 'gen' })));
+}
+// Contrôles de cohérence de la revue N / N-1 rangés dans leur cycle (honoraires et cadeaux : déjà contrôlés en D).
+const COH_CYCLE = [[/TVA|^Impôt sur les sociétés|^Pénalités|^Taxes sur les véhicules/, 'etat'], [/^Salaires|charges sociales/i, 'social'],
+  [/amortissements/, 'immo'], [/^Emprunts|^Taux d'intérêt|^Intérêts/, 'treso'], [/^Capitaux propres/, 'capitaux'],
+  [/^Mois sans chiffre|^Chiffre d'affaires|^Délai de paiement clients/, 'clients'], [/^Taux de marge/, 'stocks'], [/^Dons/, 'charges'],
+  [/^Exercices non consécutifs|^SIREN/, 'regul']];
+function cohIn(coh, out, key) {
+  coh.filter((x) => (COH_CYCLE.find(([re]) => re.test(x.label)) || [0, ''])[1] === key).forEach((x) => out.push(Object.assign({}, x)));
 }
 
 // Régularisations de l'exercice précédent (à-nouveaux) qui doivent être extournées en début d'exercice.
@@ -76,7 +112,7 @@ function chkAchats(r, ref, prev, terme) {
   const out = checksList();
   const { mv, solde } = sums(r);
   const pharma = ui.fecProfile === 'pharmacie';
-  linkedAlerts(r, out, ['Fournisseurs débiteurs']);
+  genIn(r, out, 'achats');
   mispostCheck(r, out, '401');
   if (a.dupStrong.n) out.add('warn', 'Factures fournisseurs en double', `${a.dupStrong.n} facture(s) saisie(s) deux fois (même fournisseur, même montant, même n° de pièce, à moins de 15 jours d'écart) : ${eur(a.dupStrong.total)} € de charges et de TVA déductible en trop ?`, a.dupStrong.ex, { full: a.dupStrong.ex.length >= a.dupStrong.n });
   else if (a.invoices) out.add('ok', 'Aucune facture fournisseur en double', `${a.invoices.toLocaleString('fr-FR')} factures contrôlées (fournisseur, montant et n° de pièce)${a.recurringRefs ? ` ; ${a.recurringRefs} référence(s) d'échéancier mensuel (loyer, crédit-bail, abonnement) écartée(s)` : ''}.`);
@@ -118,10 +154,11 @@ function mispostCheck(r, out, racine) {
 
 const ccaEx = (x) => `${fmtDate(x.date)} · ${x.compte} ${x.lib} · ${x.label} · ${eur(x.amt, 0)} € → ${eur(x.cca, 0)} € (période présumée de ${x.cover} mois)`;
 
-function chkCharges(r, ref, prev) {
+function chkCharges(r, ref, prev, coh) {
   const ch = r.cycles.charges;
   const out = checksList();
   const { mv, solde } = sums(r);
+  cohIn(coh, out, 'charges');
   const last = [ref, r.pieces.maxOp || ref].sort()[0];
   const period = monthsBetween(ymOf(r.meta.start && r.meta.start <= last ? r.meta.start : r.pieces.minOp || last), ymOf(last));
   const has = (a, ym) => Math.abs(a.months[ym] || 0) >= 0.01;
@@ -175,11 +212,14 @@ function missingInvoices(g, keep, tag = '', max = 1000) {
   return { list, n };
 }
 
-function chkClients(r, ref, prev, terme) {
+function chkClients(r, ref, prev, terme, coh) {
   const cl = r.cycles.clients;
   const out = checksList();
   const { solde } = sums(r);
-  linkedAlerts(r, out, ['Clients créditeurs']);
+  genIn(r, out, 'clients');
+  cohIn(coh, out, 'clients');
+  // Officine : tiers payant, CA et TVA par taux dans leurs onglets
+  if (ui.fecProfile === 'pharmacie') return out;
   mispostCheck(r, out, '411');
   const nb = cl.numbering.filter((g) => !g.sparse && serieOn(g));
   if (!cl.numbering.length && cl.invoices >= 10) out.add('info', 'Numérotation des factures de vente non contrôlable', 'Les n° de pièce des factures de vente ne se terminent pas par un numéro.');
@@ -221,13 +261,20 @@ function chkClients(r, ref, prev, terme) {
   return out;
 }
 
-function chkTreso(r, ref) {
+function chkTreso(r, ref, coh) {
   const t = r.cycles.treso;
   const out = checksList();
-  const { mv } = sums(r);
+  const { mv, solde } = sums(r);
   const pharma = ui.fecProfile === 'pharmacie';
-  linkedAlerts(r, out, ['Caisse créditrice', 'Banque créditrice en fin de période']);
+  genIn(r, out, 'treso');
+  cohIn(coh, out, 'treso');
   if (pharma) mispostCheck(r, out, '411');
+  const emp = -solde(['164', '165', '166', '167', '168'], ['1688']);
+  if (yearEnd(r) && emp > 1000 && Math.abs(solde(['1688'])) < 0.01) out.add('info', "Pas d'intérêts courus sur emprunts (1688)", `Emprunts de ${eur(emp, 0)} € à la clôture : intérêts courus non échus entre la dernière échéance et la clôture, d'après les tableaux d'amortissement.`);
+  const newEmp = r.balance.filter((b) => /^16[4-8]/.test(b.compte) && !b.compte.startsWith('1688')).reduce((s, b) => s + b.cm, 0);
+  if (newEmp >= 1000) out.add('info', `Emprunts souscrits dans l'exercice : ${eur(newEmp, 0)} €`, "Contrat de prêt, tableau d'amortissement et garanties (caution, nantissement) ; frais de dossier et assurance à ventiler.");
+  const vmp = solde(['50'], ['509']);
+  if (vmp > 1) out.add('info', `Valeurs mobilières de placement : ${eur(vmp, 0)} €`, "Valeur d'inventaire au cours de clôture : moins-value latente à déprécier (590), plus-value latente non comptabilisée.");
   const banks = t.accounts.filter((a) => /^51[2-9]/.test(a.compte));
   banks.filter((a) => a.negDays > 0).forEach((a) => out.add(a.negDays > 30 ? 'warn' : 'info', `Découvert : ${a.lib || a.compte}`, `${a.negDays} jour(s) à découvert en comptabilité, plus bas ${eur(a.min)} € le ${fmtDate(a.minDate)} : autorisation de découvert, agios et rapprochement à vérifier.`));
   if (banks.length && !banks.some((a) => a.negDays)) out.add('ok', 'Aucun découvert bancaire en comptabilité', `${banks.length} compte(s) bancaire(s) toujours créditeurs.`);
@@ -237,8 +284,6 @@ function chkTreso(r, ref) {
   const totCaisse = caisses.reduce((s, a) => s + a.solde, 0);
   if (totCaisse > Math.max(3000, r.kpi.ca / 24)) out.add('info', `Solde de caisse élevé : ${eur(totCaisse, 0)} €`, "Plus de deux semaines de chiffre d'affaires en espèces : procès-verbal de caisse, remises en banque non comptabilisées ?");
   caisses.filter((a) => a.last && Math.abs(a.solde) >= 1 && daysUntilFrom(a.last, ref) > 60).forEach((a) => out.add('info', `Caisse sans mouvement depuis le ${fmtDate(a.last)}`, `${a.lib} : solde de ${eur(a.solde)} € inchangé : espèces réellement détenues ?`));
-  const vi = t.accounts.filter((a) => a.compte.startsWith('58') && Math.abs(a.solde) >= 0.01);
-  if (vi.length) out.add('warn', 'Virements internes non soldés', 'Le compte 58 doit être soldé : virement de compte à compte dont une seule moitié est comptabilisée.', vi.map((a) => `${a.compte} ${a.lib} : ${eur(a.solde)} €`));
   if (!pharma) {
     const ve = t.accounts.filter((a) => a.compte.startsWith('511') && Math.abs(a.solde) >= 0.01);
     if (ve.length) out.add('info', "Valeurs à l'encaissement non soldées", "Chèques ou remises de cartes en attente : vérifier leur crédit en banque après la date d'arrêté.", ve.map((a) => `${a.compte} ${a.lib} : ${eur(a.solde)} €`));
@@ -255,39 +300,49 @@ function chkTreso(r, ref) {
   return out;
 }
 
-// Contrôles des quatre cycles (mis en cache par résultat et paramètres).
+// Contrôles des cycles A à K, dans l'ordre du dossier (mis en cache par résultat et paramètres).
 function cycleChecks(r) {
   if (!r || !r.cycles) return null;
   const ref = pharmaRef(r);
   const prev = fecPrev();
   const terme = fecTerme();
-  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', terme, r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore())].join('|');
+  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', ui.fec.prev ? ui.fec.prev.meta.fileName : '', terme, ui.fec.seuil || '', r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore())].join('|');
   if (r._cc && r._cc.key === key) return r._cc.val;
+  const coh = coherenceChecks(r, prev, clientById(ui.fec.clientId));
   const val = {
+    regul: applyMemo(chkRegul(r, coh), 'regul'),
+    treso: applyMemo(chkTreso(r, ref, coh), 'treso'),
     achats: applyMemo(chkAchats(r, ref, prev, terme), 'achats'),
-    charges: applyMemo(chkCharges(r, ref, prev), 'charges'),
-    clients: ui.fecProfile === 'pharmacie' ? [] : applyMemo(chkClients(r, ref, prev, terme), 'clients'),
-    treso: applyMemo(chkTreso(r, ref), 'treso'),
+    charges: applyMemo(chkCharges(r, ref, prev, coh), 'charges'),
+    clients: applyMemo(chkClients(r, ref, prev, terme, coh), 'clients'),
+    stocks: applyMemo(chkStocks(r, prev, coh), 'stocks'),
+    immo: applyMemo(chkImmo(r, coh), 'immo'),
+    social: applyMemo(chkSocial(r, ref, coh), 'social'),
+    etat: applyMemo(chkEtat(r, prev, coh), 'etat'),
+    capitaux: applyMemo(chkCapitaux(r, ref, coh), 'capitaux'),
+    autres: applyMemo(chkAutres(r, coh), 'autres'),
   };
   Object.defineProperty(r, '_cc', { value: { key, val }, configurable: true, writable: true, enumerable: false });
   return val;
 }
 
-// Points propres aux cycles (hors points généraux déjà repris), avec le nom du cycle.
+// Points propres aux cycles (hors points généraux repris), avec le nom du cycle.
 function cyclePoints(r) {
   const cc = cycleChecks(r);
   if (!cc) return [];
-  return Object.keys(cc).flatMap((k) => cc[k].filter((x) => !x.linked).map((x) => Object.assign({}, x, { cycle: k })));
+  return Object.keys(cc).flatMap((k) => cc[k].filter((x) => !x.linked && !x.via).map((x) => Object.assign({}, x, { cycle: k })));
 }
 
 const kpiTile = (label, value, cls, n1) => `<div class="kpi ${cls || ''}"><strong>${value}</strong><span>${label}</span>${n1 !== undefined && n1 !== null ? `<em>N-1 : ${n1}</em>` : ''}</div>`;
 const daysTxt = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : `${Math.round(v)} j`);
 
+// Contrôles du cycle, puis ses comptes (feuille maîtresse) et ses pièces.
 function cycleHead(key, intro) {
-  const list = cycleChecks(ui.fec.result)[key];
-  const n = (lvl) => list.filter((x) => x.level === lvl).length;
+  const r = ui.fec.result;
+  const list = cycleChecks(r)[key];
   return `<section class="card"><h2>Contrôles — ${esc(CYCLES[key])} <span class="count">${wpProgress(key, list).left}</span></h2>
-    <p class="muted small">${intro}</p>${wpCycleBar(key, list)}${wpCheckList(list, key)}</section>`;
+    <p class="muted small">${intro}</p>${wpCycleBar(key, list)}${wpCheckList(list, key)}</section>
+    ${comptesCard(r, key)}${docsCard(r, key)}`;
 }
 
 function terminput() {
@@ -472,16 +527,526 @@ function viewTreso() {
       <tbody>${bigOther.slice(0, 20).map((m) => `<tr><td>${fmtDate(m.date)}</td><td>${esc(m.compte)}</td><td>${esc(m.cp)} <span class="muted small">${esc(m.cplib)}</span></td><td>${esc(m.lib)}</td><td class="${m.amt < 0 ? 'cred' : ''}">${eur(m.amt, 0)}</td></tr>`).join('')}</tbody></table></div></section>` : ''}`;
 }
 
-// Carte de la synthèse : un accès par cycle avec le nombre de points.
+// Carte de la synthèse : un accès par cycle (A à K) avec le nombre de points, de comptes et de pièces restants.
 function cyclesCard(r) {
   const cc = cycleChecks(r);
   if (!cc) return '';
-  const keys = Object.keys(CYCLES).filter((k) => k !== 'clients' || ui.fecProfile !== 'pharmacie');
-  return `<section class="card"><div class="card-head"><h2>Cycles de révision</h2><button class="btn small" data-action="wp-print">Dossier de travail (PDF)</button></div><div class="kpis fec-kpis cycle-tiles">${keys.map((k) => {
+  return `<section class="card"><div class="card-head"><h2>Dossier de révision</h2><button class="btn small" data-action="wp-print">Dossier de travail (PDF)</button></div><div class="kpis fec-kpis cycle-tiles">${Object.keys(CYCLE_DEF).map((k) => {
     const pg = wpProgress(k, cc[k]);
     const rev = wpStore().cycles[k];
-    return `<button class="kpi cycle-tile ${pg.left ? 'kpi-wait' : ''}" data-action="fec-tab" data-tab="${k}"><strong>${pg.left}</strong><span>${esc(CYCLES[k])}</span><em>${pg.total ? `${pg.done} / ${pg.total} traité(s)${pg.wait ? ` · ${pg.wait} en attente` : ''}` : 'rien à signaler'}${rev ? ` · revu ✓` : ''}</em></button>`;
+    const used = cycleUsed(r, k);
+    const acc = accLeft(r, k), doc = docsLeft(r, k);
+    const rest = [acc ? `${acc} compte(s) à justifier` : '', doc ? `${doc} pièce(s) à obtenir` : ''].filter(Boolean).join(' · ');
+    return `<button class="kpi cycle-tile${pg.left ? ' kpi-wait' : ''}${used ? '' : ' cycle-na'}" data-action="fec-tab" data-tab="${k}"><strong>${pg.left}</strong><span>${esc(CYCLES[k])}</span><em>${!used ? 'sans objet' : `${pg.total ? `${pg.done} / ${pg.total} point(s) traité(s)${pg.wait ? ` · ${pg.wait} en attente` : ''}` : 'rien à signaler'}${rest ? ` · ${rest}` : ''}`}${rev ? ' · revu ✓' : ''}</em></button>`;
   }).join('')}</div></section>`;
+}
+
+// Barre des cycles A à K, sous les onglets de l'espace Révision.
+function cycleBar(r, cur) {
+  const cc = cycleChecks(r);
+  return `<div class="seg fec-tabs fec-cycles" role="tablist" aria-label="Cycles du dossier de révision">${Object.keys(CYCLE_DEF).map((k) => {
+    const left = wpProgress(k, cc[k]).left;
+    return `<button role="tab" aria-selected="${k === cur}" class="${k === cur ? 'on' : ''}${cycleUsed(r, k) ? '' : ' na'}" data-action="fec-tab" data-tab="${k}" title="${esc(CYCLES[k])}"><b>${CYCLE_DEF[k].l}</b> ${esc(CYCLE_DEF[k].court)}${left ? ` (${left})` : ''}</button>`;
+  }).join('')}</div>`;
+}
+
+// ---------- Dossier de révision : contrôles des cycles A, F, G, H, I, J et K ----------
+
+const dcTxt = (v, dec) => (Math.abs(v) < 0.005 ? '—' : `${eur(Math.abs(v), dec)} ${v < 0 ? 'C' : 'D'}`);
+const balOf = (r, pref, excl) => r.balance.filter((b) => pref.some((p) => b.compte.startsWith(p)) && !(excl || []).some((p) => b.compte.startsWith(p)));
+const accLine = (b, v) => `${b.compte} ${b.lib} : ${v === undefined ? dcTxt(b.s) : `${eur(v)} €`}`;
+
+// Solde de sens inhabituel : charges créditrices et produits débiteurs (hors rabais, remises et ristournes, variations de
+// stock), amortissements et dépréciations débiteurs, immobilisations ou stocks créditeurs, capital, subventions, provisions
+// ou emprunts débiteurs. Fournisseurs, clients, banque, caisse et compte courant : points généraux.
+function oddSide(b) {
+  const c = b.compte, s = b.s;
+  if (Math.abs(s) < 1) return false;
+  if (c[0] === '6') return s < 0 && !/^6(\d9|\d\d9|03)/.test(c);
+  if (c[0] === '7') return s > 0 && !/^7(\d9|\d\d9|13)/.test(c);
+  if (/^(28|29|39|49|59)/.test(c)) return s > 0;
+  if (c[0] === '2') return s < 0 && !/^2[67]9/.test(c);
+  if (c[0] === '3') return s < 0;
+  return /^(10[1-7]|13[0-8]|1[45]|16[0-8])/.test(c) && s > 0;
+}
+
+// À-nouveaux de l'exercice = soldes de clôture du FEC N-1 complet, compte par compte (classes 1 à 5) ; capital, réserves,
+// report à nouveau et résultat (10 à 12) en total, résultat N-1 compris (il peut être déjà affecté dans les à-nouveaux).
+function anCheck(r, prev, out) {
+  if (!r.meta.hasAN) return;
+  if (!prev) return out.add('info', "À-nouveaux non rapprochés de l'exercice précédent", "Chargez le FEC N-1 dans l'onglet Revue N / N-1 : chaque à-nouveau sera comparé au solde de clôture du compte.");
+  const an = new Map(), clo = new Map(), lib = new Map();
+  r.balance.forEach((b) => { if (/^[1-5]/.test(b.compte)) { an.set(b.compte, b.an); lib.set(b.compte, b.lib); } });
+  prev.balance.forEach((b) => { if (/^[1-5]/.test(b.compte)) { clo.set(b.compte, b.s); if (!lib.has(b.compte)) lib.set(b.compte, b.lib); } });
+  let a1 = 0, c1 = prev.balance.reduce((t, b) => (/^[67]/.test(b.compte) ? t + b.s : t), 0);
+  const diffs = [];
+  new Set([...an.keys(), ...clo.keys()]).forEach((k) => {
+    const a = an.get(k) || 0, c = clo.get(k) || 0;
+    if (/^1[012]/.test(k)) { a1 += a; c1 += c; return; }
+    if (Math.abs(a - c) >= 1) diffs.push([k, `${k} ${lib.get(k)} : à-nouveau ${dcTxt(a)}, clôture N-1 ${dcTxt(c)}`]);
+  });
+  if (Math.abs(a1 - c1) >= 1) diffs.push(['1', `Capital, réserves, report à nouveau et résultat (10 à 12) : à-nouveaux ${dcTxt(a1)}, clôture N-1 résultat compris ${dcTxt(c1)}`]);
+  diffs.sort((x, y) => x[0].localeCompare(y[0]));
+  if (diffs.length) out.add('warn', "À-nouveaux différents des soldes de clôture de l'exercice précédent", `${diffs.length} écart(s) avec ${prev.meta.fileName} : écritures passées sur l'exercice précédent après la reprise des soldes, ou à-nouveaux modifiés ?`, diffs.slice(0, 60).map((x) => x[1]), { full: diffs.length <= 60 });
+  else out.add('ok', "À-nouveaux conformes à la clôture de l'exercice précédent", `${an.size} compte(s) de bilan rapproché(s) de ${prev.meta.fileName}.`);
+}
+
+function chkRegul(r, coh) {
+  const out = checksList();
+  genIn(r, out, 'regul');
+  cohIn(coh, out, 'regul');
+  const vi = balOf(r, ['58']);
+  const open = vi.filter((b) => Math.abs(b.s) >= 0.01);
+  if (open.length) out.add('warn', 'Virements internes non soldés', 'Le compte 58 doit être soldé : virement de compte à compte dont une seule moitié est comptabilisée.', open.map((b) => accLine(b)));
+  else if (vi.length) out.add('ok', 'Virements internes soldés', 'Compte 58 à zéro en fin de période.');
+  anCheck(r, ui.fec.prev, out);
+  const odd = r.balance.filter(oddSide);
+  if (odd.length) out.add('warn', 'Comptes au solde de sens inhabituel', `${odd.length} compte(s) : charge créditrice, produit débiteur, amortissement ou dépréciation débiteurs, immobilisation ou stock créditeurs, capital, provision ou emprunt débiteurs — erreur d'imputation, extourne en double ou écriture inversée ?`, odd.slice(0, 40).map((b) => accLine(b)), { full: odd.length <= 40 });
+  else out.add('ok', 'Sens des soldes', 'Aucune charge créditrice ni aucun produit débiteur, pas d\'amortissement, de capital, de provision ou d\'emprunt de sens inverse.');
+  return out;
+}
+
+function chkStocks(r, prev, coh) {
+  const out = checksList();
+  const { mv, solde, opening } = sums(r);
+  cohIn(coh, out, 'stocks');
+  const bal3 = balOf(r, ['3'], ['39']);
+  if (!bal3.some((b) => Math.abs(b.s) >= 0.01 || Math.abs(b.an) >= 0.01) && Math.abs(mv(['603'])) < 0.01) {
+    const buy = mv(['601', '602', '607']);
+    if (yearEnd(r) && buy > 20000) out.add('info', 'Achats stockables sans stock', `${eur(buy, 0)} € d'achats de matières, d'approvisionnements ou de marchandises sans compte de stock : aucun stock à la clôture, ou inventaire non comptabilisé ?`);
+    return out;
+  }
+  [['31', '6031', 'matières premières'], ['32', '6032', 'autres approvisionnements'], ['37', '6037', 'marchandises']].forEach(([st, va, lib]) => {
+    const si = opening([st]), sf = solde([st]), v = mv([va]);
+    if (Math.abs(si) < 0.01 && Math.abs(sf) < 0.01 && Math.abs(v) < 0.01) return;
+    const ecart = v - (si - sf);
+    if (Math.abs(ecart) >= 1) out.add('warn', `Variation du stock de ${lib} incohérente`, `${va} : ${eur(v)} € pour un stock passé de ${eur(si)} € à ${eur(sf)} € (variation attendue ${eur(si - sf)} €, écart ${eur(ecart)} €).`);
+    else out.add('ok', `Variation du stock de ${lib} cohérente`, `Stock initial ${eur(si, 0)} €, stock final ${eur(sf, 0)} €, variation ${eur(v, 0)} € (${va}).`);
+  });
+  const siP = opening(['33', '34', '35']), sfP = solde(['33', '34', '35']), vP = -mv(['713']);
+  if (Math.abs(siP) >= 0.01 || Math.abs(sfP) >= 0.01 || Math.abs(vP) >= 0.01) {
+    if (Math.abs(vP - (sfP - siP)) >= 1) out.add('warn', 'Variation des en-cours et produits incohérente', `713 : ${eur(vP)} € pour des en-cours et produits passés de ${eur(siP)} € à ${eur(sfP)} € (variation attendue ${eur(sfP - siP)} €).`);
+    else out.add('ok', 'Variation des en-cours et produits cohérente', `De ${eur(siP, 0)} € à ${eur(sfP, 0)} € (713).`);
+  }
+  const stock = solde(['3'], ['39']);
+  if (!bal3.some((b) => b.dm + b.cm >= 0.01)) out.add(yearEnd(r) ? 'warn' : 'info', 'Stock de clôture non comptabilisé', yearEnd(r)
+    ? `Les comptes de stock n'ont pas bougé depuis l'ouverture (${eur(stock, 0)} €) : inventaire de fin d'exercice à comptabiliser.`
+    : `Situation : le stock d'ouverture (${eur(stock, 0)} €) est conservé ; inventaire intermédiaire, ou estimation par le taux de marge ?`);
+  const dep = -solde(['39']);
+  if (dep > 0.01) out.add('info', `Dépréciation des stocks : ${eur(dep, 0)} €`, `${stock > 0 ? `${pctFr(dep / stock)} du stock brut` : 'Stock brut nul'}${Math.abs(dep + opening(['39'])) < 0.01 ? ", inchangée depuis l'ouverture" : ''} : à justifier par l'état des articles obsolètes, abîmés ou vendus à perte.`);
+  if (prev) {
+    const sp = sums(prev).solde(['3'], ['39']);
+    const dv = stock - sp;
+    if (sp > 0 && Math.abs(dv) >= (ui.fec.seuil || defaultSeuil(r)) && Math.abs(dv) / sp >= 0.3) out.add('info', `Stock ${dv > 0 ? 'en hausse' : 'en baisse'} de ${pctFr(Math.abs(dv) / sp, 0)}`, `${eur(sp, 0)} € → ${eur(stock, 0)} €${prev.kpi.ca > 0 ? `, pour un chiffre d'affaires ${r.kpi.ca >= prev.kpi.ca ? 'en hausse' : 'en baisse'} de ${pctFr(Math.abs(r.kpi.ca - prev.kpi.ca) / prev.kpi.ca, 0)}` : ''} : inventaire, valorisation et articles sans rotation à vérifier.`);
+  }
+  return out;
+}
+
+function chkImmo(r, coh) {
+  const out = checksList();
+  const { mv, solde } = sums(r);
+  cohIn(coh, out, 'immo');
+  const sorties = balOf(r, ['20', '21', '22', '26']).filter((b) => b.cm >= 1);
+  const prix = -mv(['775']), vnc = mv(['675']);
+  if (sorties.length && Math.abs(prix) < 0.01 && Math.abs(vnc) < 0.01) out.add('warn', "Sortie d'immobilisation sans écriture de cession", `${eur(sorties.reduce((s, b) => s + b.cm, 0), 0)} € au crédit des comptes d'immobilisations, sans valeur comptable des éléments cédés (675) ni produit de cession (775) : cession, mise au rebut ou erreur d'imputation ?`, sorties.map((b) => accLine(b, b.cm)));
+  else if (prix >= 0.01 && !sorties.length) out.add('warn', "Produit de cession sans sortie d'immobilisation", `Prix de cession de ${eur(prix, 0)} € (775) : la valeur brute et les amortissements de l'élément cédé restent à sortir (675, 28).`);
+  else if (prix >= 0.01 || vnc >= 0.01) out.add('info', `Cessions de l'exercice : ${prix >= vnc ? 'plus' : 'moins'}-value de ${eur(Math.abs(prix - vnc), 0)} €`, `Prix de cession ${eur(prix, 0)} € (775), valeur comptable ${eur(vnc, 0)} € (675) : plus ou moins-value à court ou à long terme à déterminer.`);
+  const amort = balOf(r, ['28']).reduce((s, b) => s + b.cm, 0), dot = mv(['6811', '6871']);
+  if ((amort >= 1 || dot >= 1) && Math.abs(amort - dot) >= 1) out.add('warn', 'Dotations différentes des amortissements comptabilisés', `Dotations ${eur(dot, 0)} € (6811, 6871), amortissements portés au crédit des comptes 28 : ${eur(amort, 0)} € — écriture incomplète ou imputation à vérifier.`);
+  const over = [['20', '280'], ['21', '281']].filter(([g, a]) => -solde([a]) > solde([g]) + 1).map(([g, a]) => `${a} : amortissements ${eur(-solde([a]), 0)} € pour une valeur brute de ${eur(solde([g]), 0)} € (${g})`);
+  if (over.length) out.add('warn', 'Amortissements supérieurs à la valeur brute', 'Immobilisation sortie sans ses amortissements, ou dotation en trop ?', over);
+  const enc = balOf(r, ['23']).filter((b) => Math.abs(b.s) >= 1);
+  if (enc.length) {
+    const still = enc.some((b) => b.dm + b.cm < 0.01);
+    out.add(still ? 'warn' : 'info', `Immobilisations en cours : ${eur(enc.reduce((s, b) => s + b.s, 0), 0)} €`, still
+      ? "Montant inchangé depuis l'ouverture : travaux achevés à mettre en service (virement au compte 21 et début de l'amortissement) ?"
+      : "Travaux en cours à la clôture : à virer au compte 21 à la mise en service.", enc.map((b) => accLine(b)));
+  }
+  const cb = mv(['612']);
+  if (cb >= 1) out.add('info', `Redevances de crédit-bail : ${eur(cb, 0)} €`, "Engagements de crédit-bail (redevances restant à payer, valeur résiduelle) à mentionner en annexe ; part non déductible pour un véhicule de tourisme.");
+  const acq = balOf(r, ['20', '21', '22', '23', '26', '27']).reduce((s, b) => s + b.dm, 0) - balOf(r, ['23']).reduce((s, b) => s + b.cm, 0);
+  if (acq >= 1) out.add('info', `Investissements de l'exercice : ${eur(acq, 0)} €`, "Factures demandées avec les pièces : date de mise en service, durée d'utilisation, composants ; dépenses de plus de 500 € HT passées en charges à reclasser ?");
+  return out;
+}
+
+function chkSocial(r, ref, coh) {
+  const out = checksList();
+  const { mv, solde } = sums(r);
+  cohIn(coh, out, 'social');
+  const pay = (r.pieces && r.pieces.payroll) || {};
+  const months = Object.keys(pay).sort();
+  if (months.length >= 3) {
+    const all = monthsBetween(months[0], ymOf([ref, r.pieces.maxOp || ref].sort()[0]));
+    const miss = all.filter((ym) => !pay[ym]);
+    if (miss.length) out.add('warn', 'Mois sans salaire comptabilisé', `${fmtMonths(miss)} : paie non saisie, ou plus de salarié ? Les bulletins sont demandés avec les pièces.`);
+    else out.add('ok', 'Salaires comptabilisés chaque mois', `${all.length} mois de paie.`);
+  }
+  const remu = mv(['644']);
+  if (remu >= 1 && mv(['646']) < 0.01) out.add('warn', 'Rémunération du dirigeant sans cotisations personnelles', `${eur(remu, 0)} € en 644 sans cotisations sociales personnelles (646) : appels de cotisations à comptabiliser.`);
+  const deb43 = balOf(r, ['43']).filter((b) => b.s >= 1);
+  if (deb43.length) out.add('warn', 'Organismes sociaux débiteurs', 'Cotisations versées en trop, ou charges sociales non comptabilisées (dernier mois, régularisation annuelle) ?', deb43.map((b) => accLine(b)));
+  const due = -solde(['43']), monthly = mv(['645', '646', '647', '648']) / Math.max(1, months.length || 12);
+  if (monthly > 0 && due > monthly * 3.5) out.add('warn', `Dettes sociales élevées : ${eur(due, 0)} €`, `Plus de trois mois de cotisations (${eur(monthly, 0)} € par mois) : retard de paiement, échéancier, ou règlements non lettrés ?`);
+  const av = balOf(r, ['42']).filter((b) => b.s >= 1);
+  if (av.length) out.add('info', `Personnel débiteur : ${eur(av.reduce((s, b) => s + b.s, 0), 0)} €`, 'Avances et acomptes au personnel (425) à récupérer sur les salaires, ou erreur de paie ?', av.map((b) => accLine(b)));
+  if (yearEnd(r) && mv(['641']) > 20000 && Math.abs(solde(['4282', '4382'])) < 0.01) out.add('info', 'Pas de congés payés à payer à la clôture', `Congés acquis et non pris au ${fmtDate(r.meta.closing)} à provisionner, charges sociales comprises (4282, 4382), sauf adhésion à une caisse de congés payés.`);
+  return out;
+}
+
+function chkEtat(r, prev, coh) {
+  const out = checksList();
+  const { mv, solde } = sums(r);
+  genIn(r, out, 'etat');
+  cohIn(coh, out, 'etat');
+  const is = mv(['695', '696']), isN1 = prev ? sums(prev).mv(['695']) : 0;
+  const acomptes = balOf(r, ['444']).reduce((s, b) => s + b.dm, 0), s444 = solde(['444']);
+  if (isN1 > 3000 && acomptes < 1 && mv(['695']) < 1 && Object.keys(r.pieces.payroll || {}).length !== 1) out.add('warn', "Aucun acompte d'impôt sur les sociétés", `Impôt de l'exercice précédent : ${eur(isN1, 0)} € : acomptes trimestriels dus (le 15 du 3e, 6e, 9e et 12e mois) — paiements non comptabilisés ?`);
+  if (Math.abs(s444) >= 1 || is >= 1) out.add('info', `Impôt sur les sociétés : charge de ${eur(is, 0)} €, ${s444 < -0.5 ? `reste à payer ${eur(-s444, 0)} €` : s444 > 0.5 ? `créance de ${eur(s444, 0)} €` : 'compte 444 soldé'}`, `Acomptes et règlements de l'exercice : ${eur(acomptes, 0)} € ; solde du 444 à rapprocher du relevé de solde (2572) et du calcul de l'impôt.`);
+  const cfe = mv(['6351']) >= 1 || balOf(r, ['63']).some((b) => /\bcfe\b|cotisation fonci|\bcet\b|contribution [ée]conomique/i.test(b.lib) && b.dm >= 1);
+  if (yearEnd(r) && (r.meta.hasAN || prev) && !cfe) out.add('info', 'Aucune cotisation foncière des entreprises (6351)', "CFE due chaque année, sauf l'année de création ou exonération : avis d'imposition à télécharger sur l'espace professionnel.");
+  if (prev && yearEnd(r)) {
+    const now = new Map(balOf(r, ['63']).map((b) => [b.compte, b.dm - b.cm]));
+    const gone = balOf(prev, ['63']).filter((b) => b.dm - b.cm >= 150 && (now.get(b.compte) || 0) < (b.dm - b.cm) * 0.1);
+    if (gone.length) out.add('info', "Impôts et taxes de l'exercice précédent absents", 'Taxe plus due cette année, ou avis non comptabilisé ?', gone.map((b) => `${b.compte} ${b.lib} : ${eur(b.dm - b.cm, 0)} € en N-1, ${eur(now.get(b.compte) || 0, 0)} € cette année`));
+  }
+  const credit = solde(['44567']);
+  if (credit >= 1) out.add('info', `Crédit de TVA à reporter : ${eur(credit, 0)} €`, 'À rapprocher de la dernière déclaration ; remboursement à demander (3519) si le crédit est durable.');
+  return out;
+}
+
+function chkCapitaux(r, ref, coh) {
+  const out = checksList();
+  const { mv, solde, opening } = sums(r);
+  cohIn(coh, out, 'capitaux');
+  const c = clientById(ui.fec.clientId);
+  const cap0 = -opening(['101']), cap = -solde(['101']);
+  if (Math.abs(cap - cap0) >= 1) out.add('warn', "Capital modifié dans l'exercice", `${eur(cap0, 0)} € → ${eur(cap, 0)} € : procès-verbal d'assemblée, statuts mis à jour, formalités au greffe et libération des apports.`);
+  else if (cap > 0) out.add('ok', `Capital inchangé : ${eur(cap, 0)} €`, 'À rapprocher des statuts et du Kbis.');
+  const r12 = solde(['12']), a12 = opening(['12']);
+  if (Math.abs(r12) >= 1) {
+    const late = !!r.meta.start && ref > addMonths(r.meta.start, 6);
+    out.add(late ? 'warn' : 'info', "Résultat de l'exercice précédent non affecté", `${r12 < 0 ? 'Bénéfice' : 'Perte'} de ${eur(Math.abs(r12), 0)} € encore au compte 12 : écriture d'affectation (réserves, report à nouveau, dividendes) à passer d'après la décision d'approbation des comptes${late ? ', due dans les six mois de la clôture' : ''}.`);
+  } else if (Math.abs(a12) >= 1) out.add('ok', "Résultat de l'exercice précédent affecté", `${a12 < 0 ? 'Bénéfice' : 'Perte'} de ${eur(Math.abs(a12), 0)} € réparti dans l'exercice.`);
+  // Réserve légale : 5 % du bénéfice (diminué du report à nouveau débiteur) jusqu'à 10 % du capital (SARL, SAS, SA)
+  if (c && /^(EURL|SARL|SAS|SASU|SA|SELARL|SELAS)$/.test(c.forme || '') && cap > 0 && -a12 > 0 && mv(['12']) > 0.5) {
+    const dot = balOf(r, ['1061']).reduce((s, b) => s + b.cm, 0);
+    const due = Math.max(0, Math.min(0.05 * (-a12 - Math.max(0, opening(['11']))), 0.1 * cap + opening(['1061'])));
+    if (due - dot >= 1) out.add('warn', 'Réserve légale insuffisamment dotée', `5 % du bénéfice de l'exercice précédent (diminué du report à nouveau débiteur) jusqu'à ce que la réserve atteigne 10 % du capital : ${eur(due, 0)} € attendus, ${eur(dot, 0)} € dotés (art. L232-10 du code de commerce).`);
+  }
+  const subv = -solde(['13'], ['139']);
+  if (yearEnd(r) && subv >= 1 && -mv(['777', '747']) < 0.01) out.add('warn', "Subvention d'investissement sans reprise au résultat", `${eur(subv, 0)} € de subventions (13) : quote-part à virer au résultat au rythme de l'amortissement du bien financé (139 / 777).`);
+  const prov = -solde(['15']);
+  if (prov >= 1) {
+    const dot = mv(['6815', '6865', '6875']), rep = -mv(['7815', '7865', '7875']);
+    out.add('info', `Provisions pour risques et charges : ${eur(prov, 0)} €`, dot < 0.01 && rep < 0.01
+      ? "Inchangées depuis l'ouverture : risque toujours d'actualité à la clôture ? Justificatif à jour (litige, courrier d'avocat, garantie)."
+      : `Dotations ${eur(dot, 0)} €, reprises ${eur(rep, 0)} € : justificatif de chaque provision (litige, courrier d'avocat, garantie).`, balOf(r, ['15']).filter((b) => Math.abs(b.s) >= 1).map((b) => accLine(b)));
+  }
+  const derog = -solde(['145']);
+  if (yearEnd(r) && derog >= 1 && Math.abs(mv(['6872', '7872'])) < 0.01) out.add('info', 'Amortissements dérogatoires sans dotation ni reprise', `${eur(derog, 0)} € en 145 : dotation (6872) ou reprise (7872) de l'exercice à calculer avec le tableau des amortissements.`);
+  const ex = balOf(r, ['108']);
+  const prel = ex.reduce((s, b) => s + b.dm, 0), app = ex.reduce((s, b) => s + b.cm, 0);
+  if (prel + app >= 1) out.add('info', `Compte de l'exploitant : prélèvements ${eur(prel, 0)} €, apports ${eur(app, 0)} €`, "Dépenses personnelles payées par l'entreprise à y imputer plutôt qu'en charges.");
+  const ran = solde(['11']);
+  if (ran >= 1) out.add('info', `Report à nouveau débiteur : ${eur(ran, 0)} €`, 'Pertes antérieures à apurer en priorité par les bénéfices suivants (avant la réserve légale et les dividendes).');
+  return out;
+}
+
+function chkAutres(r, coh) {
+  const out = checksList();
+  const { mv } = sums(r);
+  cohIn(coh, out, 'autres');
+  const seuil = ui.fec.seuil || defaultSeuil(r);
+  const div = balOf(r, ['46']).filter((b) => Math.abs(b.s) >= 1);
+  if (div.length) {
+    const old = div.filter((b) => b.dm + b.cm < 0.01).length;
+    out.add(old ? 'warn' : 'info', 'Débiteurs et créditeurs divers non soldés', `${div.length} compte(s)${old ? `, dont ${old} sans mouvement depuis l'ouverture` : ''} : nature et justificatif de chaque solde (sommes à recevoir ou à payer, avances, indemnités).`, div.map((b) => `${accLine(b)}${b.dm + b.cm < 0.01 ? " (inchangé depuis l'ouverture)" : ''}`));
+  }
+  const lia = balOf(r, ['18']).filter((b) => Math.abs(b.s) >= 1);
+  if (lia.length) out.add('warn', 'Comptes de liaison non soldés', 'Les comptes de liaison des établissements doivent se compenser : balances des établissements à rapprocher.', lia.map((b) => accLine(b)));
+  const lines = (pref, excl, sg) => balOf(r, pref, excl).filter((b) => Math.abs(b.dm - b.cm) >= 0.5).map((b) => accLine(b, sg * (b.dm - b.cm)));
+  const ce = mv(['67'], ['6712', '675']), pe = -mv(['77'], ['775', '777']), apg = -mv(['75']);
+  if (ce >= seuil / 2) out.add('info', `Charges exceptionnelles : ${eur(ce, 0)} €`, "Nature de chaque opération (rappels d'impôts, pénalités, dons, créances irrécouvrables, régularisations sur exercices antérieurs) : la plupart des pénalités et des dons ne sont pas déductibles.", lines(['67'], ['6712', '675'], 1));
+  if (pe >= seuil / 2) out.add('info', `Produits exceptionnels : ${eur(pe, 0)} €`, "Nature de chaque opération (dégrèvements, indemnités d'assurance, abandons de créances, régularisations sur exercices antérieurs) : justificatif à obtenir.", lines(['77'], ['775', '777'], -1));
+  if (apg >= seuil) out.add('info', `Autres produits de gestion courante : ${eur(apg, 0)} €`, 'Redevances, revenus des immeubles, quotes-parts et produits divers : contrat ou justificatif.', lines(['75'], [], -1));
+  const r48 = balOf(r, ['48']).filter((b) => Math.abs(b.s) >= 1);
+  if (r48.length) out.add('info', 'Comptes de régularisation', "Détail du calcul de chaque charge ou produit constaté d'avance (période couverte, pièce d'origine).", r48.map((b) => accLine(b)));
+  return out;
+}
+
+// ---------- Dossier de révision : comptes et pièces du cycle, pages des cycles ----------
+
+// Comptes du cycle (feuille maîtresse) : solde, solde N-1 (FEC de l'exercice précédent, à défaut à-nouveau pour un compte de
+// bilan), variation. À justifier : compte de bilan non soldé, variation significative (seuil de la revue N / N-1 et 20 %).
+// Plus de 15 comptes de fournisseurs ou de clients (un compte par tiers) : regroupés sous leur racine.
+function cycleAccounts(r, key) {
+  const prev = fecPrev();
+  const seuil = ui.fec.seuil || defaultSeuil(r);
+  const mk = [key, prev ? prev.meta.fileName : '', seuil].join('|');
+  const memo = r._acc || Object.defineProperty(r, '_acc', { value: new Map(), configurable: true, writable: true, enumerable: false })._acc;
+  if (memo.has(mk)) return memo.get(mk);
+  const pick = (res) => {
+    const list = res.balance.filter((b) => cycleOf(b.compte) === key);
+    const many = new Set(['401', '411'].filter((p) => list.filter((b) => b.compte.startsWith(p)).length > 15));
+    const m = new Map();
+    list.forEach((b) => {
+      const k = many.has(b.compte.slice(0, 3)) ? b.compte.slice(0, 3) : b.compte;
+      const x = m.get(k) || m.set(k, { compte: k, lib: k === b.compte ? b.lib : `${k === '401' ? 'Fournisseurs' : 'Clients'} (comptes regroupés)`, s: 0, an: 0, mvt: 0 }).get(k);
+      x.s += b.s; x.an += b.an; x.mvt += b.dm + b.cm;
+    });
+    return m;
+  };
+  const cur = pick(r), pm = prev ? pick(prev) : new Map();
+  pm.forEach((b, k) => { if (!cur.has(k)) cur.set(k, { compte: k, lib: b.lib, s: 0, an: 0, mvt: 0 }); });
+  const out = Array.from(cur.values()).map((a) => {
+    const bilan = a.compte[0] < '6';
+    const n1 = prev ? (pm.get(a.compte) || { s: 0 }).s : bilan ? a.an : null;
+    const same = n1 === null || Math.abs(n1) < 0.005 || Math.abs(a.s) < 0.005 || (n1 < 0) === (a.s < 0);
+    const delta = n1 === null ? null : same ? Math.abs(a.s) - Math.abs(n1) : a.s - n1;
+    const pct = n1 !== null && same && Math.abs(n1) >= 0.005 ? delta / Math.abs(n1) : null;
+    const flagged = n1 !== null && Math.abs(delta) >= seuil && (pct === null || Math.abs(pct) >= 0.2);
+    return Object.assign(a, { bilan, n1, same, delta, pct, flagged, todo: (bilan && Math.abs(a.s) >= 1) || flagged });
+  }).filter((a) => Math.abs(a.s) >= 0.005 || a.mvt >= 0.005 || Math.abs(a.an) >= 0.005 || (a.n1 !== null && Math.abs(a.n1) >= 0.005))
+    .sort((x, y) => x.compte.localeCompare(y.compte));
+  memo.set(mk, out);
+  return out;
+}
+const accLeft = (r, key) => { const st = wpAccStore(); return cycleAccounts(r, key).filter((a) => a.todo && !st[a.compte]).length; };
+// Cycle sans objet : aucun compte et aucun point relevé (le cycle A s'applique à tout FEC).
+const cycleUsed = (r, key) => key === 'regul' || cycleAccounts(r, key).length > 0 || (cycleChecks(r)[key] || []).some((x) => x.level !== 'ok');
+
+// Groupe d'un compte : préfixe de rangement de trois chiffres ou plus (627 en B…), sinon rubrique à deux chiffres.
+const accGroup = (compte) => { const p = (CYCLE_PREF.find(([x]) => compte.startsWith(x)) || [''])[0]; return p.length >= 3 ? p : compte.slice(0, 2); };
+const GROUP_LIB = { 603: 'Variation des stocks', 606: 'Achats non stockés de matières et fournitures', 627: 'Services bancaires', 654: 'Pertes sur créances irrécouvrables',
+  655: 'Quotes-parts de résultat sur opérations faites en commun', 665: 'Escomptes accordés', 675: "Valeurs comptables des éléments d'actif cédés", 691: 'Participation des salariés',
+  765: 'Escomptes obtenus', 775: "Produits des cessions d'éléments d'actif", 777: "Quote-part des subventions d'investissement virée au résultat",
+  6712: 'Pénalités, amendes fiscales et pénales', 6811: 'Dotations aux amortissements', 6815: 'Dotations aux provisions pour risques et charges',
+  6817: 'Dotations aux dépréciations des actifs circulants', 7815: 'Reprises sur provisions pour risques et charges', 7817: 'Reprises sur dépréciations des actifs circulants' };
+
+function comptesCard(r, key) {
+  const rows = cycleAccounts(r, key);
+  const prev = fecPrev();
+  if (!rows.length) return `<section class="card"><h2>Comptes du cycle</h2><p class="muted">Aucun compte de ce cycle dans le FEC${prev ? " ni dans celui de l'exercice précédent" : ''}.</p></section>`;
+  const st = wpAccStore();
+  const com = revueComments().comments;
+  const groups = new Map();
+  rows.forEach((a) => { const g = accGroup(a.compte); (groups.get(g) || groups.set(g, []).get(g)).push(a); });
+  const varTxt = (a) => (a.n1 === null ? '—' : !a.same ? 'sens inversé' : Math.abs(a.delta) < 0.5 ? '0' : `${a.delta > 0 ? '+' : '−'}${eur(Math.abs(a.delta), 0)}`);
+  const body = Array.from(groups.entries()).map(([g, list]) => {
+    const s = list.reduce((t, a) => t + a.s, 0), n1 = list.some((a) => a.n1 !== null) ? list.reduce((t, a) => t + (a.n1 || 0), 0) : null;
+    return `${list.length > 1 ? `<tr class="strong"><td>${esc(g)}</td><td>${esc(GROUP_LIB[g] || RUBRIQUES[g] || RUBRIQUES[g.slice(0, 2)] || '')}</td><td>${n1 === null ? '—' : dcTxt(n1, 0)}</td><td>${dcTxt(s, 0)}</td><td colspan="4"></td></tr>` : ''}
+      ${list.map((a) => `<tr class="${a.todo && !st[a.compte] ? 'flag' : st[a.compte] ? 'done' : ''}"><td>${esc(a.compte)}</td><td>${esc(a.lib)}</td><td>${a.n1 === null ? '—' : dcTxt(a.n1)}</td><td>${dcTxt(a.s)}</td><td>${varTxt(a)}</td>${a.n1 === null ? '<td class="muted">—</td>' : pctCell(a.pct)}
+        <td class="chk"><input type="checkbox" data-wpacc="${esc(a.compte)}"${st[a.compte] ? ' checked' : ''} aria-label="Compte ${esc(a.compte)} justifié"></td>
+        <td class="comment"><input data-comment="${esc(a.compte)}" value="${esc(com[a.compte] || '')}" placeholder="${a.bilan ? 'Justification du solde…' : 'Explication de la variation…'}" spellcheck="false" autocomplete="off" aria-label="Commentaire du compte ${esc(a.compte)}"></td></tr>`).join('')}`;
+  }).join('');
+  return `<section class="card"><h2>Comptes du cycle <span class="count">${rows.filter((a) => a.todo && !st[a.compte]).length}</span></h2>
+    <p class="muted small">Solde de chaque compte du cycle${prev ? `, comparé à l'exercice précédent (${esc(prev.meta.fileName)})` : ", comparé à l'ouverture pour les comptes de bilan (chargez le FEC N-1 dans l'onglet Revue N / N-1 pour comparer aussi les charges et les produits)"}. Surlignés : à justifier — compte de bilan non soldé, ou variation d'au moins ${eur(ui.fec.seuil || defaultSeuil(r), 0)} € et 20 %. Les commentaires sont repris dans la revue N / N-1.</p>
+    <div class="grid-wrap"><table class="dtable num cyc-acc"><thead><tr><th>Compte</th><th>Libellé</th><th>${prev ? 'N-1' : 'Ouverture'}</th><th>Solde</th><th>Variation</th><th>%</th><th>Justifié</th><th>Commentaire</th></tr></thead>
+    <tbody>${body}</tbody></table></div></section>`;
+}
+
+// Pièces et documents de chaque cycle, selon les comptes mouvementés. `cab` : document établi par le cabinet ; sinon à obtenir
+// du client et ajouté à la demande de pièces du bilan, sauf `std` (déjà demandé par la liste de clôture ou pièce par pièce).
+const DOC_ST = { '': 'À obtenir', demande: 'Demandé', recu: 'Reçu', na: 'Sans objet' };
+const DOC_ST_CAB = { '': 'À établir', demande: 'En cours', recu: 'Établi', na: 'Sans objet' };
+function docsOf(r, key, arrete) {
+  const { mv, solde, opening } = sums(r);
+  const live = (pref, excl) => balOf(r, pref, excl).some((b) => Math.abs(b.s) >= 0.01 || b.dm + b.cm >= 0.01);
+  const fl = (r.pieces && r.pieces.flags) || {};
+  const d = fmtDate(arrete);
+  const pharma = ui.fecProfile === 'pharmacie';
+  const cy = r.cycles;
+  const L = [];
+  const add = (id, text, o) => L.push(Object.assign({ id: `${key}:${id}`, text, cat: 'cloture' }, o || {}));
+  if (key === 'regul') {
+    if (r.meta.hasAN && !ui.fec.prev) add('n1', "FEC ou balance de l'exercice précédent (rapprochement des à-nouveaux)", { cab: true });
+    if (balOf(r, ['47'], ['476', '477']).some((b) => Math.abs(b.s) >= 0.01)) add('attente', "Justificatifs des opérations en compte d'attente", { std: true });
+  } else if (key === 'treso') {
+    if (live(['51'], ['511'])) {
+      add('releves', `Relevés bancaires de l'exercice et relevé au ${d} (ou attestation de solde)`, { std: true });
+      add('rappro', `État de rapprochement bancaire au ${d}`, { cab: true });
+    }
+    if (live(['16'])) add('emprunt', `Tableaux d'amortissement des emprunts (capital restant dû au ${d})`, { std: !!fl.emprunt });
+    if (balOf(r, ['164', '165', '166', '167']).reduce((s, b) => s + b.cm, 0) >= 1000) add('pret', "Contrats des prêts souscrits dans l'exercice (montant, taux, garanties)");
+    if (live(['53'])) add('caisse', `Procès-verbal de caisse (espèces en caisse au ${d})`, { std: !!fl.caisse });
+    if (live(['455'])) add('cca', "Relevé du compte courant d'associé et convention de compte courant éventuelle", { std: !!fl.cca, cat: 'associe' });
+    if (live(['50'])) add('vmp', `Relevé du portefeuille de valeurs mobilières au ${d} (valeur au cours de clôture)`);
+    if (-mv(['76'], ['765', '786', '796']) >= 1) add('ifu', "Relevés des placements et des produits financiers de l'exercice (intérêts, dividendes, IFU)");
+  } else if (key === 'achats') {
+    add('fnp', `Factures fournisseurs reçues après le ${d} mais concernant l'exercice (factures non parvenues)`, { std: true });
+    if (!pharma && mv(['607']) > 10000) add('rfa', "Remises, ristournes et avoirs de fin d'année à recevoir des fournisseurs");
+    if (solde(['4091']) >= 1) add('acomptes', "Bons de commande des acomptes versés aux fournisseurs (4091) : livraison reçue à la clôture ?", { cat: 'questions' });
+  } else if (key === 'charges') {
+    if (fl.assurance) add('assurance', "Échéanciers des contrats d'assurance (charges constatées d'avance)", { std: true });
+    if (fl.leasing) add('leasing', 'Contrats de crédit-bail ou de location financière en cours', { std: true });
+    if (live(['6132'])) add('bail', "Bail des locaux et dernier avis d'échéance (loyer, charges, dépôt de garantie)");
+    if (live(['6135'])) add('loc', 'Contrats de location de véhicules et de matériel (loyers restant à courir)');
+    if (cy.charges.das2.length) add('das2', "Coordonnées (SIRET, adresse) des bénéficiaires d'honoraires et de commissions de plus de 1 200 € (DAS2)", { std: true });
+    if (cy.charges.notesFrais.n) add('ndf', "Notes de frais et justificatifs des dépenses avancées par l'associé", { std: true });
+    if (balOf(r, ['625']).some((b) => /kilom|\bik\b/i.test(b.lib) && b.dm >= 1)) add('ik', 'Relevé des kilomètres professionnels et carte grise du véhicule utilisé (indemnités kilométriques)');
+  } else if (key === 'clients') {
+    if (pharma) {
+      add('tp', `Balance âgée et état des rejets du tiers payant édités par le LGO au ${d}`, { std: true });
+      add('z', "Récapitulatif annuel du chiffre d'affaires par taux de TVA (LGO)", { std: true });
+      add('rosp', "Décomptes de l'Assurance maladie : ROSP, rémunérations forfaitaires, gardes et astreintes", { std: true });
+    } else {
+      add('fae', `Prestations réalisées ou marchandises livrées avant le ${d} et non encore facturées`, { std: true });
+      if (live(['411'])) add('agee', `Balance âgée des clients au ${d}`, { cab: true });
+      if (cy.clients.invoices) add('cutoff', `Dernière facture émise avant le ${d} et première facture émise après (séparation des exercices)`);
+      if (live(['416', '491']) || overdue(r, '411', arrete, fecTerme()).b91[1] > 0) add('douteux', 'Point sur les clients douteux ou en litige : relances, mises en demeure, déclarations de créance (redressement ou liquidation judiciaire)', { cat: 'questions' });
+      if (-solde(['4191']) >= 1) add('acomptes', 'Commandes des acomptes reçus des clients (4191) : livraison ou prestation réalisée à la clôture ?', { cat: 'questions' });
+      if (r.kpi.ca - cy.clients.customers.reduce((s, x) => s + x.ht, 0) > Math.max(2000, r.kpi.ca * 0.1)) add('z', "Récapitulatif annuel des ventes au comptant (tickets Z de caisse ou logiciel d'encaissement)");
+    }
+  } else if (key === 'stocks') {
+    if (live(['3'], ['39']) || Math.abs(mv(['603'])) >= 0.01) {
+      if (pharma) add('inv', `Inventaire valorisé des stocks édité par le LGO au ${d} (prix d'achat, hors périmés)`, { std: true });
+      else {
+        add('inv', `Inventaire des stocks et en-cours valorisé au ${d}`, { std: !!fl.stock });
+        add('methode', 'Méthode de valorisation des stocks et liste des articles obsolètes, abîmés ou vendus à perte (dépréciation)');
+      }
+      if (live(['33', '34', '35'])) add('encours', `État des travaux et prestations en cours au ${d} (avancement, coûts engagés)`);
+    }
+  } else if (key === 'immo') {
+    if ((r.pieces.immo || []).length) add('fact', "Factures d'acquisition des immobilisations de l'exercice (date de mise en service)", { std: true, cat: 'immo' });
+    if (live(['2'])) add('tableau', `Tableau des immobilisations et des amortissements au ${d}`, { cab: true });
+    if (balOf(r, ['20', '21', '22', '26']).some((b) => b.cm >= 1) || -mv(['775']) >= 1) add('cession', 'Factures ou actes de cession des immobilisations vendues ou mises au rebut (certificat de cession, carte grise barrée)', { cat: 'immo' });
+    if (fl.vehicules) add('cg', 'Cartes grises des véhicules de la société', { std: true });
+    if (balOf(r, ['211', '213']).some((b) => b.dm >= 1)) add('acte', "Acte notarié des acquisitions immobilières (ventilation terrain et construction, frais d'acquisition)", { cat: 'immo' });
+    if (balOf(r, ['275']).some((b) => b.dm >= 1)) add('depot', "Justificatifs des dépôts de garantie versés dans l'exercice (bail, contrats)", { cat: 'immo' });
+    if (live(['26', '271', '272'])) add('titres', "Derniers comptes annuels des sociétés dont les titres sont détenus (valeur d'inventaire)");
+  } else if (key === 'social') {
+    if (live(['641'])) {
+      add('paie', `Journal de paie annuel et état des congés payés acquis non pris au ${d}`, { std: !!fl.salaires, cat: 'social' });
+      add('effectif', `Effectif au ${d}, entrées et sorties de l'exercice, primes et indemnités dues à la clôture`, { cat: 'questions' });
+    }
+    if (live(['645', '431'])) add('dsn', 'Déclarations sociales (DSN) du dernier mois ou trimestre et relevés des organismes (URSSAF, retraite, prévoyance, mutuelle)', { cat: 'social' });
+    if (live(['646'])) add('tns', 'Appels et régularisations des cotisations personnelles du dirigeant (URSSAF, retraite, prévoyance)', { cat: 'social' });
+    if (live(['644'])) add('remu', "Décision fixant la rémunération du dirigeant (procès-verbal ou décision de l'associé unique)", { cat: 'social' });
+  } else if (key === 'etat') {
+    if (live(['445'])) add('tva', "Déclarations de TVA de l'exercice (CA3 ou CA12) et accusés de dépôt", { cab: true });
+    if (live(['444']) || mv(['695']) >= 1) add('is', "Relevés d'acomptes (2571) et de solde (2572) d'impôt sur les sociétés", { cab: true });
+    if (fl.taxes) add('cfe', "Avis d'imposition de CFE et de taxe foncière de l'année", { std: true });
+    if (live(['44'])) add('cfisc', 'Extrait du compte fiscal professionnel (paiements, crédits et restes à payer)', { cab: true });
+    if (mv(['6712']) >= 1) add('amendes', "Avis de contravention, de majoration ou de pénalité de l'exercice", { std: !!cy.charges.amendes.n });
+  } else if (key === 'capitaux') {
+    const c = clientById(ui.fec.clientId);
+    if (!(c && /^(EI|Micro|Particulier)/.test(c.forme || '')) && r.meta.hasAN) add('pv', "Procès-verbal d'approbation des comptes de l'exercice précédent (affectation du résultat)");
+    if (balOf(r, ['101']).some((b) => b.dm + b.cm >= 1)) add('statuts', 'Statuts à jour et procès-verbal de la modification du capital (formalités au greffe)');
+    if (live(['15'])) add('prov', "Justificatifs des provisions pour risques et charges (litiges, courriers d'avocat, garanties, devis)");
+    add('litiges', 'Litiges, contentieux ou événements importants à signaler (provisions éventuelles)', { std: true });
+    if (live(['13', '74'])) add('subv', 'Conventions ou notifications des subventions reçues ou à recevoir (conditions, biens financés)');
+    if (live(['457'])) add('div', 'Décision de distribution des dividendes et déclaration 2777 (prélèvement à la source)');
+  } else if (key === 'autres') {
+    if (balOf(r, ['46']).some((b) => Math.abs(b.s) >= 1)) add('divers', 'Justificatifs des soldes des débiteurs et créditeurs divers (46)');
+    if (live(['486', '487'])) add('regul', "Détail du calcul des charges et produits constatés d'avance", { cab: true });
+    const seuil = ui.fec.seuil || defaultSeuil(r);
+    if (mv(['67'], ['6712', '675']) >= seuil / 2 || -mv(['77'], ['775', '777']) >= seuil / 2) add('exc', 'Justificatifs des charges et produits exceptionnels (nature de chaque opération)');
+    if (live(['18'])) add('liaison', 'Balances des établissements (comptes de liaison)');
+  }
+  return L;
+}
+
+// Pièces du cycle avec leur statut : celui choisi dans la feuille de travail, sinon celui de la demande de pièces (étape
+// demandée ou reçue, reconnue à son libellé).
+function cycleDocs(r, key) {
+  const list = docsOf(r, key, piecesState().arrete);
+  if (!list.length) return list;
+  const S = piecesSuivi(r);
+  const loc = wpDocStore();
+  return list.map((x) => {
+    const own = (loc[x.id] || {}).st || '';
+    const lab = normLab(x.text);
+    const auto = S.recvLab.has(lab) ? 'recu' : S.pendLab.has(lab) ? 'demande' : '';
+    return Object.assign(x, { own, auto, st: own || auto });
+  });
+}
+const docsLeft = (r, key) => cycleDocs(r, key).filter((x) => !['recu', 'na'].includes(x.st)).length;
+
+function docsCard(r, key) {
+  const list = cycleDocs(r, key);
+  if (!list.length) return '';
+  const bilan = piecesState().mode === 'bilan';
+  return `<section class="card"><h2>Pièces du cycle <span class="count">${list.filter((x) => !['recu', 'na'].includes(x.st)).length}</span></h2>
+    <p class="muted small">Documents attendus d'après les comptes mouvementés. Ceux du client sont repris dans la demande de pièces ${bilan ? 'du bilan' : 'quand l\'arrêté est un bilan'} (onglet Pièces à demander), sauf s'ils sont reçus ou sans objet ; le statut de la demande (demandé, reçu) s'affiche ici.</p>
+    <ul class="cyc-docs">${list.map((x) => {
+      const ST = x.cab ? DOC_ST_CAB : DOC_ST;
+      return `<li class="${['recu', 'na'].includes(x.st) ? 'done' : ''}"><span class="cyc-doc-text">${esc(x.text)} <span class="muted small">${x.cab ? 'cabinet' : x.std ? 'client · demandé avec les pièces' : 'client'}</span></span>
+        <select data-wpdoc="${esc(x.id)}" aria-label="Statut de la pièce">${Object.entries(ST).map(([v, l]) => `<option value="${v}"${x.own === v ? ' selected' : ''}>${v === '' && x.auto ? `${DOC_ST[x.auto]} (demande de pièces)` : l}</option>`).join('')}</select></li>`;
+    }).join('')}</ul></section>`;
+}
+
+// Pièces des cycles à demander au client avec le bilan (sauf celles que la demande contient déjà).
+function dossierPieces(r, arrete, push) {
+  const loc = ui.fec && ui.fec.result === r ? wpDocStore() : {};
+  Object.keys(CYCLE_DEF).forEach((k) => docsOf(r, k, arrete).filter((x) => !x.cab && !x.std && !['recu', 'na'].includes((loc[x.id] || {}).st)).forEach((x) => push(x.cat, `cyc:${x.id}`, x.text)));
+}
+
+const CYCLE_INTRO = {
+  regul: "Virements internes, à-nouveaux comparés à la clôture de l'exercice précédent, sens des soldes, comptes d'attente, doublons et dates atypiques.",
+  clients: "Officine : le tiers payant, le chiffre d'affaires et la TVA par taux ont leurs onglets.",
+  stocks: "Variation de stock comparée aux stocks d'ouverture et de clôture, inventaire, dépréciation et évolution du stock.",
+  immo: 'Investissements, cessions, dotations aux amortissements, immobilisations en cours et crédit-bail.',
+  social: 'Paie de chaque mois, charges sociales, dettes sociales, congés payés et rémunération du dirigeant.',
+  etat: 'TVA, impôt sur les sociétés, CFE et autres impôts et taxes, crédit de TVA.',
+  capitaux: "Capital, affectation du résultat de l'exercice précédent, réserve légale, subventions et provisions.",
+  autres: 'Débiteurs et créditeurs divers, comptes de régularisation, opérations exceptionnelles et autres produits.',
+};
+
+// Indicateurs des cycles sans page propre (comparés à N-1 si le FEC précédent est chargé).
+function cycleKpis(r, key) {
+  const prev = fecPrev();
+  const S = sums;
+  const t = (label, f, cls) => kpiTile(label, eurK(f(r)), cls, prev ? eurK(f(prev)) : null);
+  const side = (x, pref, sg) => x.balance.reduce((s, b) => (pref.some((p) => b.compte.startsWith(p)) && Math.sign(b.s) === sg ? s + Math.abs(b.s) : s), 0);
+  const pct = (x, f) => { const v = f(x); return v === null || !Number.isFinite(v) ? '—' : pctFr(v); };
+  let tiles = [];
+  if (key === 'regul') {
+    const err = r.checks.filter((c) => c.level === 'error').length;
+    tiles = [kpiTile('Anomalies du fichier', err, err ? 'kpi-late' : ''), kpiTile("Comptes d'attente", eurK(balOf(r, ['47']).reduce((s, b) => s + Math.abs(b.s), 0))),
+      kpiTile('Virements internes', eurK(S(r).solde(['58']))), kpiTile('Écritures', r.meta.entries.toLocaleString('fr-FR')), kpiTile('Journaux', r.meta.journalsCount), kpiTile('Comptes', r.meta.accounts.toLocaleString('fr-FR'))];
+  } else if (key === 'clients') {
+    tiles = [t("Chiffre d'affaires", (x) => x.kpi.ca), t('Créances clients', (x) => S(x).solde(['41'], ['419']))];
+  } else if (key === 'stocks') {
+    const tm = (x) => ratios(x).tauxMarge;
+    tiles = [t('Stock final', (x) => S(x).solde(['3'], ['39'])), kpiTile('Stock initial', eurK(S(r).opening(['3'], ['39']))), t('Variation de stock (603)', (x) => S(x).mv(['603'])),
+      t('Dépréciation (39)', (x) => -S(x).solde(['39'])), kpiTile('Taux de marge', pct(r, tm), '', prev ? pct(prev, tm) : null), t('Achats consommés', (x) => S(x).mv(['601', '602', '603', '607']))];
+  } else if (key === 'immo') {
+    tiles = [t('Valeur brute', (x) => S(x).solde(['2'], ['28', '29'])), t('Amortissements et dépréciations', (x) => -S(x).solde(['28', '29'])), t('Valeur nette', (x) => S(x).solde(['2'])),
+      t('Acquisitions (débits)', (x) => balOf(x, ['20', '21', '22', '23', '26', '27']).reduce((s, b) => s + b.dm, 0)), t('Dotations (6811)', (x) => S(x).mv(['6811'])), t('Prix de cession (775)', (x) => -S(x).mv(['775']))];
+  } else if (key === 'social') {
+    const sal = (x) => S(x).mv(['641', '644']), ch = (x) => S(x).mv(['645', '646', '647', '648']);
+    tiles = [t('Rémunérations (641, 644)', sal), t('Charges sociales', ch), kpiTile('Taux de charges', pct(r, (x) => (sal(x) > 0 ? ch(x) / sal(x) : null)), '', prev ? pct(prev, (x) => (sal(x) > 0 ? ch(x) / sal(x) : null)) : null),
+      t('Dettes sociales', (x) => -S(x).solde(['42', '43'])), kpiTile('Mois de paie', Object.keys(r.pieces.payroll || {}).length), t('Dirigeant (644)', (x) => S(x).mv(['644']))];
+  } else if (key === 'etat') {
+    tiles = [t('TVA due (445)', (x) => -S(x).solde(['445'])), t('Impôt sur les sociétés', (x) => S(x).mv(['695', '696'])), t('Impôts et taxes (63)', (x) => S(x).mv(['63'])),
+      t("Dettes envers l'État", (x) => side(x, ['44'], -1)), t("Créances sur l'État", (x) => side(x, ['44'], 1)), t('Amendes (6712)', (x) => S(x).mv(['6712']))];
+  } else if (key === 'capitaux') {
+    tiles = [t('Capital', (x) => -S(x).solde(['101'])), t('Capitaux propres', (x) => x.bilan.passif[0][1]), t('Résultat', (x) => x.kpi.resultat, r.kpi.resultat < 0 ? 'kpi-late' : ''),
+      t('Report à nouveau', (x) => -S(x).solde(['11'])), t("Subventions d'investissement", (x) => -S(x).solde(['13'])), t('Provisions (15)', (x) => -S(x).solde(['15']))];
+  } else if (key === 'autres') {
+    tiles = [t('Débiteurs divers', (x) => side(x, ['46'], 1)), t('Créditeurs divers', (x) => side(x, ['46'], -1)), t("Charges constatées d'avance", (x) => S(x).solde(['486'])),
+      t("Produits constatés d'avance", (x) => -S(x).solde(['487'])), t('Charges exceptionnelles', (x) => S(x).mv(['67'])), t('Produits exceptionnels', (x) => -S(x).mv(['77']))];
+  }
+  return tiles.length ? `<div class="kpis fec-kpis">${tiles.join('')}</div>` : '';
+}
+
+function cycleBanner(r, key) {
+  if (key === 'regul') {
+    const err = r.checks.filter((c) => c.level === 'error').length, warn = r.checks.filter((c) => c.level === 'warn').length;
+    return `<div class="banner ${err ? 'warn' : 'info'}"><span><strong>Conformité du fichier</strong> (art. A47 A-1 du LPF) : ${err ? `${err} anomalie(s)` : 'aucune anomalie'}${warn ? `, ${warn} point(s) à vérifier` : ''} sur ${r.checks.length} contrôles.</span><button class="btn small" data-action="fec-tab" data-tab="conformite">Voir le détail</button></div>`;
+  }
+  if (key === 'etat' && r.cycles.tva && Object.keys(r.cycles.tva.months).length) return '<div class="banner info"><span>Déclarations de TVA, TVA collectée et déductible de l\'exercice : onglet <strong>Contrôle TVA</strong>.</span><button class="btn small" data-action="fec-tab" data-tab="tvarev">Ouvrir</button></div>';
+  if (key === 'clients') return '<div class="banner info"><span>Officine : encours et rejets du tiers payant, chiffre d\'affaires et TVA par taux.</span><button class="btn small" data-action="fec-tab" data-tab="tp">Tiers payant</button><button class="btn small" data-action="fec-tab" data-tab="catva">CA &amp; TVA</button></div>';
+  return '';
+}
+
+// Page d'un cycle : pages détaillées de B à E, page commune pour les autres (et pour E en officine).
+const CYCLE_VIEWS = { treso: viewTreso, achats: viewAchats, charges: viewCharges, clients: viewClients };
+function viewCycle(key) {
+  const r = ui.fec.result;
+  ui.fec.lastCycle = key;
+  if (CYCLE_VIEWS[key] && !(key === 'clients' && ui.fecProfile === 'pharmacie')) return CYCLE_VIEWS[key]();
+  return `${cycleKpis(r, key)}${cycleBanner(r, key)}${cycleHead(key, CYCLE_INTRO[key])}`;
 }
 
 // ---------- Justificatifs (archive FEC + pièces) ----------
@@ -551,5 +1116,6 @@ function cyclePieces(r, mode, arrete, push) {
     const re = ignoredRe();
     const das2 = cy.charges.das2.filter((b) => !re || !re.test(norm(b.benef)));
     if (das2.length && !memoHas('charges', 'DAS2 : 0 bénéficiaire(s) de plus de 1 200 €', '*')) push('questions', 'das2', `Pour la DAS2 : SIRET et adresse de ${das2.slice(0, 8).map((b) => b.benef).join(', ')}${das2.length > 8 ? '…' : ''}`);
+    dossierPieces(r, arrete, push);
   }
 }

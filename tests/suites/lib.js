@@ -2,9 +2,13 @@
 'use strict';
 const SPACE_OF = { 'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', tva: 'mois', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
 
-// Ouvre un onglet de l'analyse, en passant d'abord dans son espace s'il n'est pas affiché.
+// Cycles du dossier de révision : sous l'onglet « Cycles A à K » de l'espace Révision.
+const CYCLE_TABS = ['regul', 'treso', 'achats', 'charges', 'clients', 'stocks', 'immo', 'social', 'etat', 'capitaux', 'autres'];
+
+// Ouvre un onglet de l'analyse, en passant d'abord dans son espace s'il n'est pas affiché (et dans « Cycles A à K » pour un cycle).
 async function fecTab(p, tab, wait = 150) {
   if (!(await p.$(`.fec-tabs button[data-tab="${tab}"]`))) await p.click(`.fec-spaces button[data-space=${SPACE_OF[tab] || 'revision'}]`);
+  if (CYCLE_TABS.includes(tab) && !(await p.$(`.fec-tabs button[data-tab="${tab}"]`))) await p.click('.fec-tabs button[data-tab="cycles"]');
   await p.click(`.fec-tabs button[data-tab="${tab}"]`);
   if (wait) await p.waitForTimeout(wait);
 }

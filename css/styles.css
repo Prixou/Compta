@@ -710,6 +710,22 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .mdots i.on { background: var(--series-1); border-color: var(--series-1); }
 .dtable.d441 td:first-child, .dtable.cyc-ext td:nth-child(2), .dtable.tiers-cyc td:first-child { text-align: left; }
 .dtable.cyc-ext tr.strong td { font-weight: 700; background: var(--bg); }
+/* Dossier de révision : barre des cycles A à K, comptes et pièces du cycle */
+.fec-cycles { margin-top: -.4rem; }
+.fec-cycles button b { color: var(--primary); }
+.fec-cycles button.na:not(.on), .cycle-tile.cycle-na { opacity: .6; }
+.dtable.cyc-acc tr.strong td { font-weight: 700; background: var(--bg); }
+.dtable.cyc-acc tr.flag td { background: var(--warn-soft); }
+.dtable.cyc-acc tr.done td { color: var(--muted); }
+.dtable.cyc-acc td.chk { text-align: center !important; }
+.dtable.cyc-acc td.comment { min-width: 220px; text-align: left !important; }
+.dtable.cyc-acc td.comment input { min-height: 32px; padding: .25rem .5rem; font-size: .85rem; margin: 0; }
+.cyc-docs { list-style: none; margin: 0; padding: 0; }
+.cyc-docs li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .35rem .8rem; padding: .45rem 0; border-top: 1px solid var(--border); }
+.cyc-docs li:first-child { border-top: 0; }
+.cyc-doc-text { flex: 1 1 300px; min-width: 0; }
+.cyc-docs li.done .cyc-doc-text { color: var(--muted); text-decoration: line-through; }
+.cyc-docs select { width: auto; min-height: 34px; padding: .25rem .5rem; font-size: .85rem; margin: 0; }
 .dtable.cyc-ext td:nth-last-child(2) { white-space: nowrap; }
 .inline-label input[type=number] { width: 4.5rem; }
 .dtable.num.d441 td:nth-child(2), .dtable.num.d441 th:nth-child(2), .dtable.num.tiers-cyc td:nth-child(2), .dtable.num.tiers-cyc th:nth-child(2) { text-align: right; }

@@ -350,16 +350,19 @@ function viewFec() {
   } else {
     const nbPieces = r.pieces ? piecesCount(r, piecesState().mode, piecesState().arrete) : 0;
     const cc = cycleChecks(r);
-    const cyc = (k, label) => ({ [k]: cnt(label, cc ? wpProgress(k, cc[k]).left : 0) });
+    // Un seul onglet pour les cycles A à K (barre des cycles en dessous) : dernier cycle ouvert, sinon le premier à traiter.
+    if (cc && f.section === 'cycles') f.section = f.lastCycle || Object.keys(CYCLE_DEF).find((k) => wpProgress(k, cc[k]).left) || 'regul';
     tabs = Object.assign({ synthese: 'Synthèse' }, pharma ? { tp: 'Tiers payant', catva: 'CA & TVA' } : {},
-      cc ? Object.assign(cyc('achats', 'Achats'), cyc('charges', 'Charges externes'), pharma ? {} : cyc('clients', 'Clients'), cyc('treso', 'Trésorerie')) : {},
+      cc ? { cycles: cnt('Cycles A à K', Object.keys(CYCLE_DEF).reduce((t, k) => t + wpProgress(k, cc[k]).left, 0)) } : {},
       r.cycles ? { ecritures: cnt('Écritures', ecrProposals(r).filter((p) => p.on).length) } : {},
       { pieces: cnt('Pièces à demander', nbPieces), revue: 'Revue N / N-1', rappro: 'Rapprochement' },
       r.cycles && r.cycles.tva && Object.keys(r.cycles.tva.months).length ? { tvarev: 'Contrôle TVA' } : {});
   }
+  const isTab = (k) => !!(tabs[k] || (tabs.cycles && CYCLE_DEF[k]));
   f.lastTab = f.lastTab || {};
-  if (!tabs[f.section]) f.section = tabs[f.lastTab[space]] ? f.lastTab[space] : Object.keys(tabs)[0];
+  if (!isTab(f.section)) f.section = isTab(f.lastTab[space]) ? f.lastTab[space] : Object.keys(tabs)[0];
   f.lastTab[space] = f.section;
+  const inCycle = !!(tabs.cycles && CYCLE_DEF[f.section]);
   // Profil fixé par le dossier mais contenu du FEC différent : on le signale.
   const isPh = looksLikePharmacy(r);
   const suggest = !f.profileAuto && isPh !== pharma
@@ -399,7 +402,7 @@ function viewFec() {
           <tbody>${r.monthly.map((x) => `<tr><td>${x.mois.slice(5)}/${x.mois.slice(0, 4)}</td><td>${eur(x.ca)}</td><td>${eur(x.charges)}</td><td>${eur(x.tvaCollectee)}</td><td>${eur(x.tvaDeductible)}</td><td>${eur(x.tresorerie)}</td></tr>`).join('')}</tbody></table></div>
         </details>
       </section>` : ''}
-      <section class="card"><h2>Points de révision <span class="count">${genPoints(r).filter((x) => x.level !== 'ok').length}</span></h2>${wpCycleBar('gen', genPoints(r))}${wpCheckList(genPoints(r), 'gen')}</section>
+      <section class="card"><h2>Points de révision <span class="count">${genPoints(r).filter((x) => x.level !== 'ok').length}</span></h2><p class="muted small">Chaque point figure aussi dans son cycle du dossier de révision, avec le même statut.</p>${wpCycleBar('gen', genPoints(r))}${wpCheckList(genPoints(r), 'gen')}</section>
       ${errors ? `<section class="card"><h2>Anomalies de conformité du fichier</h2>${checkList(r.checks.filter((c) => c.level === 'error'))}<button class="btn small" data-action="fec-tab" data-tab="conformite">Voir tous les contrôles</button></section>` : ''}`;
   } else if (f.section === 'mois-pieces') {
     body = viewPieces();
@@ -409,14 +412,8 @@ function viewFec() {
     body = viewSaisie();
   } else if (f.section === 'ecritures') {
     body = viewEcritures();
-  } else if (f.section === 'achats') {
-    body = viewAchats();
-  } else if (f.section === 'charges') {
-    body = viewCharges();
-  } else if (f.section === 'clients') {
-    body = viewClients();
-  } else if (f.section === 'treso') {
-    body = viewTreso();
+  } else if (inCycle) {
+    body = viewCycle(f.section);
   } else if (f.section === 'tva') {
     body = viewTva();
   } else if (f.section === 'tp') {
@@ -496,6 +493,7 @@ function viewFec() {
     ${suggest}
     <div class="seg fec-spaces" role="tablist" aria-label="Espace de travail">${Object.entries(FEC_SPACES).map(([k, x]) => `<button role="tab" aria-selected="${k === space}" class="${k === space ? 'on' : ''}" data-action="fec-space" data-space="${k}" title="${esc(x.hint)}"><strong>${esc(x.label)}</strong><span>${esc(x.hint)}</span></button>`).join('')}</div>
     ${space === 'mois' ? moisHeader(r, tva) : ''}
-    <div class="seg fec-tabs" role="tablist" aria-label="${esc(FEC_SPACES[space].label)}">${Object.entries(tabs).map(([k, l]) => `<button role="tab" aria-selected="${k === f.section}" class="${k === f.section ? 'on' : ''}" data-action="fec-tab" data-tab="${k}">${esc(l)}</button>`).join('')}</div>
+    <div class="seg fec-tabs" role="tablist" aria-label="${esc(FEC_SPACES[space].label)}">${Object.entries(tabs).map(([k, l]) => { const on = k === f.section || (k === 'cycles' && inCycle); return `<button role="tab" aria-selected="${on}" class="${on ? 'on' : ''}" data-action="fec-tab" data-tab="${k}">${esc(l)}</button>`; }).join('')}</div>
+    ${inCycle ? cycleBar(r, f.section) : ''}
     ${body}`;
 }

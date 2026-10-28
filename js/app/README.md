@@ -14,11 +14,11 @@ de sécurité (CSP) n'autorise que les scripts du site.
 | `11-fec-pieces.js` | Pièces à demander (client, mois, fournisseurs) |
 | `12-fec-revue.js` | Revue N / N-1, note de synthèse, rapprochement bancaire |
 | `13-fec-pharmacie.js` | Officine : tiers payant, CA et TVA par taux |
-| `14-fec-cycles.js` | Cycles de révision, imputations sur un autre tiers, justificatifs d'archive |
+| `14-fec-cycles.js` | Dossier de révision : rangement des comptes en cycles A à K, contrôles, comptes et pièces de chaque cycle ; imputations sur un autre tiers, justificatifs d'archive |
 | `15-fec-tva.js` | Contrôle de la TVA (bêta) |
 | `16-fec-mois.js` | Espace Mois : choix du mois, chiffres du mois, contrôles de la saisie |
 | `17-portefeuille.js` | Portefeuille : analyse de plusieurs FEC |
-| `18-revision.js` | Feuille de travail, mémoire du dossier, liens avec les missions |
+| `18-revision.js` | Feuille de travail (contrôles, comptes justifiés, pièces des cycles), dossier de travail imprimable, mémoire du dossier, liens avec les missions |
 | `19-fec-ecritures.js` | Écritures proposées et exports de l'analyse |
 | `20-sauvegarde.js` … `24-modales.js` | Sauvegarde automatique, agenda, aide, import du classeur cabinet, paramètres, fenêtres, verrouillage |
 | `25-actions.js` | Actions et événements |

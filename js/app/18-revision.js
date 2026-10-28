@@ -41,7 +41,7 @@ function wpSave() {
 function applyMemo(list, cycle) {
   const memo = wpMemo();
   return list.map((x) => {
-    if (x.level === 'ok' || x.linked) return x;
+    if (x.level === 'ok' || x.linked || x.via) return x;
     const k = wpKey(memoBase(cycle), x.label);
     if (memo[k + '|*']) {
       const m = memo[k + '|*'];
@@ -89,10 +89,11 @@ function elCounts(cycle, x) {
   const ex = x.examples || [];
   return { total: ex.length, done: ex.filter((e) => WP_DONE.includes(elOf(it, e).st || '')).length, wait: ex.filter((e) => elOf(it, e).st === 'piece').length };
 }
+// Un point général rangé dans un cycle (`via`) garde le statut de la feuille « gen ».
 function wpProgress(cycle, list) {
   const todo = list.filter((x) => (x.level === 'error' || x.level === 'warn') && !x.linked);
-  const done = todo.filter((x) => WP_DONE.includes(checkState(cycle, x)));
-  const wait = todo.filter((x) => checkState(cycle, x) === 'piece');
+  const done = todo.filter((x) => WP_DONE.includes(checkState(x.via || cycle, x)));
+  const wait = todo.filter((x) => checkState(x.via || cycle, x) === 'piece');
   return { total: todo.length, done: done.length, wait: wait.length, left: todo.length - done.length - wait.length };
 }
 
@@ -114,13 +115,14 @@ function wpCheckList(list, cycle) {
   f.wpOpen = f.wpOpen || new Set();
   const opts = (cur, first) => Object.entries(WP_ST).map(([v, l]) => `<option value="${v}"${(cur || '') === v ? ' selected' : ''}>${v === '' && first ? first : l}</option>`).join('');
   return `<ul class="fec-checks wp">${list.slice().sort((a, b) => order[a.level] - order[b.level]).map((c) => {
-    const k = wpKey(cycle, c.label);
-    const mk = wpKey(memoBase(cycle), c.label);
+    const cy = c.via || cycle;
+    const k = wpKey(cy, c.label);
+    const mk = wpKey(memoBase(cy), c.label);
     const it = wpStore().items[k] || {};
     const actionable = c.level !== 'ok' && !c.linked;
     const ex = c.examples && c.examples.length;
-    const state = actionable ? checkState(cycle, c) : '';
-    const ec = actionable && ex ? elCounts(cycle, c) : null;
+    const state = actionable ? checkState(cy, c) : '';
+    const ec = actionable && ex ? elCounts(cy, c) : null;
     const shown = ex ? c.examples.filter((e) => !(f.wpHide && actionable && WP_DONE.includes(elOf(it, e).st || ''))) : [];
     const elRow = (e) => {
       const el = elOf(it, e);
@@ -182,15 +184,14 @@ function wpCycleBar(cycle, list, doneLabel) {
 // Année de l'exercice analysé (titre de la mission de revue, rattachement au bilan).
 const fecYear = (r) => (r.meta.closing ? r.meta.closing.slice(0, 4) : (r.meta.maxDate || '').slice(0, 4));
 
-// Tous les cycles revus : étape « Révision des comptes » du bilan (ou de la situation) de l'exercice cochée.
+// Tous les cycles revus (sauf ceux sans objet) : étape « Révision des comptes » du bilan (ou de la situation) cochée.
 function revisionSigned() {
   const f = ui.fec;
   const r = f.result;
   const c = clientById(f.clientId);
   const cc = cycleChecks(r);
   if (!c || !cc) return;
-  const keys = Object.keys(CYCLES).filter((k) => k !== 'clients' || ui.fecProfile !== 'pharmacie');
-  if (!keys.every((k) => wpStore().cycles[k])) return;
+  if (!Object.keys(CYCLE_DEF).filter((k) => cycleUsed(r, k)).every((k) => wpStore().cycles[k])) return;
   const year = fecYear(r);
   const why = 'tous les cycles sont marqués comme revus dans la feuille de travail';
   const done = isSituation(r) ? autoStep(c.id, ['situation'], [year, ''], /^r[ée]vision/i, why) : autoStep(c.id, ['bilan'], [year], /^r[ée]vision/i, why);
@@ -209,7 +210,7 @@ function syncReviewMission() {
   const note = (cycle, x) => treated.set(wpKey(cycle, x.label), x.level === 'ok' || WP_DONE.includes(checkState(cycle, x)));
   genPoints(r).forEach((x) => note('gen', x));
   const cc = cycleChecks(r) || {};
-  Object.keys(cc).forEach((k) => cc[k].forEach((x) => note(k, x)));
+  Object.keys(cc).forEach((k) => cc[k].forEach((x) => note(x.via || k, x)));
   let changed = 0;
   m.etapes.forEach((e) => {
     if (!e.key || !treated.has(e.key) || treated.get(e.key) === !!e.done) return;
@@ -221,6 +222,22 @@ function syncReviewMission() {
   if (n === m.etapes.length) setStatus(m, 'termine');
   else if (!isOpen(m) || (n && m.statut === 'a_faire')) setStatus(m, 'en_cours');
   m.updatedAt = nowIso();
+}
+
+// Comptes justifiés et statut des pièces du dossier de révision (feuille de l'exercice).
+const wpAccStore = () => { const st = wpStore(); return (st.comptes = st.comptes || {}); };
+const wpDocStore = () => { const st = wpStore(); return (st.docs = st.docs || {}); };
+function wpSetAcc(compte, on) {
+  const st = wpAccStore();
+  if (on) st[compte] = { by: data.settings.utilisateur || '', at: nowIso() };
+  else delete st[compte];
+  wpSave();
+}
+function wpSetDoc(id, v) {
+  const st = wpDocStore();
+  if (v) st[id] = { st: v, by: data.settings.utilisateur || '', at: nowIso() };
+  else delete st[id];
+  wpSave();
 }
 
 function wpSetItem(k, patch) {
@@ -240,7 +257,8 @@ async function wpMemoAdd(k, sig, label) {
   refresh();
 }
 
-// Dossier de travail imprimable : chiffres clés, contrôles par cycle avec statut, commentaire et revue.
+// Dossier de travail imprimable : chiffres clés, puis chaque cycle A à K (sauf sans objet) avec ses contrôles (statut,
+// commentaire), ses comptes (solde, N-1, justifié, commentaire), ses pièces et sa revue.
 function workpaperHtml() {
   const f = ui.fec;
   const r = f.result;
@@ -248,7 +266,7 @@ function workpaperHtml() {
   const cc = cycleChecks(r);
   const st = wpStore();
   const k = r.kpi;
-  const sections = Object.keys(CYCLES).filter((key) => cc[key] && (key !== 'clients' || ui.fecProfile !== 'pharmacie'));
+  const sections = Object.keys(CYCLE_DEF).filter((key) => cc[key] && cycleUsed(r, key));
   const row = (cycle, x) => {
     const it = st.items[wpKey(cycle, x.label)] || {};
     const state = x.level === 'ok' ? '' : checkState(cycle, x);
@@ -256,11 +274,16 @@ function workpaperHtml() {
     return `<tr><td>${esc((LEVEL[x.level] || LEVEL.info).label)}</td><td><strong>${esc(x.label)}</strong><div class="note-sub">${esc(x.detail || '')}</div></td><td>${esc(x.level === 'ok' ? '—' : WP_ST[state || ''])}</td><td>${esc(it.note || '')}</td></tr>
       ${els.map((e) => `<tr class="wp-sub"><td></td><td>${esc(e)}</td><td>${esc(WP_ST[elOf(it, e).st || ''])}</td><td>${esc(elOf(it, e).note || '')}</td></tr>`).join('')}`;
   };
-  const gen = applyMemo(fecPoints(r), 'gen');
-  const block = (title, cycle, list) => {
+  const com = revueComments().comments;
+  const acc = wpAccStore();
+  const block = (cycle) => {
     const rev = st.cycles[cycle];
-    return `<h2>${esc(title)}</h2><p class="note-sub">${rev ? `Revu${rev.by ? ` par ${esc(rev.by)}` : ''} le ${fmtDate(rev.at.slice(0, 10))}` : 'Revue non signée'}</p>
-      <table class="note-table wp-table"><thead><tr><th>Niveau</th><th>Contrôle</th><th>Statut</th><th>Commentaire</th></tr></thead><tbody>${list.filter((x) => !x.linked).map((x) => row(cycle, x)).join('') || '<tr><td colspan="4">Aucun point.</td></tr>'}</tbody></table>`;
+    const accts = cycleAccounts(r, cycle);
+    const docs = cycleDocs(r, cycle);
+    return `<h2>${esc(CYCLES[cycle])}</h2><p class="note-sub">${rev ? `Revu${rev.by ? ` par ${esc(rev.by)}` : ''} le ${fmtDate(rev.at.slice(0, 10))}` : 'Revue non signée'}</p>
+      <table class="note-table wp-table"><thead><tr><th>Niveau</th><th>Contrôle</th><th>Statut</th><th>Commentaire</th></tr></thead><tbody>${cc[cycle].filter((x) => !x.linked).map((x) => row(x.via || cycle, x)).join('') || '<tr><td colspan="4">Aucun point.</td></tr>'}</tbody></table>
+      ${accts.length ? `<table class="note-table wp-table"><thead><tr><th>Compte</th><th>Solde</th><th>N-1</th><th>Justifié</th><th>Commentaire</th></tr></thead><tbody>${accts.map((a) => `<tr><td>${esc(a.compte)} ${esc(a.lib)}</td><td>${dcTxt(a.s)}</td><td>${a.n1 === null ? '—' : dcTxt(a.n1)}</td><td>${acc[a.compte] ? 'Oui' : a.todo ? 'À justifier' : ''}</td><td>${esc(com[a.compte] || '')}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${docs.length ? `<table class="note-table wp-table"><thead><tr><th>Pièce</th><th>Statut</th></tr></thead><tbody>${docs.map((x) => `<tr><td>${esc(x.text)}</td><td>${esc((x.cab ? DOC_ST_CAB : DOC_ST)[x.st] || '')}</td></tr>`).join('')}</tbody></table>` : ''}`;
   };
   const ecr = r.cycles ? ecrProposals(r).filter((p) => p.on) : [];
   return `<article class="note">
@@ -275,8 +298,7 @@ function workpaperHtml() {
       <tr><td>Résultat net (avant écritures proposées)</td><td>${eur(k.resultat, 0)} €</td></tr><tr><td>Trésorerie</td><td>${eur(k.tresorerie, 0)} €</td></tr>
       <tr><td>Fichier analysé</td><td>${esc(r.meta.fileName)} (${r.meta.lines.toLocaleString('fr-FR')} lignes)</td></tr>
     </tbody></table>
-    ${block('Points de révision généraux', 'gen', gen)}
-    ${sections.map((key) => block(CYCLES[key], key, cc[key])).join('')}
+    ${sections.map(block).join('')}
     ${ecr.length ? `<h2>Écritures proposées retenues</h2><table class="note-table"><thead><tr><th>Écriture</th><th>Montant</th><th>Impact résultat</th></tr></thead><tbody>
       ${ecr.map((p) => `<tr><td>${esc(p.label)}</td><td>${eur(p.amount)} €</td><td>${eur(ecrImpact(p.lines))} €</td></tr>`).join('')}</tbody></table>` : ''}
     <p class="note-foot">Établi à partir du FEC, sur l'appareil du cabinet. Document de travail interne couvert par le secret professionnel.</p>

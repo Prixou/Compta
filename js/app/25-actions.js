@@ -616,6 +616,12 @@ document.addEventListener('change', (e) => {
     it.lib = t.dataset.lib;
     it[t.dataset.supp] = t.value.trim();
     persist();
+  } else if (t.dataset.wpacc && ui.fec && ui.fec.result) {
+    wpSetAcc(t.dataset.wpacc, t.checked);
+    refresh();
+  } else if (t.dataset.wpdoc && ui.fec && ui.fec.result) {
+    wpSetDoc(t.dataset.wpdoc, t.value);
+    refresh();
   } else if (t.dataset.wp && ui.fec && ui.fec.result) {
     const w = t.dataset.wp;
     if (w === 'st') { wpSetItem(t.dataset.k, { st: t.value }); refresh(); }
