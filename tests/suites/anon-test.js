@@ -197,6 +197,8 @@ const balanced = (text) => {
   await p.waitForFunction(() => ui.anon && ui.anon.status === 'done' && ui.anon.extraApplied === 'port' && !ui.anon.dirty);
   await p.waitForSelector('.anon-chip[data-k="FRESTAU"][data-mode=keep]');
   expect(await p.$('.anon-chip[data-k="PORT"][data-mode=keep]'), 'mot ajouté à la main : remplacé');
+  // L'aperçu est redessiné juste après la fin de l'anonymisation : on l'attend avant de le lire
+  await p.waitForFunction(() => !document.querySelector('.anon-preview').textContent.includes('FRESTAU'), null, { timeout: 5000 }).catch(() => {});
   expect(!(await p.textContent('.anon-preview')).includes('FRESTAU'), 'mot conservé cliqué : remplacé');
   await p.check('input[data-anon=ok]');
   await p.click('button[data-action=anon-download]'); await p.waitForSelector('#ask[open]');

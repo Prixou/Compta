@@ -353,6 +353,7 @@ const actions = {
     refresh();
   },
   'wp-print': () => printHtml(workpaperHtml()),
+  'silae-pick': async () => silaeRead(await pickFiles('.pdf,application/pdf')),
   'tva-kind': (el) => {
     const st = tvaState();
     const ym = st.kind === 'quarter' ? tvaPeriod(st.key).months.filter((k) => ui.fec.result.cycles.tva.months[k]).pop() : st.key;
@@ -616,6 +617,13 @@ document.addEventListener('change', (e) => {
     it.lib = t.dataset.lib;
     it[t.dataset.supp] = t.value.trim();
     persist();
+  } else if (t.dataset.silae && ui.fec && ui.fec.result) {
+    const k = t.dataset.silae, d = (ui.fec.silae || {})[SILAE[k].doc];
+    if (!t.value) delete silaeStore()[k];
+    else if (d) { const [ri, ai] = t.value.split(':').map(Number); silaeSet(k, d, ri, ai, true); }
+    wpSave();
+    persist();
+    refresh();
   } else if (t.dataset.wpsolde && ui.fec && ui.fec.result) {
     wpSetSolde(t.dataset.wpsolde, t.value);
     refresh();

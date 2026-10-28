@@ -130,6 +130,28 @@ const CYCLES = ['regul', 'treso', 'achats', 'charges', 'clients', 'stocks', 'imm
   const dup = pieces.filter((t, i) => pieces.indexOf(t) !== i);
   console.log('pièces du dossier :', pieces.filter((t) => /approbation|DSN|Relevés des placements|Méthode de valorisation|Dernière facture|kilomètres|Effectif au/.test(t)).join(' || '));
   ko(!dup.length, `aucune pièce en double ${dup.join(' | ')}`);
+  ko(!pieces.some((t) => /journal de paie|Bulletins|DSN|Effectif au|cotisations personnelles/i.test(t)), 'aucune pièce de paie demandée au client (paie sur Silae)');
+
+  // Cycle H : rapprochement avec les éditions Silae (journal de paie, détail des cotisations, solde de repos)
+  await fecTab(p, 'social', 0); await p.waitForTimeout(120);
+  [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('button[data-action=silae-pick]')]);
+  await ch.setFiles(['silae-journal-de-paie.pdf', 'silae-detail-cotisations.pdf', 'silae-solde-de-repos.pdf'].map((f) => D + 'silae/' + f));
+  await p.waitForSelector('select[data-silae="brut"]'); await p.waitForTimeout(150);
+  const sil = await p.$$eval('.dtable.silae tbody tr', (l) => l.map((x) => Array.from(x.cells).map((c) => (c.querySelector('select') ? c.querySelector('select').selectedOptions[0].textContent : c.textContent).replace(/\s+/g, ' ').trim()).join(' | ')));
+  console.log('Silae :\n  ' + sil.join('\n  '));
+  console.log('messages :', await p.$$eval('.banner span', (b) => b.map((x) => x.textContent).filter((t) => /lu —|non reconnue/.test(t)).join(' || ')));
+  ko(/\| 0$/.test(sil[0]) && /\| 0$/.test(sil[1]) && /\| −2\s150,00$/.test(sil[2]) && /\| −903,00$/.test(sil[3]), 'H : salaires et cotisations conformes, congés payés en écart');
+  const hChecks = await p.$$eval('.fec-checks .fec-check strong', (l) => l.map((x) => x.textContent));
+  console.log('contrôles H :', hChecks.join(' | '));
+  ko(hChecks.includes('Salaires bruts conformes au journal de paie Silae') && hChecks.includes('Congés payés à payer : écart avec le solde de repos Silae'), 'H : contrôles du rapprochement Silae');
+  const hDocs = await p.$$eval('.cyc-docs li', (l) => l.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+  console.log('pièces H :', hDocs.join(' | '));
+  ko(hDocs.length && hDocs.every((t) => /\(Silae\) cabinet/.test(t)), 'H : pièces = éditions Silae du cabinet');
+  await p.screenshot({ path: O + 'dossier-silae.png', fullPage: true });
+  // Ligne choisie à la main : mémorisée pour les éditions suivantes
+  await p.selectOption('select[data-silae="cp"]', { index: 2 }); await p.waitForTimeout(150);
+  const memo = await p.evaluate(() => JSON.stringify(data.settings.silaeMap || {}));
+  ko(/"cp":\{"lab":"[a-z ]*","col":"[a-z ]*"\}/.test(memo), `choix de ligne mémorisé ${memo}`);
 
   // FEC N-1 : à-nouveaux rapprochés de la clôture N-1, colonne N-1 des comptes
   await fecTab(p, 'revue', 0);

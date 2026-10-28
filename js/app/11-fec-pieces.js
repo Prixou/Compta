@@ -790,13 +790,6 @@ function computePiecesRaw(r, mode, arrete, flt = ALL_PIECES) {
   // Immobilisations acquises
   immoPieces(r, push, '0000-00-00', arrete, flt);
 
-  // Paie
-  const payMonths = Object.keys(p.payroll).filter((ym) => ym <= endYm).sort();
-  if (payMonths.length >= 3) {
-    const missing = monthsBetween(payMonths[0], endYm).filter((ym) => !p.payroll[ym]);
-    if (missing.length) push('social', 'paie', `Bulletins et journal de paie : ${fmtMonths(missing)}`);
-  }
-
   // Compte courant d'associé
   const cca = p.cca.filter((l) => l.date <= arrete);
   if (cca.length) {
@@ -821,7 +814,6 @@ function computePiecesRaw(r, mode, arrete, flt = ALL_PIECES) {
     if (f.stock && !pharma) push('cloture', 'stock', `Inventaire des stocks et en-cours valorisé au ${d(arrete)}`);
     if (f.emprunt) push('cloture', 'emprunt', `Tableaux d'amortissement des emprunts (capital restant dû au ${d(arrete)})`);
     if (f.leasing) push('cloture', 'leasing', 'Contrats de crédit-bail ou de location financière en cours');
-    if (f.salaires) push('cloture', 'cp', `Journal de paie annuel et état des congés payés acquis non pris au ${d(arrete)}`);
     if (f.caisse) push('cloture', 'caisse', `Procès-verbal de caisse (espèces en caisse au ${d(arrete)})`);
     if (f.cca) push('cloture', 'cca', "Relevé du compte courant d'associé et convention de compte courant éventuelle");
     if (f.vehicules) push('cloture', 'vehicules', 'Cartes grises des véhicules de la société');

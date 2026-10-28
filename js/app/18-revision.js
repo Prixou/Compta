@@ -228,6 +228,8 @@ function syncReviewMission() {
 const wpAccStore = () => { const st = wpStore(); return (st.comptes = st.comptes || {}); };
 const wpDocStore = () => { const st = wpStore(); return (st.docs = st.docs || {}); };
 const wpSoldeStore = () => { const st = wpStore(); return (st.soldes = st.soldes || {}); };
+// Montants retenus des éditions de paie Silae (cycle H) : { brut, pat, cp, cpch } → { v, lab, col, file }.
+const silaeStore = () => { const st = wpStore(); return (st.silae = st.silae || {}); };
 // Solde selon la pièce, saisi tel qu'il figure sur le document (« 12 345,67 ») ; vide : effacé.
 function wpSetSolde(compte, txt) {
   const st = wpSoldeStore();

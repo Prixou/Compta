@@ -59,7 +59,7 @@ function genIn(r, out, key) {
   genPoints(r).filter((a) => genCycle(a.label) === key).forEach((a) => out.push(Object.assign({}, a, { via: 'gen' })));
 }
 // Contrôles de cohérence de la revue N / N-1 rangés dans leur cycle (honoraires et cadeaux : déjà contrôlés en D).
-const COH_CYCLE = [[/TVA|^Impôt sur les sociétés|^Pénalités|^Taxes sur les véhicules/, 'etat'], [/^Salaires|charges sociales/i, 'social'],
+const COH_CYCLE = [[/^Salaires restant dus/, ''], [/TVA|^Impôt sur les sociétés|^Pénalités|^Taxes sur les véhicules/, 'etat'], [/^Salaires|charges sociales/i, 'social'],
   [/amortissements/, 'immo'], [/^Emprunts|^Taux d'intérêt|^Intérêts/, 'treso'], [/^Capitaux propres/, 'capitaux'],
   [/^Mois sans chiffre|^Chiffre d'affaires|^Délai de paiement clients/, 'clients'], [/^Taux de marge/, 'stocks'], [/^Dons/, 'charges'],
   [/^Exercices non consécutifs|^SIREN/, 'regul']];
@@ -320,7 +320,7 @@ function cycleChecks(r) {
   const ref = pharmaRef(r);
   const prev = fecPrev();
   const terme = fecTerme();
-  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', ui.fec.prev ? ui.fec.prev.meta.fileName : '', terme, ui.fec.seuil || '', r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore()), JSON.stringify(wpSoldeStore())].join('|');
+  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', ui.fec.prev ? ui.fec.prev.meta.fileName : '', terme, ui.fec.seuil || '', r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore()), JSON.stringify(wpSoldeStore()), JSON.stringify(silaeStore())].join('|');
   if (r._cc && r._cc.key === key) return r._cc.val;
   const coh = coherenceChecks(r, prev, clientById(ui.fec.clientId));
   const val = {
@@ -707,15 +707,27 @@ function chkSocial(r, ref, coh) {
   if (months.length >= 3) {
     const all = monthsBetween(months[0], ymOf([ref, r.pieces.maxOp || ref].sort()[0]));
     const miss = all.filter((ym) => !pay[ym]);
-    if (miss.length) out.add('warn', 'Mois sans salaire comptabilisé', `${fmtMonths(miss)} : paie non saisie, ou plus de salarié ? Les bulletins sont demandés avec les pièces.`);
+    if (miss.length) out.add('warn', 'Mois sans salaire comptabilisé', `${fmtMonths(miss)} : paie non comptabilisée, ou plus de salarié ?`);
     else out.add('ok', 'Salaires comptabilisés chaque mois', `${all.length} mois de paie.`);
   }
+  silaeChecks(r, out);
+  // Rémunérations dues (421) : soldées, ou salaires du dernier mois réglés au début de l'exercice suivant
+  const last = months[months.length - 1], du = -solde(['421']);
+  if (du >= 1 && last && du > pay[last] + 1) out.add('warn', "Salaires restant dus de plus d'un mois", `${eur(du)} € au crédit du 421 pour ${eur(pay[last])} € de salaires bruts en ${fmtMonths([last])} : seuls les salaires du dernier mois, réglés au début de l'exercice suivant, peuvent rester dus.`);
+  else if (du >= 1) out.add('ok', 'Salaires du dernier mois restant dus', `${eur(du)} € au crédit du 421, réglés au début de l'exercice suivant.`);
+  else if (balOf(r, ['421']).length && Math.abs(solde(['421'])) < 1) out.add('ok', 'Rémunérations dues soldées', 'Compte 421 à zéro.');
   const remu = mv(['644']);
   if (remu >= 1 && mv(['646']) < 0.01) out.add('warn', 'Rémunération du dirigeant sans cotisations personnelles', `${eur(remu, 0)} € en 644 sans cotisations sociales personnelles (646) : appels de cotisations à comptabiliser.`);
   const deb43 = balOf(r, ['43']).filter((b) => b.s >= 1);
   if (deb43.length) out.add('warn', 'Organismes sociaux débiteurs', 'Cotisations versées en trop, ou charges sociales non comptabilisées (dernier mois, régularisation annuelle) ?', deb43.map((b) => accLine(b)));
-  const due = -solde(['43']), monthly = mv(['645', '646', '647', '648']) / Math.max(1, months.length || 12);
-  if (monthly > 0 && due > monthly * 3.5) out.add('warn', `Dettes sociales élevées : ${eur(due, 0)} €`, `Plus de trois mois de cotisations (${eur(monthly, 0)} € par mois) : retard de paiement, échéancier, ou règlements non lettrés ?`);
+  // Organismes sociaux (431 à 437) : reste dû le dernier mois ou le dernier trimestre de cotisations, estimé sur les trois
+  // derniers mois de salaires bruts (cotisations patronales de l'exercice rapportées aux salaires, plus 22 % de part salariale)
+  const soc = balOf(r, ['431', '432', '433', '434', '435', '436', '437']);
+  const due = soc.reduce((t, b) => t + Math.max(0, -b.s), 0);
+  const gross = mv(['641']), q = months.slice(-3).reduce((t, ym) => t + pay[ym], 0);
+  const est = gross > 0 ? q * (mv(['645', '647', '648']) / gross + 0.22) : 0;
+  if (est > 0 && due > est * 1.15) out.add('warn', "Dettes sociales de plus d'un trimestre", `${eur(due)} € dus aux organismes sociaux (431 à 437), pour environ ${eur(est, 0)} € de cotisations sur les trois derniers mois de salaires : seul le dernier mois ou le dernier trimestre doit rester à régler (retard, échéancier, ou règlements non lettrés ?).`, soc.filter((b) => b.s <= -1).map((b) => accLine(b)));
+  else if (due >= 1) out.add('ok', 'Dettes sociales du dernier mois ou du dernier trimestre', `${eur(due)} € dus aux organismes sociaux (431 à 437)${est > 0 ? `, pour environ ${eur(est, 0)} € de cotisations sur les trois derniers mois` : ''}.`);
   const av = balOf(r, ['42']).filter((b) => b.s >= 1);
   if (av.length) out.add('info', `Personnel débiteur : ${eur(av.reduce((s, b) => s + b.s, 0), 0)} €`, 'Avances et acomptes au personnel (425) à récupérer sur les salaires, ou erreur de paie ?', av.map((b) => accLine(b)));
   if (yearEnd(r) && mv(['641']) > 20000 && Math.abs(solde(['4282', '4382'])) < 0.01) out.add('info', 'Pas de congés payés à payer à la clôture', `Congés acquis et non pris au ${fmtDate(r.meta.closing)} à provisionner, charges sociales comprises (4282, 4382), sauf adhésion à une caisse de congés payés.`);
@@ -965,13 +977,10 @@ function docsOf(r, key, arrete) {
     if (balOf(r, ['275']).some((b) => b.dm >= 1)) add('depot', "Justificatifs des dépôts de garantie versés dans l'exercice (bail, contrats)", { cat: 'immo' });
     if (live(['26', '271', '272'])) add('titres', "Derniers comptes annuels des sociétés dont les titres sont détenus (valeur d'inventaire)");
   } else if (key === 'social') {
-    if (live(['641'])) {
-      add('paie', `Journal de paie annuel et état des congés payés acquis non pris au ${d}`, { std: !!fl.salaires, cat: 'social' });
-      add('effectif', `Effectif au ${d}, entrées et sorties de l'exercice, primes et indemnités dues à la clôture`, { cat: 'questions' });
-    }
-    if (live(['645', '431'])) add('dsn', 'Déclarations sociales (DSN) du dernier mois ou trimestre et relevés des organismes (URSSAF, retraite, prévoyance, mutuelle)', { cat: 'social' });
-    if (live(['646'])) add('tns', 'Appels et régularisations des cotisations personnelles du dirigeant (URSSAF, retraite, prévoyance)', { cat: 'social' });
-    if (live(['644'])) add('remu', "Décision fixant la rémunération du dirigeant (procès-verbal ou décision de l'associé unique)", { cat: 'social' });
+    // Paie faite sur Silae par le cabinet : rien à demander au client, les éditions servent au rapprochement (lues = établies)
+    if (live(['641'])) add('jp', "Journal de paie de l'exercice (Silae)", { cab: true, silae: 'brut' });
+    if (live(['645', '43'])) add('cotis', "Détail des cotisations de l'exercice (Silae)", { cab: true, silae: 'pat' });
+    if (live(['641', '4282'])) add('repos', `Solde de repos au ${d} (Silae)`, { cab: true, silae: 'cp' });
   } else if (key === 'etat') {
     if (live(['445'])) add('tva', "Déclarations de TVA de l'exercice (CA3 ou CA12) et accusés de dépôt", { cab: true });
     if (live(['444']) || mv(['695']) >= 1) add('is', "Relevés d'acomptes (2571) et de solde (2572) d'impôt sur les sociétés", { cab: true });
@@ -1006,8 +1015,9 @@ function cycleDocs(r, key) {
   return list.map((x) => {
     const own = (loc[x.id] || {}).st || '';
     const lab = normLab(x.text);
-    const auto = S.recvLab.has(lab) ? 'recu' : S.pendLab.has(lab) ? 'demande' : '';
-    return Object.assign(x, { own, auto, st: own || auto });
+    const lu = x.silae && silaeStore()[x.silae];
+    const auto = S.recvLab.has(lab) || lu ? 'recu' : S.pendLab.has(lab) ? 'demande' : '';
+    return Object.assign(x, { own, auto, lu: !!lu, st: own || auto });
   });
 }
 const docsLeft = (r, key) => cycleDocs(r, key).filter((x) => !['recu', 'na'].includes(x.st)).length;
@@ -1021,7 +1031,7 @@ function docsCard(r, key) {
     <ul class="cyc-docs">${list.map((x) => {
       const ST = x.cab ? DOC_ST_CAB : DOC_ST;
       return `<li class="${['recu', 'na'].includes(x.st) ? 'done' : ''}"><span class="cyc-doc-text">${esc(x.text)} <span class="muted small">${x.cab ? 'cabinet' : x.std ? 'client · demandé avec les pièces' : 'client'}</span></span>
-        <select data-wpdoc="${esc(x.id)}" aria-label="Statut de la pièce">${Object.entries(ST).map(([v, l]) => `<option value="${v}"${x.own === v ? ' selected' : ''}>${v === '' && x.auto ? `${DOC_ST[x.auto]} (demande de pièces)` : l}</option>`).join('')}</select></li>`;
+        <select data-wpdoc="${esc(x.id)}" aria-label="Statut de la pièce">${Object.entries(ST).map(([v, l]) => `<option value="${v}"${x.own === v ? ' selected' : ''}>${v === '' && x.auto ? (x.lu ? 'Édition lue' : `${DOC_ST[x.auto]} (demande de pièces)`) : l}</option>`).join('')}</select></li>`;
     }).join('')}</ul></section>`;
 }
 
@@ -1036,7 +1046,7 @@ const CYCLE_INTRO = {
   clients: "Officine : le tiers payant, le chiffre d'affaires et la TVA par taux ont leurs onglets.",
   stocks: "Variation de stock comparée aux stocks d'ouverture et de clôture, inventaire, dépréciation et évolution du stock.",
   immo: 'Investissements, cessions, dotations aux amortissements, immobilisations en cours et crédit-bail.',
-  social: 'Paie de chaque mois, charges sociales, dettes sociales, congés payés et rémunération du dirigeant.',
+  social: "Rapprochement avec les éditions Silae (journal de paie, détail des cotisations, solde de repos), paie de chaque mois, salaires du dernier mois restant dus, cotisations du dernier mois ou du dernier trimestre restant dues, rémunération du dirigeant.",
   etat: 'TVA, impôt sur les sociétés, CFE et autres impôts et taxes, crédit de TVA.',
   capitaux: "Capital, affectation du résultat de l'exercice précédent, réserve légale, subventions et provisions.",
   autres: 'Débiteurs et créditeurs divers, comptes de régularisation, opérations exceptionnelles et autres produits.',
@@ -1096,7 +1106,101 @@ function viewCycle(key) {
   const r = ui.fec.result;
   ui.fec.lastCycle = key;
   if (CYCLE_VIEWS[key] && !(key === 'clients' && ui.fecProfile === 'pharmacie')) return CYCLE_VIEWS[key]();
-  return `${cycleKpis(r, key)}${cycleBanner(r, key)}${cycleHead(key, CYCLE_INTRO[key])}`;
+  return `${cycleKpis(r, key)}${cycleBanner(r, key)}${key === 'social' ? silaeCard(r) : ''}${cycleHead(key, CYCLE_INTRO[key])}`;
+}
+
+// ---------- Cycle H : rapprochement avec les éditions de paie Silae ----------
+
+// Salaires bruts (641 hors congés payés) avec le journal de paie, cotisations patronales (645 hors congés payés) avec le
+// détail des cotisations, congés payés à payer (4282) et charges sociales correspondantes (4382) avec le solde de repos.
+// Les PDF sont lus sur l'appareil et ne sont pas conservés : seuls les montants retenus sont enregistrés dans la feuille
+// de travail ; la ligne choisie à la main est mémorisée pour les éditions suivantes (paramètres du cabinet).
+const SILAE = {
+  brut: { doc: 'journal', label: 'Salaires bruts', comptes: '641 hors congés payés', ed: 'journal de paie' },
+  pat: { doc: 'cotis', label: 'Cotisations patronales', comptes: '645 hors congés payés', ed: 'détail des cotisations' },
+  cp: { doc: 'repos', label: 'Congés payés à payer', comptes: '4282', ed: 'solde de repos' },
+  cpch: { doc: 'repos', label: 'Charges sociales sur congés payés', comptes: '4382', ed: 'solde de repos' },
+};
+const SILAE_DOCS = { journal: 'Journal de paie', cotis: 'Détail des cotisations', repos: 'Solde de repos' };
+
+// Montants de la comptabilité ; comptes de congés payés à part : 6412 et 6452, ou 641 et 645 dont le libellé cite les congés.
+function silaeFec(r) {
+  const { mv, solde } = sums(r);
+  const cp = (p) => balOf(r, [p]).filter((b) => b.compte.startsWith(p + '2') || /cong/i.test(b.lib)).map((b) => b.compte);
+  return { brut: mv(['641'], cp('641')), pat: mv(['645'], cp('645')), cp: -solde(['4282']), cpch: -solde(['4382']) };
+}
+const silaeEcart = (F, cur, k) => (cur ? Math.round((F[k] - cur.v) * 100) / 100 : null);
+
+function silaeChecks(r, out) {
+  const sil = silaeStore(), F = silaeFec(r);
+  const read = Object.keys(SILAE).filter((k) => sil[k]);
+  if (!read.length) {
+    if (balOf(r, ['641']).some((b) => b.dm >= 1)) out.add('info', 'Rapprochement avec Silae à faire', 'Déposez le journal de paie, le détail des cotisations et le solde de repos (PDF Silae) dans le cadre « Rapprochement avec Silae » : leurs montants sont comparés aux comptes.');
+    return;
+  }
+  read.forEach((k) => {
+    const x = SILAE[k], c = sil[k], e = silaeEcart(F, c, k);
+    if (Math.abs(e) >= 1) out.add('warn', `${x.label} : écart avec le ${x.ed} Silae`, `${x.comptes} : ${eur(F[k])} € en comptabilité, ${eur(c.v)} € dans l'édition (« ${c.lab}${c.col ? ` · ${c.col}` : ''} ») : écart de ${eur(e)} €.`);
+    else out.add('ok', `${x.label} conformes au ${x.ed} Silae`, `${eur(F[k])} € (${x.comptes}).`);
+  });
+}
+
+// Montant retenu pour un contrôle ; `remember` : choix fait à la main, mémorisé pour les éditions suivantes. Les congés payés
+// remplissent aussi la colonne « Selon pièce » du compte 4282 ou 4382 (s'il n'y en a qu'un).
+function silaeSet(k, d, ri, ai, remember) {
+  const row = d.rows[ri], a = row.amounts[ai];
+  silaeStore()[k] = { v: a.v, lab: row.lab, col: a.col, file: d.file };
+  if (remember) (data.settings.silaeMap = data.settings.silaeMap || {})[k] = { lab: SilaePdf.key(row.lab), col: SilaePdf.key(a.col) };
+  const acc = { cp: '4282', cpch: '4382' }[k];
+  const list = acc ? balOf(ui.fec.result, [acc]) : [];
+  if (list.length === 1) wpSoldeStore()[list[0].compte] = Math.abs(a.v);
+}
+
+async function silaeRead(files) {
+  const f = ui.fec, sil = silaeStore();
+  const map = data.settings.silaeMap || {};
+  f.silae = f.silae || {};
+  f.silaeMsg = [];
+  for (const file of files || []) {
+    try {
+      const d = SilaePdf.parse(await PdfReader.read(await file.arrayBuffer()), PdfReader);
+      if (!d.kind) { f.silaeMsg.push({ ok: false, t: `${file.name} : édition non reconnue (titre attendu : journal de paie, détail des cotisations ou solde de repos ; PDF scanné ?).` }); continue; }
+      f.silae[d.kind] = { file: file.name, rows: d.rows };
+      const got = Object.keys(SILAE).filter((k) => SILAE[k].doc === d.kind).map((k) => {
+        const c = SilaePdf.pick(d.rows, k, map[k]);
+        if (!c) { delete sil[k]; return `${SILAE[k].label.toLowerCase()} : ligne non reconnue, à choisir dans la liste`; }
+        silaeSet(k, f.silae[d.kind], c.row, c.amount, false);
+        return `${SILAE[k].label.toLowerCase()} ${eur(sil[k].v)} € (« ${sil[k].lab}${sil[k].col ? ` · ${sil[k].col}` : ''} »)`;
+      });
+      f.silaeMsg.push({ ok: true, t: `${file.name} : ${SILAE_DOCS[d.kind].toLowerCase()} lu — ${got.join(' ; ')}.` });
+    } catch (e) {
+      f.silaeMsg.push({ ok: false, t: `${file.name} : ${e.message || e}` });
+    }
+  }
+  wpSave();
+  refresh();
+}
+
+function silaeCard(r) {
+  const f = ui.fec, sil = silaeStore(), F = silaeFec(r), docs = f.silae || {};
+  const src = (k) => {
+    const d = docs[SILAE[k].doc], cur = sil[k];
+    if (!d) return cur ? `${esc(cur.lab)}${cur.col ? ` · ${esc(cur.col)}` : ''}<div class="muted small">${esc(cur.file)}</div>` : `<span class="muted small">${SILAE_DOCS[SILAE[k].doc]} non déposé</span>`;
+    return `<select data-silae="${k}" aria-label="Ligne de l'édition : ${esc(SILAE[k].label)}"><option value="">— Ne pas rapprocher —</option>${SilaePdf.candidates(d.rows, k).map((c) => {
+      const row = d.rows[c.row], a = row.amounts[c.amount];
+      const on = cur && cur.file === d.file && cur.lab === row.lab && cur.col === a.col && cur.v === a.v;
+      return `<option value="${c.row}:${c.amount}"${on ? ' selected' : ''}>${esc(`${row.lab || '(sans libellé)'}${a.col ? ` · ${a.col}` : ''} : ${eur(a.v)}`.slice(0, 110))}</option>`;
+    }).join('')}</select>`;
+  };
+  const rows = Object.entries(SILAE).map(([k, x]) => {
+    const e = silaeEcart(F, sil[k], k);
+    return `<tr><td>${x.label}<div class="muted small">${x.comptes}</div></td><td>${eur(F[k])}</td><td class="silae-src">${src(k)}</td><td>${sil[k] ? eur(sil[k].v) : '—'}</td>
+      <td class="${e === null ? '' : Math.abs(e) < 1 ? 'ecart-ok' : 'cred'}">${e === null ? '' : Math.abs(e) < 1 ? '0' : `${e > 0 ? '+' : '−'}${eur(Math.abs(e))}`}</td></tr>`;
+  }).join('');
+  return `<section class="card"><div class="card-head"><h2>Rapprochement avec Silae</h2><button class="btn small" data-action="silae-pick">Déposer les éditions (PDF)</button></div>
+    <p class="muted small">Journal de paie et détail des cotisations de l'exercice, solde de repos à la date de clôture, édités depuis Silae. Les PDF sont lus sur cet appareil et ne sont pas conservés : seuls les montants retenus sont enregistrés. Si la ligne proposée n'est pas la bonne, choisissez-en une autre : le choix est retenu pour les dossiers suivants.</p>
+    ${(f.silaeMsg || []).map((m) => `<div class="banner ${m.ok ? 'info' : 'warn'}"><span>${esc(m.t)}</span></div>`).join('')}
+    <div class="grid-wrap"><table class="dtable num silae"><thead><tr><th>Contrôle</th><th>Comptabilité</th><th>Ligne de l'édition</th><th>Édition</th><th>Écart</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
 }
 
 // ---------- Justificatifs (archive FEC + pièces) ----------
