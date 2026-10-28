@@ -18,8 +18,16 @@
 #     (hypothèse) ;
 #   - FOMEGA : factures 380 + 500 ouvertes, payées par une LCR de 880 du compte d'attente FLCR (proposition unique) ; la
 #     LCR de 999 ne correspond à aucun fournisseur ;
-#   - FNC : virement de 300 pour les factures de 100 et 200, une facture de 950 entre les deux (lettré seulement si le
-#     fournisseur est déclaré « à factures non consécutives ») ;
+#   - FNC : virement de 300 pour les factures de 100 (avril) et 200 (juin), une facture de 950 entre les deux : trop
+#     espacées, lettrées seulement si le fournisseur est déclaré « à factures non consécutives » ;
+#   - FLONG : un virement pour douze factures qui se suivent ;
+#   - FLAMBDA : virement de 350 pour les factures de 120 et 230, une facture de 777 entre les deux (seule combinaison
+#     possible : lettré, à vérifier) ;
+#   - FAMB : virement de 350 que deux combinaisons de factures peuvent faire (100 + 250, 200 + 150) : rien n'est lettré ;
+#   - FDUO : factures de 300 et 500 réglées par deux virements de 400 ;
+#   - FMENS : fournisseur réglé le mois suivant ; factures de 500 en juillet, août et septembre, règlements de 500 le
+#     05/08 (juillet) et le 05/10 (septembre) : sans réglage, le 05/10 solde la plus ancienne (août) ; déclaré « à
+#     échéance M+1 », il solde celle de septembre et la facture d'août reste ouverte ;
 #   - FBNCDEMO : compte ignoré (« BNC »).
 import sys, os, json
 
@@ -112,10 +120,38 @@ ACCOUNTS = [
         ('21/05/2026', 'BQ', ['LCR ECHEANCE MAI'], 99900, 'D'),
     ]),
     ('FNC', 'FOURNISSEUR NONSUITE', [
-        ('01/06/2026', 'AC', ['FOURNISSEUR NONSUITE F-5001'], 10000, 'C'),
-        ('03/06/2026', 'AC', ['FOURNISSEUR NONSUITE F-5002'], 95000, 'C'),
-        ('05/06/2026', 'AC', ['FOURNISSEUR NONSUITE F-5003'], 20000, 'C'),
-        ('10/06/2026', 'BQ', ['VIR FOURNISSEUR NONSUITE'], 30000, 'D'),
+        ('01/04/2026', 'AC', ['FOURNISSEUR NONSUITE F-5001'], 10000, 'C'),
+        ('15/05/2026', 'AC', ['FOURNISSEUR NONSUITE F-5002'], 95000, 'C'),
+        ('10/06/2026', 'AC', ['FOURNISSEUR NONSUITE F-5003'], 20000, 'C'),
+        ('20/06/2026', 'BQ', ['VIR FOURNISSEUR NONSUITE'], 30000, 'D'),
+    ]),
+    ('FLONG', 'FOURNISSEUR GROSSISTE', [(f'{2 + k:02d}/11/2026', 'AC', [f'FOURNISSEUR GROSSISTE F-91{k:02d}'], 1000 * (k + 1), 'C') for k in range(12)]
+     + [('30/11/2026', 'BQ', ['VIR FOURNISSEUR GROSSISTE NOVEMBRE'], 78000, 'D')]),
+    ('FLAMBDA', 'FOURNISSEUR LAMBDA', [
+        ('01/11/2026', 'AC', ['FOURNISSEUR LAMBDA F-9201'], 12000, 'C'),
+        ('03/11/2026', 'AC', ['FOURNISSEUR LAMBDA F-9202'], 77700, 'C'),
+        ('05/11/2026', 'AC', ['FOURNISSEUR LAMBDA F-9203'], 23000, 'C'),
+        ('15/11/2026', 'BQ', ['VIR FOURNISSEUR LAMBDA'], 35000, 'D'),
+    ]),
+    ('FAMB', 'FOURNISSEUR AMBIGU', [
+        ('02/11/2026', 'AC', ['FOURNISSEUR AMBIGU F-9301'], 10000, 'C'),
+        ('04/11/2026', 'AC', ['FOURNISSEUR AMBIGU F-9302'], 20000, 'C'),
+        ('06/11/2026', 'AC', ['FOURNISSEUR AMBIGU F-9303'], 25000, 'C'),
+        ('08/11/2026', 'AC', ['FOURNISSEUR AMBIGU F-9304'], 15000, 'C'),
+        ('20/11/2026', 'BQ', ['VIR FOURNISSEUR AMBIGU'], 35000, 'D'),
+    ]),
+    ('FDUO', 'FOURNISSEUR DUO', [
+        ('01/12/2026', 'AC', ['FOURNISSEUR DUO F-8301'], 30000, 'C'),
+        ('05/12/2026', 'AC', ['FOURNISSEUR DUO F-8302'], 50000, 'C'),
+        ('20/12/2026', 'BQ', ['VIR FOURNISSEUR DUO ACOMPTE'], 40000, 'D'),
+        ('28/12/2026', 'BQ', ['VIR FOURNISSEUR DUO SOLDE'], 40000, 'D'),
+    ]),
+    ('FMENS', 'FOURNISSEUR MENSUEL', [
+        ('10/07/2026', 'AC', ['FOURNISSEUR MENSUEL F-6001'], 50000, 'C'),
+        ('05/08/2026', 'BQ', ['PRLV FOURNISSEUR MENSUEL'], 50000, 'D'),
+        ('10/08/2026', 'AC', ['FOURNISSEUR MENSUEL F-6002'], 50000, 'C'),
+        ('10/09/2026', 'AC', ['FOURNISSEUR MENSUEL F-6003'], 50000, 'C'),
+        ('05/10/2026', 'BQ', ['PRLV FOURNISSEUR MENSUEL'], 50000, 'D'),
     ]),
     ('FBNCDEMO', 'ASSOCIE DEMO', [
         ('10/06/2026', 'AC', ['HONORAIRES ASSOCIE DEMO F-9001'], 10000, 'C'),
@@ -222,7 +258,7 @@ with open(os.path.join(OUTDIR, 'grand-livre.txt'), 'w', encoding='utf-8') as f:
     f.write('\n'.join(text_lines) + '\n')
 R1, R2 = '1 règlement ↔ 1 facture', '1 règlement ↔ 2 factures'
 exp = {
-    'accounts': 11, 'lines': 48, 'groups': 9, 'lettered': 27, 'amount': 16000.00, 'open': 20, 'shownHidden': 6, 'ignored': 1,
+    'accounts': 16, 'lines': 79, 'groups': 14, 'lettered': 51, 'amount': 18930.00, 'open': 27, 'shownHidden': 10, 'ignored': 1,
     'byAccount': {'FALPHA': {'groups': 2, 'open': 1, 'methods': [R1, R2]},
                   'FBETA': {'groups': 1, 'open': 4, 'skipped': 1, 'methods': [R1]},
                   'FGAMMA': {'groups': 0, 'open': 3},
@@ -231,12 +267,18 @@ exp = {
                   'FSIGMA': {'groups': 1, 'open': 0, 'methods': ['relevé + 2 factures ↔ 1 règlement (écart de 300,00 €)'], 'sizes': [4]},
                   'FTAU': {'groups': 2, 'open': 0, 'methods': ['2 factures + 1 avoir ↔ 1 règlement', '1 avoir ↔ 1 facture'], 'sizes': [4, 2]},
                   'FDELTA1': {'groups': 0, 'open': 1}, 'FDELTA2': {'groups': 0, 'open': 1},
-                  'FOMEGA': {'groups': 0, 'open': 2}, 'FNC': {'groups': 0, 'open': 4}},
+                  'FOMEGA': {'groups': 0, 'open': 2}, 'FNC': {'groups': 0, 'open': 4},
+                  'FMENS': {'groups': 2, 'open': 1, 'methods': [R1, R1], 'rest': ['2026-09-10']},
+                  'FLONG': {'groups': 1, 'open': 0, 'methods': ['1 règlement ↔ 12 factures'], 'sizes': [13]},
+                  'FLAMBDA': {'groups': 1, 'open': 1, 'methods': ['1 règlement ↔ 2 factures non consécutives (à vérifier)'], 'sizes': [3]},
+                  'FAMB': {'groups': 0, 'open': 5},
+                  'FDUO': {'groups': 1, 'open': 0, 'methods': ['2 factures ↔ 2 règlements'], 'sizes': [4]}},
     'hyp': [['FDELTA1', 'FDELTA2', 750.00]],
     'dups': [[1, ['FGAMMA', 'FGAMMA']], [2, ['FBETA', 'FBETA']]],
     'lcr': [[880.00, ['FOMEGA']], [999.00, []]],
-    'mail': ['FOURNISSEUR GAMMA - 01/03/2026 - facture manquante (règlement de 99,90 €)',
-             'FOURNISSEUR NONSUITE - 10/06/2026 - facture manquante (règlement de 300,00 €)'],
+    'mail': ['FOURNISSEUR AMBIGU - 20/11/2026 - facture manquante (règlement de 350,00 €)',
+             'FOURNISSEUR GAMMA - 01/03/2026 - facture manquante (règlement de 99,90 €)',
+             'FOURNISSEUR NONSUITE - 20/06/2026 - facture manquante (règlement de 300,00 €)'],
 }
 with open(os.path.join(OUTDIR, 'attendu.json'), 'w', encoding='utf-8') as f:
     json.dump(exp, f, indent=1)

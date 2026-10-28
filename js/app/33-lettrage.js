@@ -8,8 +8,12 @@
 // ---------- Lettrage proposé ----------
 // Compte par compte, chaque règlement (dans l'ordre des dates) solde des factures qui se suivent, toutes datées au plus
 // tard de son jour et peu espacées (écart maximal réglable entre la première et la dernière), les plus anciennes
-// d'abord. Puis : relevé saisi en plus de ses factures (même total que le règlement), factures et avoirs réglés
-// ensemble, avoir qui annule des factures, grosse facture (4 000 € et plus) réglée en plusieurs fois.
+// d'abord ; un règlement qui n'a qu'une suite de factures possible passe avant les autres. Puis : relevé saisi en plus
+// de ses factures (même total que le règlement), factures et avoirs réglés ensemble, avoir qui annule des factures,
+// grosse facture (4 000 € et plus) réglée en plusieurs fois, 2 ou 3 factures non consécutives mais peu espacées quand la
+// combinaison est la seule possible, 2 ou 3 factures qui se suivent réglées par 2 règlements postérieurs. Un fournisseur
+// « à échéance M+1 » (indiqué dans les réglages) est réglé le mois suivant : un règlement du mois M+1 ne solde que des
+// factures du mois M.
 // Ensuite, sur l'ensemble des comptes : règlement resté ouvert dont la facture est sur un autre compte du même tiers
 // (hypothèse), doublons de factures, montants du compte d'attente (LCR…) rapprochés des factures ouvertes d'un
 // fournisseur, et règlements sans facture (mail de demande des factures manquantes).
@@ -23,7 +27,7 @@
 // Tout reste en mémoire : rien n'est enregistré, et le verrouillage efface l'écran ; seuls les réglages sont retenus.
 
 const lettState = () => (ui.lett = ui.lett || { src: '', fileName: '', text: '', fec: null, accs: [], lcAccs: [], ignored: 0, hyp: [], dup: [], lcr: [], miss: [], msg: '', hide: true, q: '', tiers: 'frs', status: 'idle', runId: 0, mail: null, closed: new Set() });
-const LETT_DEF = { ja: 'AC, AH, HA, VT, VE', jr: 'OD, BQ, LCR, CA, CE', md: '45', nc: '', lc: 'LCR', ex: '', ign: 'BNC' };
+const LETT_DEF = { ja: 'AC, AH, HA, VT, VE', jr: 'OD, BQ, LCR, CA, CE', md: '45', nc: '', m1: '', lc: 'LCR', ex: '', ign: 'BNC' };
 function lettSettings() {
   const s = data.settings.lettrage || {};
   const out = {};
@@ -92,8 +96,10 @@ function lettFromFec(fec, JA, JR, tiers) {
   });
 }
 
+// Écritures consécutives au plus par lettrage (l'écart de dates entre la première et la dernière est la vraie limite)
+const LETT_MAXLEN = 60;
 // Premières écritures consécutives (au plus `maxLen`, peu espacées) dont la somme fait `target` ; montants positifs.
-function lettWin(open, target, maxDays, maxLen = 8) {
+function lettWin(open, target, maxDays, maxLen = LETT_MAXLEN) {
   for (let s = 0; s < open.length; s++) {
     let sum = 0;
     for (let e = s; e < open.length && e - s < maxLen; e++) {
@@ -120,8 +126,14 @@ function lettSubset(items, target, maxLen = 6) {
   return best;
 }
 
+// Facture (ou avoir) qu'un règlement peut solder : jamais postérieure au règlement ; pour un fournisseur à échéance
+// M+1, du mois qui précède celui du règlement.
+const lettMonth = (d) => +d.slice(0, 4) * 12 + +d.slice(5, 7);
+const lettPays = (x, p, m1) => x.d <= p.d && (!m1 || lettMonth(p.d) === lettMonth(x.d) + 1);
+
 // Lettrage d'un compte (factures du côté des écritures d'achat ou de vente : crédit d'un fournisseur, débit d'un client)
 function lettRun(a, maxDays, nc) {
+  const m1 = !!a.m1;
   const L = a.lines.filter((x) => x.type !== 'autre');
   L.forEach((x) => { x.n = Date.parse(x.d) / 864e5; x.used = 0; });
   const tot = { C: 0, D: 0 };
@@ -136,7 +148,7 @@ function lettRun(a, maxDays, nc) {
   const find = (open, target, need) => {
     for (let s = 0; s < open.length; s++) {
       let sum = 0;
-      for (let e = s; e < open.length && e - s < 8; e++) {
+      for (let e = s; e < open.length && e - s < LETT_MAXLEN; e++) {
         if (open[e].n - open[s].n > maxDays) break;
         sum += sg(open[e]);
         if (sum === target && (!need || open.slice(s, e + 1).some(need))) return open.slice(s, e + 1);
@@ -144,10 +156,24 @@ function lettRun(a, maxDays, nc) {
     }
     return null;
   };
+  // Toutes les suites de factures consécutives (montants positifs, peu espacées) qui font exactement `target`
+  const wins = (open, target) => {
+    const out = [];
+    for (let s = 0; s < open.length; s++) {
+      let sum = 0;
+      for (let e = s; e < open.length && e - s < LETT_MAXLEN; e++) {
+        if (open[e].n - open[s].n > maxDays) break;
+        sum += open[e].a;
+        if (sum === target) { out.push(open.slice(s, e + 1)); break; }
+        if (sum > target) break;
+      }
+    }
+    return out;
+  };
   const pl = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
   // 0 : relevé saisi en plus des factures (même total que le règlement) : lettré à part, mis en évidence
   for (const p of P) {
-    const open = C.filter((c) => !c.used && c.d <= p.d);
+    const open = C.filter((c) => !c.used && lettPays(c, p, m1));
     for (const r of open.filter((c) => c.a === p.a)) {
       const hit = find(open.filter((c) => c !== r), p.a);
       if (hit && hit.length > 1 && r.d >= hit[hit.length - 1].d) {
@@ -156,19 +182,29 @@ function lettRun(a, maxDays, nc) {
       }
     }
   }
-  // 1 : un règlement solde des factures qui se suivent (toutes antérieures ou du jour)
+  // 1 : un règlement solde des factures qui se suivent (toutes antérieures ou du jour), les plus anciennes d'abord ; les
+  //     règlements qui n'ont qu'une suite possible passent avant les autres (elle ne peut pas leur être prise)
+  const one = (hit) => `1 règlement ↔ ${pl(hit.length, 'facture')}`;
+  for (let pass = 0, more = true; more && pass < 5; pass++) {
+    more = false;
+    for (const p of P) {
+      if (p.used) continue;
+      const w = wins(C.filter((c) => !c.used && lettPays(c, p, m1)), p.a);
+      if (w.length === 1) { take(w[0], [p], one(w[0])); more = true; }
+    }
+  }
   for (const p of P) {
     if (p.used) continue;
-    const op = C.filter((c) => !c.used && c.d <= p.d);
-    let hit = find(op, p.a), m = '';
-    if (hit) m = `1 règlement ↔ ${pl(hit.length, 'facture')}`;
+    const op = C.filter((c) => !c.used && lettPays(c, p, m1));
+    let hit = wins(op, p.a)[0], m = '';
+    if (hit) m = one(hit);
     else if (nc) { hit = lettSubset(op, p.a); if (hit) m = `1 règlement ↔ ${pl(hit.length, 'facture')} non consécutives`; }
     if (hit) take(hit, [p], m);
   }
   // 2 : factures + avoir(s) qui se suivent = un règlement
   for (const p of P) {
     if (p.used) continue;
-    const hit = find([...C, ...V].filter((c) => !c.used && c.d <= p.d).sort(lettKey), p.a, (x) => x.side !== inv);
+    const hit = find([...C, ...V].filter((c) => !c.used && lettPays(c, p, m1)).sort(lettKey), p.a, (x) => x.side !== inv);
     if (hit) take(hit, [p], `${pl(hit.filter((x) => x.side === inv).length, 'facture')} + ${pl(hit.filter((x) => x.side !== inv).length, 'avoir')} ↔ 1 règlement`);
   }
   // 3 : un avoir annule une ou plusieurs factures qui se suivent
@@ -180,7 +216,7 @@ function lettRun(a, maxDays, nc) {
   // 4 : une facture réglée en plusieurs règlements qui se suivent (postérieurs), réservé aux factures de 4 000 € et plus
   for (const c of C) {
     if (c.used || c.a < 400000) continue;
-    const open = P.filter((p) => !p.used && p.d >= c.d);
+    const open = P.filter((p) => !p.used && lettPays(c, p, m1));
     let hit = null;
     for (let s = 0; s < open.length && !hit; s++) {
       let sum = 0;
@@ -191,7 +227,7 @@ function lettRun(a, maxDays, nc) {
   // 5 : idem, mais les règlements ne se suivent pas forcément (2 ou 3 règlements dans les 90 jours) : à vérifier
   for (const c of C) {
     if (c.used || c.a < 400000) continue;
-    const open = P.filter((p) => !p.used && p.d >= c.d && p.n - c.n <= 90 && p.a < c.a);
+    const open = P.filter((p) => !p.used && lettPays(c, p, m1) && p.n - c.n <= 90 && p.a < c.a);
     let hit = null;
     for (let i = 0; i < open.length && !hit; i++) {
       for (let j = i + 1; j < open.length && !hit; j++) {
@@ -200,6 +236,49 @@ function lettRun(a, maxDays, nc) {
       }
     }
     if (hit) take([c], hit, `1 facture ↔ ${hit.length} règlements non consécutifs (à vérifier)`);
+  }
+  // 6 : un règlement solde 2 ou 3 factures non consécutives (parmi les 12 plus récentes), peu espacées : seulement si
+  //     la combinaison est la seule possible (à vérifier). Au-delà, les sommes qui tombent juste par hasard se multiplient.
+  for (const p of P) {
+    if (p.used) continue;
+    const cand = C.filter((c) => !c.used && c.a < p.a && lettPays(c, p, m1)).slice(-12);
+    const sols = [];
+    const go = (i, sum, ch) => {
+      if (sols.length > 1) return;
+      if (sum === p.a && ch.length > 1) { sols.push(ch.slice()); return; }
+      if (sum >= p.a || ch.length >= 3) return;
+      for (let k = i; k < cand.length; k++) {
+        if (ch.length && cand[k].n - ch[0].n > maxDays) break;
+        ch.push(cand[k]);
+        go(k + 1, sum + cand[k].a, ch);
+        ch.pop();
+      }
+    };
+    go(0, 0, []);
+    if (sols.length === 1) take(sols[0], [p], `1 règlement ↔ ${pl(sols[0].length, 'facture')} non consécutives (à vérifier)`);
+  }
+  // 7 : 2 ou 3 factures qui se suivent (peu espacées) ↔ 2 règlements qui se suivent, tous deux postérieurs à la dernière
+  //     facture et dans l'écart maximal après elle
+  const Cs = C.filter((c) => !c.used), Ps = P.filter((p) => !p.used);
+  for (let i = 0; i < Cs.length; i++) {
+    if (Cs[i].used) continue;
+    let tI = 0;
+    for (let j = i; j < Cs.length && j - i < 3; j++) {
+      if (Cs[j].used || Cs[j].n - Cs[i].n > maxDays) break;
+      tI += Cs[j].a;
+      if (j === i) continue;
+      const grp = Cs.slice(i, j + 1), last = Cs[j];
+      let k0 = 0;
+      while (k0 < Ps.length && Ps[k0].d < last.d) k0++;
+      const ps = [];
+      for (let k = k0; k < Ps.length && Ps[k].n - last.n <= maxDays; k++) if (!Ps[k].used && grp.every((c) => lettPays(c, Ps[k], m1))) ps.push(Ps[k]);
+      let hit = null;
+      for (let k = 0; k < ps.length && !hit; k++) {
+        let t = 0;
+        for (let l = k; l < ps.length && l - k < 2; l++) { t += ps[l].a; if (t === tI && l > k) { hit = ps.slice(k, l + 1); break; } if (t > tI) break; }
+      }
+      if (hit) { take(grp, hit, `${pl(grp.length, 'facture')} ↔ ${hit.length} règlements`); break; }
+    }
   }
   const first = (g) => g.lines.reduce((m, z) => (z.d < m ? z.d : m), g.lines[0].d);
   found.sort((x, y) => (first(x) < first(y) ? -1 : first(x) > first(y) ? 1 : 0));
@@ -232,7 +311,7 @@ function lettHyp(accs, maxDays) {
         if (b === a || b.inv !== a.inv) continue;
         const tb = tok.get(b);
         if (![...tp].some((t) => tb.has(t))) continue;
-        const hit = lettWin(b.rest.filter((c) => c.side === b.inv && !c.hyp && c.d <= p.d).sort(lettKey), p.a, maxDays);
+        const hit = lettWin(b.rest.filter((c) => c.side === b.inv && !c.hyp && lettPays(c, p, b.m1)).sort(lettKey), p.a, maxDays);
         if (hit) { p.hyp = 1; hit.forEach((x) => { x.hyp = 1; }); out.push({ a, b, p, inv: hit }); break; }
       }
     }
@@ -269,7 +348,7 @@ function lettLcr(lc, accs, maxDays, isNC) {
       const c = [];
       for (const b of accs) {
         if (b.inv !== 'C') continue;
-        const open = b.rest.filter((x) => x.side === 'C' && x.type === 'achat' && !x.hyp && !used.has(x) && x.d <= p.d).sort(lettKey);
+        const open = b.rest.filter((x) => x.side === 'C' && x.type === 'achat' && !x.hyp && !used.has(x) && lettPays(x, p, b.m1)).sort(lettKey);
         let hit = lettWin(open, p.a, maxDays);
         if (!hit && isNC(b)) hit = lettSubset(open, p.a);
         if (hit) c.push({ b, hit });
@@ -299,15 +378,17 @@ function lettCompute() {
   const JA = lettList(set.ja), JR = lettList(set.jr);
   const all = st.src === 'fec' && st.fec ? lettFromFec(st.fec, JA, JR, st.tiers) : st.src === 'gl' ? lettParseGl(st.text, JA, JR) : [];
   const IGN = lettList(set.ign);
-  const NCL = String(set.nc).split(',').map((s) => s.replace(/\s/g, '').toUpperCase()).filter(Boolean);
+  const names = (v) => String(v).split(',').map((x) => x.replace(/\s/g, '').toUpperCase()).filter(Boolean);
+  const NCL = names(set.nc), M1L = names(set.m1);
   const isNC = (a) => NCL.some((t) => (a.code + a.name).replace(/\s/g, '').toUpperCase().includes(t));
+  const isM1 = (a) => M1L.some((t) => (a.code + a.name).replace(/\s/g, '').toUpperCase().includes(t));
   const LT = String(set.lc).trim().toUpperCase();
   const isLC = (a) => !!LT && `${a.code} ${a.name}`.toUpperCase().includes(LT);
   const kept = all.filter((a) => !IGN.some((t) => `${a.code} ${a.name}`.toUpperCase().includes(t)));
   const md = Math.max(0, parseInt(set.md, 10) || 45);
   st.ignored = all.length - kept.length;
   st.lcAccs = kept.filter(isLC);
-  st.accs = kept.filter((a) => !isLC(a)).map((a) => lettRun(a, md, isNC(a)));
+  st.accs = kept.filter((a) => !isLC(a)).map((a) => { a.m1 = isM1(a); return lettRun(a, md, isNC(a)); });
   st.hyp = lettHyp(st.accs, md);
   st.dup = lettDups(st.accs);
   st.lcr = lettLcr(st.lcAccs, st.accs, md, isNC);
@@ -456,6 +537,7 @@ function viewLettrage() {
         ${field('jr', 'Journaux de règlement')}
         ${field('md', 'Écart max entre factures d\'un même règlement (jours)', ' inputmode="numeric"')}
         ${field('nc', 'Fournisseurs à factures non consécutives', ' placeholder="noms ou codes, séparés par des virgules"')}
+        ${field('m1', 'Fournisseurs à échéance M+1', ' placeholder="noms ou codes, séparés par des virgules"')}
         ${field('lc', 'Compte d\'attente à affecter (code ou nom)')}
         ${field('ex', 'Comptes exclus du mail (codes)')}
         ${field('ign', 'Comptes ignorés (code ou nom contenant)')}
@@ -479,7 +561,7 @@ function viewLettrage() {
     ${shown.map((a) => {
       const ok = !a.rest.length && a.groups.length;
       const rows = a.lines.slice().sort(lettKey);
-      return `<details class="card lett-acc"${ok ? '' : ' open'}><summary><strong>${esc(a.code)}</strong> <span class="muted">${esc(a.name)} · ${a.groups.length} lettrage(s) · ${a.rest.length} ouverte(s)</span> <span class="badge ${ok ? 'ok' : 'wait'}">${ok ? 'Soldé' : `Solde ouvert ${lettFmt(Math.abs(a.bal))} €`}</span></summary>
+      return `<details class="card lett-acc"${ok ? '' : ' open'}><summary><strong>${esc(a.code)}</strong> <span class="muted">${esc(a.name)}${a.m1 ? ' · échéance M+1' : ''} · ${a.groups.length} lettrage(s) · ${a.rest.length} ouverte(s)</span> <span class="badge ${ok ? 'ok' : 'wait'}">${ok ? 'Soldé' : `Solde ouvert ${lettFmt(Math.abs(a.bal))} €`}</span></summary>
         <p class="lett-close"><button class="btn small" data-action="lett-close" data-code="${esc(a.code)}" title="Compte lettré dans le logiciel : il quitte la liste et le mail">Fermer ce compte (lettré)</button></p>
         <div class="grid-wrap"><table class="dtable lett-t"><thead><tr><th>Lettre</th><th>Date</th><th>Jnl</th><th>Libellé</th><th class="n">Débit</th><th class="n">Crédit</th></tr></thead><tbody>
         ${rows.map((x) => { const g = a.map.get(x); return `<tr class="${rowCls(x, g)}"><td>${kindOf(x, g)}</td><td>${esc(x.date)}</td><td>${esc(x.j)}</td><td class="lbl">${esc(x.label)}${g && g.rel === x ? ' <span class="badge lett-relb">RELEVÉ</span>' : ''}${x.dup ? ' <span class="badge warn">doublon ?</span>' : ''}</td><td class="n">${x.side === 'D' ? lettFmt(x.a) : ''}</td><td class="n">${x.side === 'C' ? lettFmt(x.a) : ''}</td></tr>`; }).join('')}

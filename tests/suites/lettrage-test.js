@@ -30,7 +30,9 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
     st.accs.forEach((a) => {
       a.groups.forEach((g) => { tot.groups++; tot.lettered += g.lines.length; tot.amount += g.lines.filter((x) => x.side === 'D').reduce((s, x) => s + x.a, 0) / 100; });
       tot.open += a.rest.length;
-      by[a.code] = { groups: a.groups.length, open: a.rest.length, skipped: a.skipped, methods: a.groups.map((g) => g.m), letters: a.groups.map((g) => g.l), sizes: a.groups.map((g) => g.lines.length) };
+      by[a.code] = { groups: a.groups.length, open: a.rest.length, skipped: a.skipped, methods: a.groups.map((g) => g.m), letters: a.groups.map((g) => g.l), sizes: a.groups.map((g) => g.lines.length), rest: a.rest.map((x) => x.d) };
+      // Jamais de règlement antérieur à l'une des factures de son lettrage
+      a.groups.forEach((g) => { const last = g.lines.filter((x) => x.side === a.inv).reduce((m, x) => (x.d > m ? x.d : m), ''); if (g.lines.some((x) => x.side !== a.inv && x.type === 'reglement' && x.d < last)) tot.early = (tot.early || 0) + 1; });
     });
     return { tot, by, src: st.src, msg: st.msg, ignored: st.ignored, hyp, dups, lcr, mail };
   });
@@ -38,8 +40,9 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
     const t = s.tot;
     expect(t.accounts === EXP.accounts && t.lines === EXP.lines && t.groups === EXP.groups && t.lettered === EXP.lettered && Math.abs(t.amount - EXP.amount) < 0.01 && t.open === EXP.open && s.ignored === EXP.ignored,
       `${what} : ${EXP.groups} lettrages, ${EXP.lettered} écritures, ${EXP.amount} € lettrables, ${EXP.open} ouvertes, compte BNC ignoré, compte d'attente à part`, JSON.stringify(t));
-    const ok = Object.entries(EXP.byAccount).every(([code, e]) => { const b = s.by[code]; return b && b.groups === e.groups && b.open === e.open && (e.skipped === undefined || b.skipped === e.skipped) && (!e.methods || e.methods.join() === b.methods.join()) && (!e.sizes || e.sizes.join() === b.sizes.join()); });
-    expect(ok, `${what} : par compte, factures consécutives les plus anciennes d'abord (FALPHA, à-nouveau compris), montant identique (FBETA), facture client de 9 000 € payée en trois fois (C0001), jamais de règlement avant sa facture (FGAMMA, C0001), factures peu espacées (FEPS), relevé saisi en plus (FSIGMA), avoirs (FTAU), EI ignoré, compte continué sur la page suivante`, JSON.stringify(s.by));
+    const ok = Object.entries(EXP.byAccount).every(([code, e]) => { const b = s.by[code]; return b && b.groups === e.groups && b.open === e.open && (e.skipped === undefined || b.skipped === e.skipped) && (!e.methods || e.methods.join() === b.methods.join()) && (!e.sizes || e.sizes.join() === b.sizes.join()) && (!e.rest || e.rest.join() === b.rest.join()); });
+    expect(ok, `${what} : par compte, factures consécutives les plus anciennes d'abord (FALPHA, à-nouveau compris), montant identique (FBETA), facture client de 9 000 € payée en trois fois (C0001), jamais de règlement avant sa facture (FGAMMA, C0001), factures peu espacées (FEPS), relevé saisi en plus (FSIGMA), avoirs (FTAU), règlement de douze factures (FLONG), factures non consécutives seulement si la combinaison est unique et peu espacée (FLAMBDA, FAMB, FNC), deux factures pour deux règlements (FDUO), EI ignoré, compte continué sur la page suivante`, JSON.stringify(s.by));
+    expect(!t.early, `${what} : aucun règlement lettré avec une facture postérieure`, String(t.early));
     expect(JSON.stringify(s.hyp) === JSON.stringify(EXP.hyp) && JSON.stringify(s.dups) === JSON.stringify(EXP.dups) && JSON.stringify(s.lcr) === JSON.stringify(EXP.lcr) && JSON.stringify(s.mail) === JSON.stringify(EXP.mail),
       `${what} : hypothèse entre deux comptes du même fournisseur, doublons de niveaux 1 et 2, compte d'attente (proposition unique, montant sans fournisseur), règlements sans facture`, JSON.stringify([s.hyp, s.dups, s.lcr, s.mail]));
   };
@@ -76,10 +79,10 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   // 2. Fermer un compte lettré de son côté : il quitte la liste et le mail ; il se rouvre
   await pg.click('details.lett-acc:has-text("FGAMMA") [data-action=lett-close]'); await pg.waitForTimeout(150);
   let codes = await pg.$$eval('details.lett-acc summary strong', (x) => x.map((e) => e.textContent));
-  expect(!codes.includes('FGAMMA') && codes.length === EXP.accounts - 1 && (await pg.textContent('.lett-closed')).includes('FGAMMA') && (await mailLines()).length === 1,
+  expect(!codes.includes('FGAMMA') && codes.length === EXP.accounts - 1 && (await pg.textContent('.lett-closed')).includes('FGAMMA') && (await mailLines()).length === EXP.mail.length - 1,
     'compte fermé : retiré de la liste et du mail, listé parmi les comptes fermés', JSON.stringify(codes));
   await pg.click('.lett-closed [data-action=lett-reopen]'); await pg.waitForTimeout(150);
-  expect(await pg.$$eval('details.lett-acc', (x) => x.length) === EXP.accounts && !(await pg.$('.lett-closed')) && (await mailLines()).length === 2, 'compte rouvert');
+  expect(await pg.$$eval('details.lett-acc', (x) => x.length) === EXP.accounts && !(await pg.$('.lett-closed')) && (await mailLines()).length === EXP.mail.length, 'compte rouvert');
   await pg.check('input[data-lett=hide]'); await pg.waitForTimeout(150);
 
   // 3. Mail : modifiable (texte conservé), copié
@@ -93,12 +96,17 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
 
   // 4. Réglages : retenus, lettrage recalculé
   await setOpt('ex', 'FGAMMA');
-  expect((await mailLines()).length === 1 && (await pg.evaluate(() => data.settings.lettrage.ex)) === 'FGAMMA', 'compte exclu du mail, choix conservé');
+  expect((await mailLines()).length === EXP.mail.length - 1 && (await pg.evaluate(() => data.settings.lettrage.ex)) === 'FGAMMA', 'compte exclu du mail, choix conservé');
   await setOpt('ex', '');
   await setOpt('nc', 'nonsuite');
   let s = await S();
   expect(s.by.FNC.groups === 1 && s.by.FNC.open === 1 && /non consécutives/.test(s.by.FNC.methods[0]), 'fournisseur à factures non consécutives', JSON.stringify(s.by.FNC));
   await setOpt('nc', '');
+  await setOpt('m1', 'mensuel');
+  s = await S();
+  expect(s.by.FMENS.groups === 2 && s.by.FMENS.rest.join() === '2026-08-10' && (await pg.textContent('details.lett-acc:has-text("FMENS") summary')).includes('échéance M+1') && !s.tot.early,
+    'fournisseur à échéance M+1 : le règlement d\'octobre solde la facture de septembre, celle d\'août reste ouverte', JSON.stringify(s.by.FMENS));
+  await setOpt('m1', '');
   await setOpt('md', '3');
   s = await S();
   expect(s.by.FEPS.groups === 1 && s.by.FEPS.open === 4, 'écart maximal entre factures d\'un même règlement', JSON.stringify(s.by.FEPS));

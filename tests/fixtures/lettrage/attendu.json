@@ -1,11 +1,11 @@
 {
- "accounts": 11,
- "lines": 48,
- "groups": 9,
- "lettered": 27,
- "amount": 16000.0,
- "open": 20,
- "shownHidden": 6,
+ "accounts": 16,
+ "lines": 79,
+ "groups": 14,
+ "lettered": 51,
+ "amount": 18930.0,
+ "open": 27,
+ "shownHidden": 10,
  "ignored": 1,
  "byAccount": {
   "FALPHA": {
@@ -83,6 +83,51 @@
   "FNC": {
    "groups": 0,
    "open": 4
+  },
+  "FMENS": {
+   "groups": 2,
+   "open": 1,
+   "methods": [
+    "1 r\u00e8glement \u2194 1 facture",
+    "1 r\u00e8glement \u2194 1 facture"
+   ],
+   "rest": [
+    "2026-09-10"
+   ]
+  },
+  "FLONG": {
+   "groups": 1,
+   "open": 0,
+   "methods": [
+    "1 r\u00e8glement \u2194 12 factures"
+   ],
+   "sizes": [
+    13
+   ]
+  },
+  "FLAMBDA": {
+   "groups": 1,
+   "open": 1,
+   "methods": [
+    "1 r\u00e8glement \u2194 2 factures non cons\u00e9cutives (\u00e0 v\u00e9rifier)"
+   ],
+   "sizes": [
+    3
+   ]
+  },
+  "FAMB": {
+   "groups": 0,
+   "open": 5
+  },
+  "FDUO": {
+   "groups": 1,
+   "open": 0,
+   "methods": [
+    "2 factures \u2194 2 r\u00e8glements"
+   ],
+   "sizes": [
+    4
+   ]
   }
  },
  "hyp": [
@@ -121,7 +166,8 @@
   ]
  ],
  "mail": [
+  "FOURNISSEUR AMBIGU - 20/11/2026 - facture manquante (r\u00e8glement de 350,00 \u20ac)",
   "FOURNISSEUR GAMMA - 01/03/2026 - facture manquante (r\u00e8glement de 99,90 \u20ac)",
-  "FOURNISSEUR NONSUITE - 10/06/2026 - facture manquante (r\u00e8glement de 300,00 \u20ac)"
+  "FOURNISSEUR NONSUITE - 20/06/2026 - facture manquante (r\u00e8glement de 300,00 \u20ac)"
  ]
 }
