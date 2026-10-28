@@ -33,7 +33,7 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
   `genlettrage.py` produit un grand livre fournisseurs non lettré (`fixtures/lettrage/` : PDF de l'édition « Grands-livres »
   sur quatre pages et son texte ; relevé saisi en plus, avoirs, hypothèse entre deux comptes, compte d'attente LCR, doublons,
   compte BNC ignoré, fournisseur à échéance M+1, règlement de douze factures, factures non consécutives (combinaison unique,
-  ambiguë ou trop espacée), deux factures pour deux règlements) et les résultats attendus, pour la page « Lettrage »
+  ambiguë ou trop espacée), deux factures pour deux règlements, avoirs dans les lots et au compte d'attente) et les résultats attendus, pour la page « Lettrage »
   (`suites/lettrage-test.js`).
   `genlcr.py` produit des relevés LCR en PDF (relevés d'effets à payer au format Crédit Agricole, relevé de lettres de
   change au format CIC) et deux listings fournisseurs (`fixtures/lcr/`) pour la page « Écritures LCR » (`suites/lcr-test.js`).

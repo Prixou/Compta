@@ -11,7 +11,9 @@
 // d'abord ; un règlement qui n'a qu'une suite de factures possible passe avant les autres. Puis : relevé saisi en plus
 // de ses factures (même total que le règlement), factures et avoirs réglés ensemble, avoir qui annule des factures,
 // grosse facture (4 000 € et plus) réglée en plusieurs fois, 2 ou 3 factures non consécutives mais peu espacées quand la
-// combinaison est la seule possible, 2 ou 3 factures qui se suivent réglées par 2 règlements postérieurs. Un fournisseur
+// combinaison est la seule possible, 2 ou 3 factures qui se suivent réglées par 2 règlements postérieurs. Un avoir peut
+// faire partie du lot partout : qui se suit avec les factures, ou arrivé un peu avant ou après elles (dans l'écart
+// maximal), quand la combinaison est la seule possible. Un fournisseur
 // « à échéance M+1 » (indiqué dans les réglages) est réglé le mois suivant : un règlement du mois M+1 ne solde que des
 // factures du mois M.
 // Ensuite, sur l'ensemble des comptes : règlement resté ouvert dont la facture est sur un autre compte du même tiers
@@ -99,6 +101,24 @@ function lettFromFec(fec, JA, JR, tiers) {
 // Écritures consécutives au plus par lettrage (l'écart de dates entre la première et la dernière est la vraie limite)
 const LETT_MAXLEN = 60;
 // Premières écritures consécutives (au plus `maxLen`, peu espacées) dont la somme fait `target` ; montants positifs.
+// Avec avoirs (`avs`, déduits) : d'abord sans avoir, puis moins un avoir proche des factures (dans l'écart maximal).
+function lettWinAv(open, avs, target, maxDays) {
+  const hit = lettWin(open, target, maxDays);
+  if (hit || !avs.length) return hit;
+  for (const v of avs) {
+    for (let s = 0; s < open.length; s++) {
+      let sum = 0;
+      for (let e = s; e < open.length && e - s < LETT_MAXLEN; e++) {
+        const lo = Math.min(open[s].n, v.n), hi = Math.max(open[e].n, v.n);
+        if (hi - lo > maxDays) break;
+        sum += open[e].a;
+        if (sum === target + v.a) return [...open.slice(s, e + 1), v];
+        if (sum > target + v.a) break;
+      }
+    }
+  }
+  return null;
+}
 function lettWin(open, target, maxDays, maxLen = LETT_MAXLEN) {
   for (let s = 0; s < open.length; s++) {
     let sum = 0;
@@ -207,6 +227,22 @@ function lettRun(a, maxDays, nc) {
     const hit = find([...C, ...V].filter((c) => !c.used && lettPays(c, p, m1)).sort(lettKey), p.a, (x) => x.side !== inv);
     if (hit) take(hit, [p], `${pl(hit.filter((x) => x.side === inv).length, 'facture')} + ${pl(hit.filter((x) => x.side !== inv).length, 'avoir')} ↔ 1 règlement`);
   }
+  // 2 bis : factures qui se suivent, moins un avoir qui ne les suit pas (arrivé avant ou après elles, daté au plus tard
+  //     du règlement, dans l'écart maximal avec les factures) : seulement si la combinaison est la seule possible. Deux
+  //     avoirs ou plus ne sont lettrés que s'ils se suivent avec les factures (étape 2) : au-delà, trop de hasard.
+  const span = (lines) => { let lo = Infinity, hi = -Infinity; lines.forEach((x) => { lo = Math.min(lo, x.n); hi = Math.max(hi, x.n); }); return hi - lo; };
+  for (const p of P) {
+    if (p.used) continue;
+    const avs = V.filter((v) => !v.used && lettPays(v, p, m1)).slice(-8);
+    if (!avs.length) continue;
+    const op = C.filter((c) => !c.used && lettPays(c, p, m1));
+    const sols = [];
+    for (const v of avs) {
+      for (const w of wins(op, p.a + v.a)) if (span([...w, v]) <= maxDays) sols.push([...w, v]);
+      if (sols.length > 1) break;
+    }
+    if (sols.length === 1) take(sols[0], [p], `${pl(sols[0].length - 1, 'facture')} + 1 avoir ↔ 1 règlement`);
+  }
   // 3 : un avoir annule une ou plusieurs factures qui se suivent
   for (const v of V) {
     if (v.used) continue;
@@ -237,29 +273,37 @@ function lettRun(a, maxDays, nc) {
     }
     if (hit) take([c], hit, `1 facture ↔ ${hit.length} règlements non consécutifs (à vérifier)`);
   }
-  // 6 : un règlement solde 2 ou 3 factures non consécutives (parmi les 12 plus récentes), peu espacées : seulement si
-  //     la combinaison est la seule possible (à vérifier). Au-delà, les sommes qui tombent juste par hasard se multiplient.
+  // 6 : un règlement solde 2 ou 3 factures non consécutives (parmi les 12 plus récentes), peu espacées, ou 2 factures
+  //     moins un avoir proche : seulement si la combinaison est la seule possible (à vérifier). Au-delà, les sommes qui
+  //     tombent juste par hasard se multiplient.
   for (const p of P) {
     if (p.used) continue;
-    const cand = C.filter((c) => !c.used && c.a < p.a && lettPays(c, p, m1)).slice(-12);
     const sols = [];
-    const go = (i, sum, ch) => {
-      if (sols.length > 1) return;
-      if (sum === p.a && ch.length > 1) { sols.push(ch.slice()); return; }
-      if (sum >= p.a || ch.length >= 3) return;
-      for (let k = i; k < cand.length; k++) {
-        if (ch.length && cand[k].n - ch[0].n > maxDays) break;
-        ch.push(cand[k]);
-        go(k + 1, sum + cand[k].a, ch);
-        ch.pop();
-      }
-    };
-    go(0, 0, []);
-    if (sols.length === 1) take(sols[0], [p], `1 règlement ↔ ${pl(sols[0].length, 'facture')} non consécutives (à vérifier)`);
+    for (const v of [null, ...V.filter((x) => !x.used && lettPays(x, p, m1)).slice(-4)]) {
+      const target = p.a + (v ? v.a : 0);
+      const cand = C.filter((c) => !c.used && c.a < target && lettPays(c, p, m1)).slice(-12);
+      const go = (i, sum, ch) => {
+        if (sols.length > 1) return;
+        if (sum === target && ch.length > 1) { if (!v || span([...ch, v]) <= maxDays) sols.push(v ? [...ch, v] : ch.slice()); return; }
+        if (sum >= target || ch.length >= (v ? 2 : 3)) return;
+        for (let k = i; k < cand.length; k++) {
+          if (ch.length && cand[k].n - ch[0].n > maxDays) break;
+          ch.push(cand[k]);
+          go(k + 1, sum + cand[k].a, ch);
+          ch.pop();
+        }
+      };
+      go(0, 0, []);
+      if (sols.length > 1) break;
+    }
+    if (sols.length === 1) {
+      const n = sols[0].filter((x) => x.side === inv).length;
+      take(sols[0], [p], `1 règlement ↔ ${pl(n, 'facture')} non consécutives${sols[0].length > n ? ' + 1 avoir' : ''} (à vérifier)`);
+    }
   }
-  // 7 : 2 ou 3 factures qui se suivent (peu espacées) ↔ 2 règlements qui se suivent, tous deux postérieurs à la dernière
-  //     facture et dans l'écart maximal après elle
-  const Cs = C.filter((c) => !c.used), Ps = P.filter((p) => !p.used);
+  // 7 : 2 ou 3 factures qui se suivent (peu espacées), moins éventuellement un avoir proche ↔ 2 règlements qui se
+  //     suivent, tous deux postérieurs à la dernière facture (et à l'avoir) et dans l'écart maximal après elle
+  const Cs = C.filter((c) => !c.used), Ps = P.filter((p) => !p.used), Vs = V.filter((v) => !v.used);
   for (let i = 0; i < Cs.length; i++) {
     if (Cs[i].used) continue;
     let tI = 0;
@@ -267,17 +311,21 @@ function lettRun(a, maxDays, nc) {
       if (Cs[j].used || Cs[j].n - Cs[i].n > maxDays) break;
       tI += Cs[j].a;
       if (j === i) continue;
-      const grp = Cs.slice(i, j + 1), last = Cs[j];
-      let k0 = 0;
-      while (k0 < Ps.length && Ps[k0].d < last.d) k0++;
-      const ps = [];
-      for (let k = k0; k < Ps.length && Ps[k].n - last.n <= maxDays; k++) if (!Ps[k].used && grp.every((c) => lettPays(c, Ps[k], m1))) ps.push(Ps[k]);
-      let hit = null;
-      for (let k = 0; k < ps.length && !hit; k++) {
-        let t = 0;
-        for (let l = k; l < ps.length && l - k < 2; l++) { t += ps[l].a; if (t === tI && l > k) { hit = ps.slice(k, l + 1); break; } if (t > tI) break; }
+      let hit = null, grp = null;
+      for (const v of [null, ...Vs.filter((x) => !x.used && Math.max(Cs[j].n, x.n) - Math.min(Cs[i].n, x.n) <= maxDays)]) {
+        const g = v ? [...Cs.slice(i, j + 1), v] : Cs.slice(i, j + 1), total = tI - (v ? v.a : 0);
+        const last = g.reduce((m, x) => (x.d > m.d ? x : m), g[0]);
+        let k0 = 0;
+        while (k0 < Ps.length && Ps[k0].d < last.d) k0++;
+        const ps = [];
+        for (let k = k0; k < Ps.length && Ps[k].n - last.n <= maxDays; k++) if (!Ps[k].used && g.every((c) => lettPays(c, Ps[k], m1))) ps.push(Ps[k]);
+        for (let k = 0; k < ps.length && !hit; k++) {
+          let t = 0;
+          for (let l = k; l < ps.length && l - k < 2; l++) { t += ps[l].a; if (t === total && l > k) { hit = ps.slice(k, l + 1); break; } if (t > total) break; }
+        }
+        if (hit) { grp = g; break; }
       }
-      if (hit) { take(grp, hit, `${pl(grp.length, 'facture')} ↔ ${hit.length} règlements`); break; }
+      if (hit) { const n = grp.filter((x) => x.side === inv).length; take(grp, hit, `${pl(n, 'facture')}${grp.length > n ? ' + 1 avoir' : ''} ↔ ${hit.length} règlements`); break; }
     }
   }
   const first = (g) => g.lines.reduce((m, z) => (z.d < m ? z.d : m), g.lines[0].d);
@@ -311,7 +359,8 @@ function lettHyp(accs, maxDays) {
         if (b === a || b.inv !== a.inv) continue;
         const tb = tok.get(b);
         if (![...tp].some((t) => tb.has(t))) continue;
-        const hit = lettWin(b.rest.filter((c) => c.side === b.inv && !c.hyp && lettPays(c, p, b.m1)).sort(lettKey), p.a, maxDays);
+        const hit = lettWinAv(b.rest.filter((c) => c.side === b.inv && !c.hyp && lettPays(c, p, b.m1)).sort(lettKey),
+          b.rest.filter((c) => c.side !== b.inv && c.type === 'achat' && !c.hyp && lettPays(c, p, b.m1)), p.a, maxDays);
         if (hit) { p.hyp = 1; hit.forEach((x) => { x.hyp = 1; }); out.push({ a, b, p, inv: hit }); break; }
       }
     }
@@ -349,7 +398,7 @@ function lettLcr(lc, accs, maxDays, isNC) {
       for (const b of accs) {
         if (b.inv !== 'C') continue;
         const open = b.rest.filter((x) => x.side === 'C' && x.type === 'achat' && !x.hyp && !used.has(x) && lettPays(x, p, b.m1)).sort(lettKey);
-        let hit = lettWin(open, p.a, maxDays);
+        let hit = lettWinAv(open, b.rest.filter((x) => x.side === 'D' && x.type === 'achat' && !x.an && !x.hyp && !used.has(x) && lettPays(x, p, b.m1)), p.a, maxDays);
         if (!hit && isNC(b)) hit = lettSubset(open, p.a);
         if (hit) c.push({ b, hit });
       }

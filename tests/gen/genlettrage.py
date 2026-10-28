@@ -25,6 +25,10 @@
 #     possible : lettré, à vérifier) ;
 #   - FAMB : virement de 350 que deux combinaisons de factures peuvent faire (100 + 250, 200 + 150) : rien n'est lettré ;
 #   - FDUO : factures de 300 et 500 réglées par deux virements de 400 ;
+#   - FOMICRON : virement de 650 pour les factures de 400 et 300 moins un avoir de 50 arrivé après une autre facture
+#     (250, qui reste ouverte) ;
+#   - FPI : factures de 600 et 400 moins un avoir de 100, réglées par deux virements de 450 ;
+#   - FUPS : facture de 600 et avoir de 100, payés par une LCR de 500 du compte d'attente FLCR ;
 #   - FMENS : fournisseur réglé le mois suivant ; factures de 500 en juillet, août et septembre, règlements de 500 le
 #     05/08 (juillet) et le 05/10 (septembre) : sans réglage, le 05/10 solde la plus ancienne (août) ; déclaré « à
 #     échéance M+1 », il solde celle de septembre et la facture d'août reste ouverte ;
@@ -118,6 +122,7 @@ ACCOUNTS = [
     ('FLCR', 'LCR A AFFECTER', [
         ('20/05/2026', 'BQ', ['LCR ECHEANCE MAI'], 88000, 'D'),
         ('21/05/2026', 'BQ', ['LCR ECHEANCE MAI'], 99900, 'D'),
+        ('22/05/2026', 'BQ', ['LCR ECHEANCE MAI'], 50000, 'D'),
     ]),
     ('FNC', 'FOURNISSEUR NONSUITE', [
         ('01/04/2026', 'AC', ['FOURNISSEUR NONSUITE F-5001'], 10000, 'C'),
@@ -152,6 +157,24 @@ ACCOUNTS = [
         ('10/08/2026', 'AC', ['FOURNISSEUR MENSUEL F-6002'], 50000, 'C'),
         ('10/09/2026', 'AC', ['FOURNISSEUR MENSUEL F-6003'], 50000, 'C'),
         ('05/10/2026', 'BQ', ['PRLV FOURNISSEUR MENSUEL'], 50000, 'D'),
+    ]),
+    ('FOMICRON', 'FOURNISSEUR OMICRON', [
+        ('01/10/2026', 'AC', ['FOURNISSEUR OMICRON F-9401'], 40000, 'C'),
+        ('05/10/2026', 'AC', ['FOURNISSEUR OMICRON F-9402'], 30000, 'C'),
+        ('12/10/2026', 'AC', ['FOURNISSEUR OMICRON F-9403'], 25000, 'C'),
+        ('15/10/2026', 'AC', ['AVOIR FOURNISSEUR OMICRON A-9404'], 5000, 'D'),
+        ('31/10/2026', 'BQ', ['VIR FOURNISSEUR OMICRON'], 65000, 'D'),
+    ]),
+    ('FPI', 'FOURNISSEUR PI', [
+        ('01/12/2026', 'AC', ['FOURNISSEUR PI F-9601'], 60000, 'C'),
+        ('03/12/2026', 'AC', ['FOURNISSEUR PI F-9602'], 40000, 'C'),
+        ('10/12/2026', 'AC', ['AVOIR FOURNISSEUR PI A-9603'], 10000, 'D'),
+        ('20/12/2026', 'BQ', ['VIR FOURNISSEUR PI ACOMPTE'], 45000, 'D'),
+        ('27/12/2026', 'BQ', ['VIR FOURNISSEUR PI SOLDE'], 45000, 'D'),
+    ]),
+    ('FUPS', 'FOURNISSEUR UPSILON', [
+        ('18/05/2026', 'AC', ['FOURNISSEUR UPSILON F-9501'], 60000, 'C'),
+        ('19/05/2026', 'AC', ['AVOIR FOURNISSEUR UPSILON A-9502'], 10000, 'D'),
     ]),
     ('FBNCDEMO', 'ASSOCIE DEMO', [
         ('10/06/2026', 'AC', ['HONORAIRES ASSOCIE DEMO F-9001'], 10000, 'C'),
@@ -258,7 +281,7 @@ with open(os.path.join(OUTDIR, 'grand-livre.txt'), 'w', encoding='utf-8') as f:
     f.write('\n'.join(text_lines) + '\n')
 R1, R2 = '1 règlement ↔ 1 facture', '1 règlement ↔ 2 factures'
 exp = {
-    'accounts': 16, 'lines': 79, 'groups': 14, 'lettered': 51, 'amount': 18930.00, 'open': 27, 'shownHidden': 10, 'ignored': 1,
+    'accounts': 19, 'lines': 91, 'groups': 16, 'lettered': 60, 'amount': 20630.00, 'open': 30, 'shownHidden': 12, 'ignored': 1,
     'byAccount': {'FALPHA': {'groups': 2, 'open': 1, 'methods': [R1, R2]},
                   'FBETA': {'groups': 1, 'open': 4, 'skipped': 1, 'methods': [R1]},
                   'FGAMMA': {'groups': 0, 'open': 3},
@@ -272,10 +295,13 @@ exp = {
                   'FLONG': {'groups': 1, 'open': 0, 'methods': ['1 règlement ↔ 12 factures'], 'sizes': [13]},
                   'FLAMBDA': {'groups': 1, 'open': 1, 'methods': ['1 règlement ↔ 2 factures non consécutives (à vérifier)'], 'sizes': [3]},
                   'FAMB': {'groups': 0, 'open': 5},
-                  'FDUO': {'groups': 1, 'open': 0, 'methods': ['2 factures ↔ 2 règlements'], 'sizes': [4]}},
+                  'FDUO': {'groups': 1, 'open': 0, 'methods': ['2 factures ↔ 2 règlements'], 'sizes': [4]},
+                  'FOMICRON': {'groups': 1, 'open': 1, 'methods': ['2 factures + 1 avoir ↔ 1 règlement'], 'sizes': [4], 'rest': ['2026-10-12']},
+                  'FPI': {'groups': 1, 'open': 0, 'methods': ['2 factures + 1 avoir ↔ 2 règlements'], 'sizes': [5]},
+                  'FUPS': {'groups': 0, 'open': 2}},
     'hyp': [['FDELTA1', 'FDELTA2', 750.00]],
     'dups': [[1, ['FGAMMA', 'FGAMMA']], [2, ['FBETA', 'FBETA']]],
-    'lcr': [[880.00, ['FOMEGA']], [999.00, []]],
+    'lcr': [[880.00, ['FOMEGA']], [999.00, []], [500.00, ['FUPS']]],
     'mail': ['FOURNISSEUR AMBIGU - 20/11/2026 - facture manquante (règlement de 350,00 €)',
              'FOURNISSEUR GAMMA - 01/03/2026 - facture manquante (règlement de 99,90 €)',
              'FOURNISSEUR NONSUITE - 20/06/2026 - facture manquante (règlement de 300,00 €)'],
