@@ -1,0 +1,67 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 1814 >>
+stream
+BT /F2 9 Tf 1 0 0 1 40.00 802.00 Tm (BANQUE DEMO - AGENCE CENTRE) Tj ET
+BT /F2 11 Tf 1 0 0 1 40.00 786.00 Tm (RELEVÉ D'EFFETS A PAYER en EUR n° 1003) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 770.00 Tm (Situation AU 20/06/2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 300.00 770.00 Tm (Client : SOCIETE DEMO) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 758.00 Tm (Contrat n° 99887766) Tj ET
+BT /F1 8 Tf 1 0 0 1 300.00 758.00 Tm (Date de règlement : 30/06/2026) Tj ET
+BT /F2 8 Tf 1 0 0 1 40.00 738.00 Tm (N° tireur) Tj ET
+BT /F2 8 Tf 1 0 0 1 85.00 738.00 Tm (Tireur) Tj ET
+BT /F2 8 Tf 1 0 0 1 250.00 738.00 Tm (N° effet) Tj ET
+BT /F2 8 Tf 1 0 0 1 300.00 738.00 Tm (Code) Tj ET
+BT /F2 8 Tf 1 0 0 1 330.00 738.00 Tm (Référence) Tj ET
+BT /F2 8 Tf 1 0 0 1 400.00 738.00 Tm (Échéance) Tj ET
+BT /F2 8 Tf 1 0 0 1 470.00 738.00 Tm (Montant) Tj ET
+BT /F2 8 Tf 1 0 0 1 520.00 738.00 Tm (Avis) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 724.00 Tm (100801) Tj ET
+BT /F1 8 Tf 1 0 0 1 85.00 724.00 Tm (OMEGA SERVICES) Tj ET
+BT /F1 8 Tf 1 0 0 1 250.00 724.00 Tm (00000301) Tj ET
+BT /F1 8 Tf 1 0 0 1 300.00 724.00 Tm (0) Tj ET
+BT /F1 8 Tf 1 0 0 1 330.00 724.00 Tm (O-12) Tj ET
+BT /F1 8 Tf 1 0 0 1 400.00 724.00 Tm (30/06/2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 481.00 724.00 Tm (600,00) Tj ET
+BT /F1 8 Tf 1 0 0 1 522.00 724.00 Tm (P) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 712.00 Tm (100518) Tj ET
+BT /F1 8 Tf 1 0 0 1 85.00 712.00 Tm (LABORATOIRES DELTA) Tj ET
+BT /F1 8 Tf 1 0 0 1 250.00 712.00 Tm (00000302) Tj ET
+BT /F1 8 Tf 1 0 0 1 300.00 712.00 Tm (0) Tj ET
+BT /F1 8 Tf 1 0 0 1 330.00 712.00 Tm (F-512) Tj ET
+BT /F1 8 Tf 1 0 0 1 400.00 712.00 Tm (30/06/2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 481.00 712.00 Tm (399,00) Tj ET
+BT /F1 8 Tf 1 0 0 1 522.00 712.00 Tm (P) Tj ET
+BT /F2 9 Tf 1 0 0 1 40.00 690.00 Tm (Nombre d'effet\(s\) 2) Tj ET
+BT /F2 9 Tf 1 0 0 1 300.00 690.00 Tm (Total 1 000,00) Tj ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000212 00000 n 
+0000000314 00000 n 
+0000000450 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+2316
+%%EOF

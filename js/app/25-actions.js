@@ -264,6 +264,16 @@ const actions = {
   'lett-mail': () => lettCopyMail(),
   'lett-close': (el) => lettClose(el.dataset.code, true),
   'lett-reopen': (el) => lettClose(el.dataset.code, false),
+  'lcr-plan': () => pickFiles('.xlsx,.csv,.txt').then((f) => lcrPlanFile(f[0])),
+  'lcr-pdf': () => pickFiles('.pdf,application/pdf').then((f) => lcrAddPdfs(f)),
+  'lcr-del': (el) => { lcrState().rel.splice(+el.dataset.i, 1); refresh(); },
+  'lcr-clear': () => { Object.assign(lcrState(), { rel: [], errors: [] }); refresh(); },
+  'lcr-view': (el) => { lcrState().view = el.dataset.v; refresh(); },
+  'lcr-ok': (el) => { lcrSetMem(el.dataset.nom, { code: lcrResolve(el.dataset.nom).code, ok: true }); refresh(); },
+  'lcr-forget': (el) => { lcrSetMem(el.dataset.nom, null); refresh(); },
+  'lcr-txt': () => lcrDownloadTxt(),
+  'lcr-xlsx': () => lcrDownloadXlsx(),
+  'lcr-copy': () => lcrCopy(),
   'lett-clear': () => { ui.lett = null; refresh(); },
   'tvr-ca3-clear': (el) => tvrClearPeriod(el.dataset.key),
   'tvr-od-export': (el) => tvrOdExport(el.dataset.kind),
@@ -689,6 +699,8 @@ document.addEventListener('change', (e) => {
     else setTvaParam('acc', t.dataset.c, t.value, t.dataset.tvap === 'acc-rate' ? 'rate' : 'role');
   } else if (t.dataset.lett) {
     onLettChange(t);
+  } else if (t.dataset.lcr) {
+    onLcrChange(t);
   } else if (t.dataset.tvrFact !== undefined && ui.fec && ui.fec.result) {
     if (t.files && t.files[0]) tvrImportFactures(t.files[0]);
     t.value = '';
