@@ -6,31 +6,38 @@
 'use strict';
 
 // ---------- Lettrage proposé ----------
-// Compte par compte, les factures les plus anciennes sont réglées en premier : factures et règlements, triés par date,
-// sont cumulés tant que leurs totaux ne sont pas égaux ; à l'égalité, le groupe forme un lettrage. Les écritures restées
-// ouvertes (une facture ancienne impayée bloque le cumul) sont ensuite rapprochées : montant identique (un règlement, une
-// facture), puis facture réglée en plusieurs fois (plusieurs règlements dont la somme est son montant, les plus proches
-// de sa date d'abord), puis règlement de plusieurs factures d'un même mois. Un règlement n'est jamais lettré avec une
-// facture postérieure.
+// Compte par compte, chaque règlement (dans l'ordre des dates) solde des factures qui se suivent, toutes datées au plus
+// tard de son jour et peu espacées (écart maximal réglable entre la première et la dernière), les plus anciennes
+// d'abord. Puis : relevé saisi en plus de ses factures (même total que le règlement), factures et avoirs réglés
+// ensemble, avoir qui annule des factures, grosse facture (4 000 € et plus) réglée en plusieurs fois.
+// Ensuite, sur l'ensemble des comptes : règlement resté ouvert dont la facture est sur un autre compte du même tiers
+// (hypothèse), doublons de factures, montants du compte d'attente (LCR…) rapprochés des factures ouvertes d'un
+// fournisseur, et règlements sans facture (mail de demande des factures manquantes).
 // Grand livre : « Compte <code> <nom> » ouvre chaque compte (répété en haut de page), puis une écriture par ligne (ou sur
 // plusieurs lignes) : date, pièce, journal, libellé, montant et solde progressif ; le sens se déduit de la variation du
 // solde. Un à-nouveau qui cite sa date et son journal d'origine (« 15/12/2025 -AC- ») les reprend. Seules les écritures
 // des journaux d'achat et de règlement indiqués sont lettrées.
 // FEC : lignes non lettrées des comptes 401 et 404 (ou 411) ; une écriture de banque ou de caisse est un règlement, une
 // écriture de charges, de produits ou d'immobilisation une facture, quel que soit son journal.
-// Tout reste en mémoire : rien n'est enregistré, et le verrouillage efface l'écran ; seuls les journaux sont retenus.
+// Un compte lettré de son côté se ferme : il quitte la liste et le mail (jusqu'à « Rouvrir » ou « Effacer »).
+// Tout reste en mémoire : rien n'est enregistré, et le verrouillage efface l'écran ; seuls les réglages sont retenus.
 
-const lettState = () => (ui.lett = ui.lett || { src: '', fileName: '', text: '', fec: null, accs: [], msg: '', hide: true, q: '', tiers: 'frs', status: 'idle', runId: 0 });
-function lettJournals() {
+const lettState = () => (ui.lett = ui.lett || { src: '', fileName: '', text: '', fec: null, accs: [], lcAccs: [], ignored: 0, hyp: [], dup: [], lcr: [], miss: [], msg: '', hide: true, q: '', tiers: 'frs', status: 'idle', runId: 0, mail: null, closed: new Set() });
+const LETT_DEF = { ja: 'AC, AH, HA, VT, VE', jr: 'OD, BQ, LCR, CA, CE', md: '45', nc: '', lc: 'LCR', ex: '', ign: 'BNC' };
+function lettSettings() {
   const s = data.settings.lettrage || {};
-  return { ja: s.ja !== undefined ? s.ja : 'AC, AH, HA, VT, VE', jr: s.jr !== undefined ? s.jr : 'OD, BQ, LCR' };
+  const out = {};
+  Object.keys(LETT_DEF).forEach((k) => { out[k] = s[k] !== undefined ? s[k] : LETT_DEF[k]; });
+  return out;
 }
 const lettList = (s) => String(s || '').toUpperCase().split(/[,;\s]+/).filter(Boolean);
 const lettCents = (s) => Math.round(parseFloat(s.replace(/\s/g, '').replace(',', '.')) * 100);
 const lettFmt = (c) => (c / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const lettKey = (x, y) => (x.d < y.d ? -1 : x.d > y.d ? 1 : x.i - y.i);
 const LETT_N = '(-?\\d{1,3}(?:\\s\\d{3})*,\\d{2})';
 const LETT_END = new RegExp('(?<=\\s)' + LETT_N + '\\s+' + LETT_N + '\\s*$');
 const LETT_NOISE = /Page - \d+|Grands-livres|Edition provisoire|^Du \d|^Date |^Pièce|^Débit|^Comp[ .]|^Total|^\d{6,8} - |^Let\./;
+const LETT_AN = /(\d\d)\/(\d\d)\/(\d{4})\s+-([A-Z]{2,4})-/;
 
 // Grand livre (texte) → comptes et écritures
 function lettParseGl(text, JA, JR) {
@@ -43,11 +50,11 @@ function lettParseGl(text, JA, JR) {
     const label = pend.t.slice(0, me.index).trim(), amt = lettCents(me[1]), bal = lettCents(me[2]), delta = bal - prev;
     prev = bal;
     let j = '?', d = pend.d;
-    const mk = label.match(/(\d\d)\/(\d\d)\/(\d{4})\s+-([A-Z]{2,4})-/);
+    const mk = label.match(LETT_AN);
     if (mk) { j = mk[4]; d = `${mk[3]}-${mk[2]}-${mk[1]}`; }
     else j = label.split(/\s+/).find((t) => known.has(t)) || '?';
     const type = JA.includes(j) ? 'achat' : JR.includes(j) ? 'reglement' : 'autre';
-    cur.lines.push({ d, date: fmtDate(pend.d), j, label: label.replace(/\s+/g, ' '), a: Math.abs(delta) || amt, side: delta > 0 ? 'D' : 'C', type, i: cur.lines.length });
+    cur.lines.push({ d, date: fmtDate(pend.d), j, label: label.replace(/\s+/g, ' '), a: Math.abs(delta) || amt, side: delta > 0 ? 'D' : 'C', type, an: !!mk, i: cur.lines.length });
     return true;
   };
   for (const raw of String(text).split('\n')) {
@@ -67,110 +74,137 @@ function lettParseGl(text, JA, JR) {
   return accs;
 }
 
-// FEC (lignes non lettrées des comptes de tiers, voir lettOpen dans le moteur) → comptes et écritures
-function lettFromFec(open, JA, JR, tiers) {
+// FEC (lignes non lettrées des comptes de tiers, voir lettOpen dans le moteur) → comptes et écritures. Les à-nouveaux,
+// sans date, sont placés la veille de l'ouverture de l'exercice.
+function lettFromFec(fec, JA, JR, tiers) {
   const roots = tiers === 'cli' ? ['411'] : ['401', '404'];
-  return open.accs.filter((a) => roots.includes(a.racine)).map((a) => {
+  const anDay = fec.start ? new Date(Date.parse(fec.start) - 864e5).toISOString().slice(0, 10) : '1900-01-01';
+  return fec.open.accs.filter((a) => roots.includes(a.racine)).map((a) => {
     const lines = a.lines.map(([date, amt, jc, lib, piece, kind], i) => {
       const side = amt > 0 ? 'D' : 'C';
       // Facture : crédit d'un fournisseur, débit d'un client
       const inv = (side === 'C') === (tiers !== 'cli');
       const type = JA.includes(jc) ? 'achat' : JR.includes(jc) ? 'reglement' : !date || jc === 'AN' ? (inv ? 'achat' : 'reglement')
         : kind === 'b' ? 'reglement' : kind === 'c' ? 'achat' : 'autre';
-      return { d: date || '0000-00-00', date: date ? fmtDate(date) : 'à-nouveau', j: date ? jc : 'AN', label: [piece, lib].filter(Boolean).join(' '), a: Math.round(Math.abs(amt) * 100), side, type, i };
+      return { d: date || anDay, date: date ? fmtDate(date) : 'à-nouveau', j: date ? jc : 'AN', label: [piece, lib].filter(Boolean).join(' '), a: Math.round(Math.abs(amt) * 100), side, type, an: !date, i };
     });
-    return { code: a.num, name: a.lib, lines };
+    return { code: a.num, name: a.lib, lines, invHint: tiers === 'cli' ? 'D' : 'C' };
   });
 }
 
-// Lettrage d'un compte : les plus anciennes d'abord, puis montants identiques
-function lettRun(a) {
-  const L = a.lines.filter((x) => x.type !== 'autre');
-  const key = (x, y) => (x.d < y.d ? -1 : x.d > y.d ? 1 : x.i - y.i);
-  // Côté des factures : celui des écritures d'achat (fournisseur : crédit) ou de vente (client : débit). Un règlement est
-  // de l'autre côté ; un avoir aussi, mais sans contrainte de date.
-  const tot = { C: 0, D: 0 };
-  L.forEach((x) => { if (x.type === 'achat') tot[x.side] += x.a; });
-  const invSide = tot.D > tot.C ? 'D' : 'C';
-  const isInv = (x) => x.side === invSide;
-  const isPay = (x) => !isInv(x) && x.type === 'reglement';
-  // Un règlement ne solde que des factures datées au plus tard de son jour (factures soldées dans l'ordre, plus anciennes
-  // d'abord)
-  const inOrder = (lines) => {
-    const inv = lines.filter(isInv).sort(key), pay = lines.filter((x) => !isInv(x)).sort(key);
-    let k = 0, left = inv.length ? inv[0].a : 0;
-    for (const p of pay) {
-      let amt = p.a;
-      while (amt > 0 && k < inv.length) {
-        if (isPay(p) && p.d < inv[k].d) return false;
-        const t = Math.min(amt, left);
-        amt -= t;
-        left -= t;
-        if (!left) { k++; left = k < inv.length ? inv[k].a : 0; }
-      }
-    }
-    return true;
-  };
-  const C = L.filter((x) => x.side === 'C').sort(key), D = L.filter((x) => x.side === 'D').sort(key);
-  let n = 0;
-  const nxt = () => { const k = n++; return String.fromCharCode(65 + (Math.floor(k / 26) % 26)) + String.fromCharCode(65 + (k % 26)); };
-  a.groups = [];
-  const rejected = [];
-  let ic = 0, id = 0, sc = 0, sd = 0, gc = [], gd = [];
-  while (ic < C.length || id < D.length) {
-    if (sc <= sd && ic < C.length) { sc += C[ic].a; gc.push(C[ic++]); }
-    else if (id < D.length) { sd += D[id].a; gd.push(D[id++]); }
-    else break;
-    if (sc === sd && gc.length && gd.length) {
-      const g = [...gc, ...gd];
-      if (inOrder(g)) a.groups.push({ l: nxt(), m: 'Plus anciennes d\'abord', lines: g });
-      else rejected.push(...g);
-      gc = []; gd = []; sc = sd = 0;
+// Premières écritures consécutives (au plus `maxLen`, peu espacées) dont la somme fait `target` ; montants positifs.
+function lettWin(open, target, maxDays, maxLen = 8) {
+  for (let s = 0; s < open.length; s++) {
+    let sum = 0;
+    for (let e = s; e < open.length && e - s < maxLen; e++) {
+      if (open[e].n - open[s].n > maxDays) break;
+      sum += open[e].a;
+      if (sum === target) return open.slice(s, e + 1);
+      if (sum > target) break;
     }
   }
-  const open = [...rejected, ...gc, ...C.slice(ic), ...gd, ...D.slice(id)].sort(key);
-  const done = new Set();
-  const take = (m, lines) => { lines.forEach((y) => done.add(y)); a.groups.push({ l: nxt(), m, lines }); };
-  const ok = (p, f) => !isPay(p) || p.d >= f.d;
-  // Montant identique : la facture la plus ancienne de ce montant, datée au plus tard du règlement
-  open.filter((x) => !isInv(x)).forEach((p) => {
-    const f = open.find((y) => isInv(y) && !done.has(y) && y.a === p.a && ok(p, y));
-    if (f) take('Montant identique', [f, p]);
-  });
-  // Compte très chargé (compte collectif « clients divers », ventes en carte) : peu d'écritures par lettrage, sauf si
-  // elles citent la référence ou le nom ; une somme exacte de nombreuses écritures a d'autant plus de chances de tomber
-  // juste par hasard qu'il y a d'écritures ouvertes.
-  const crowded = open.filter((x) => !done.has(x)).length > 80;
-  const days = (from, to) => (Date.parse(to) - Date.parse(from)) / 864e5;
-  const ranked = (x, list) => {
-    const tx = lettTok(x.label);
-    const cite = (y) => { for (const w of lettTok(y.label)) if (tx.has(w)) return 1; return 0; };
-    return list.map((y) => ({ y, s: cite(y), dd: Math.abs(days(x.d, y.d) || 0) })).sort((p, q) => q.s - p.s || p.dd - q.dd || p.y.i - q.y.i);
+  return null;
+}
+// Écritures non consécutives (fournisseurs indiqués) : premier sous-ensemble trouvé de 2 à `maxLen` écritures parmi les
+// 40 premières, recherche bornée.
+function lettSubset(items, target, maxLen = 6) {
+  const it = items.filter((x) => x.a <= target).slice(0, 40);
+  let best = null, n = 0;
+  const go = (i, sum, ch) => {
+    if (best || n++ > 300000) return;
+    if (sum === target && ch.length > 1) { best = ch.slice(); return; }
+    if (sum >= target || ch.length >= maxLen) return;
+    for (let k = i; k < it.length; k++) go(k + 1, sum + it[k].a, [...ch, it[k]]);
   };
-  // Facture réglée en plusieurs fois : règlements du jour de la facture à six mois après
-  open.filter((x) => isInv(x) && x.type === 'achat').forEach((f) => {
-    if (done.has(f)) return;
-    const cands = ranked(f, open.filter((y) => isPay(y) && !done.has(y) && y.a < f.a && y.d >= f.d && (f.d.startsWith('0000') || days(f.d, y.d) <= 183)));
-    const cited = cands.filter((c) => c.s);
-    const pick = (cited.length >= 2 && lettSubset(f.a, cited.slice(0, 20).map((c) => c.y), 4))
-      || lettSubset(f.a, cands.slice(0, crowded ? 10 : 20).map((c) => c.y), crowded ? 2 : 4);
-    if (pick) take('Plusieurs règlements', [f, ...pick]);
-  });
-  // Règlement de plusieurs factures d'un même mois, toutes datées au plus tard du règlement (d'un an avant au plus) :
-  // le mois le plus proche d'abord ; toutes les factures ouvertes du mois quand leur total fait le règlement.
-  open.filter((x) => isPay(x)).forEach((p) => {
-    if (done.has(p)) return;
-    const byMonth = new Map();
-    open.filter((y) => isInv(y) && !done.has(y) && y.a < p.a && y.d <= p.d && (y.d.startsWith('0000') || days(y.d, p.d) <= 366))
-      .forEach((y) => { const k = y.d.slice(0, 7); (byMonth.get(k) || byMonth.set(k, []).get(k)).push(y); });
-    for (const month of Array.from(byMonth.keys()).sort().reverse()) {
-      const list = byMonth.get(month);
-      if (list.length < 2) continue;
-      const pick = list.reduce((t, y) => t + y.a, 0) === p.a ? list : lettSubset(p.a, ranked(p, list).map((c) => c.y), crowded ? 2 : 8);
-      if (pick) { take('Règlement de plusieurs factures', [p, ...pick]); break; }
+  go(0, 0, []);
+  return best;
+}
+
+// Lettrage d'un compte (factures du côté des écritures d'achat ou de vente : crédit d'un fournisseur, débit d'un client)
+function lettRun(a, maxDays, nc) {
+  const L = a.lines.filter((x) => x.type !== 'autre');
+  L.forEach((x) => { x.n = Date.parse(x.d) / 864e5; x.used = 0; });
+  const tot = { C: 0, D: 0 };
+  L.forEach((x) => { if (x.type === 'achat') tot[x.side] += x.a; });
+  const inv = (a.inv = tot.C || tot.D ? (tot.D > tot.C ? 'D' : 'C') : a.invHint || 'C');
+  const C = L.filter((x) => x.side === inv).sort(lettKey);
+  const P = L.filter((x) => x.side !== inv && x.type === 'reglement').sort(lettKey);
+  const V = L.filter((x) => x.side !== inv && x.type === 'achat').sort(lettKey);
+  const found = [];
+  const take = (cs, ds, m) => { [...cs, ...ds].forEach((x) => { x.used = 1; }); found.push({ m, lines: [...cs, ...ds] }); return found[found.length - 1]; };
+  const sg = (x) => (x.side === inv ? x.a : -x.a);
+  const find = (open, target, need) => {
+    for (let s = 0; s < open.length; s++) {
+      let sum = 0;
+      for (let e = s; e < open.length && e - s < 8; e++) {
+        if (open[e].n - open[s].n > maxDays) break;
+        sum += sg(open[e]);
+        if (sum === target && (!need || open.slice(s, e + 1).some(need))) return open.slice(s, e + 1);
+      }
     }
-  });
-  a.rest = open.filter((x) => !done.has(x));
+    return null;
+  };
+  const pl = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
+  // 0 : relevé saisi en plus des factures (même total que le règlement) : lettré à part, mis en évidence
+  for (const p of P) {
+    const open = C.filter((c) => !c.used && c.d <= p.d);
+    for (const r of open.filter((c) => c.a === p.a)) {
+      const hit = find(open.filter((c) => c !== r), p.a);
+      if (hit && hit.length > 1 && r.d >= hit[hit.length - 1].d) {
+        take([...hit, r], [p], `relevé + ${pl(hit.length, 'facture')} ↔ 1 règlement (écart de ${lettFmt(p.a)} €)`).rel = r;
+        break;
+      }
+    }
+  }
+  // 1 : un règlement solde des factures qui se suivent (toutes antérieures ou du jour)
+  for (const p of P) {
+    if (p.used) continue;
+    const op = C.filter((c) => !c.used && c.d <= p.d);
+    let hit = find(op, p.a), m = '';
+    if (hit) m = `1 règlement ↔ ${pl(hit.length, 'facture')}`;
+    else if (nc) { hit = lettSubset(op, p.a); if (hit) m = `1 règlement ↔ ${pl(hit.length, 'facture')} non consécutives`; }
+    if (hit) take(hit, [p], m);
+  }
+  // 2 : factures + avoir(s) qui se suivent = un règlement
+  for (const p of P) {
+    if (p.used) continue;
+    const hit = find([...C, ...V].filter((c) => !c.used && c.d <= p.d).sort(lettKey), p.a, (x) => x.side !== inv);
+    if (hit) take(hit, [p], `${pl(hit.filter((x) => x.side === inv).length, 'facture')} + ${pl(hit.filter((x) => x.side !== inv).length, 'avoir')} ↔ 1 règlement`);
+  }
+  // 3 : un avoir annule une ou plusieurs factures qui se suivent
+  for (const v of V) {
+    if (v.used) continue;
+    const hit = find(C.filter((c) => !c.used && c.d <= v.d), v.a);
+    if (hit) take(hit, [v], `1 avoir ↔ ${pl(hit.length, 'facture')}`);
+  }
+  // 4 : une facture réglée en plusieurs règlements qui se suivent (postérieurs), réservé aux factures de 4 000 € et plus
+  for (const c of C) {
+    if (c.used || c.a < 400000) continue;
+    const open = P.filter((p) => !p.used && p.d >= c.d);
+    let hit = null;
+    for (let s = 0; s < open.length && !hit; s++) {
+      let sum = 0;
+      for (let e = s; e < open.length && e - s < 5; e++) { sum += open[e].a; if (sum === c.a) { hit = open.slice(s, e + 1); break; } if (sum > c.a) break; }
+    }
+    if (hit && hit.length > 1) take([c], hit, `1 facture ↔ ${hit.length} règlements`);
+  }
+  // 5 : idem, mais les règlements ne se suivent pas forcément (2 ou 3 règlements dans les 90 jours) : à vérifier
+  for (const c of C) {
+    if (c.used || c.a < 400000) continue;
+    const open = P.filter((p) => !p.used && p.d >= c.d && p.n - c.n <= 90 && p.a < c.a);
+    let hit = null;
+    for (let i = 0; i < open.length && !hit; i++) {
+      for (let j = i + 1; j < open.length && !hit; j++) {
+        if (open[i].a + open[j].a === c.a) hit = [open[i], open[j]];
+        else for (let k = j + 1; k < open.length && !hit; k++) if (open[i].a + open[j].a + open[k].a === c.a) hit = [open[i], open[j], open[k]];
+      }
+    }
+    if (hit) take([c], hit, `1 facture ↔ ${hit.length} règlements non consécutifs (à vérifier)`);
+  }
+  const first = (g) => g.lines.reduce((m, z) => (z.d < m ? z.d : m), g.lines[0].d);
+  found.sort((x, y) => (first(x) < first(y) ? -1 : first(x) > first(y) ? 1 : 0));
+  a.groups = found.map((g, n) => Object.assign(g, { l: String.fromCharCode(65 + (Math.floor(n / 26) % 26)) + String.fromCharCode(65 + (n % 26)) }));
+  a.rest = L.filter((x) => !x.used);
   a.bal = L.reduce((s, x) => s + (x.side === 'D' ? x.a : -x.a), 0);
   a.skipped = a.lines.filter((x) => x.type === 'autre').length;
   a.map = new Map();
@@ -178,44 +212,110 @@ function lettRun(a) {
   return a;
 }
 
-// Mots qui rapprochent une facture de ses règlements : nom (au moins 4 lettres), référence (au moins 3 chiffres :
-// « F100 », « 2026-011 », hors années seules), hors mots courants des libellés de règlement
-const LETT_STOP = new Set(['facture', 'factures', 'client', 'clients', 'fournisseur', 'virement', 'sepa', 'cheque', 'paiement', 'reglement', 'acompte', 'solde', 'remise', 'recu', 'prlv', 'prelevement', 'avoir', 'divers', 'carte']);
-const lettTok = (s) => new Set(norm(s).replace(/[^a-z0-9]+/g, ' ').split(' ').filter((w) => ((/\d{3,}/.test(w) && !/^(19|20)\d\d$/.test(w)) || (w.length >= 4 && !/\d/.test(w))) && !LETT_STOP.has(w)));
+// Mots qui désignent un tiers (4 lettres au moins), hors mots courants des noms et des libellés
+const LETT_STOP = new Set(('SEPA PRLV FRANCE PHARMA PHARMACIE LABORATOIRES LABORATOIRE CARTE HEALTHCARE HEALTH CARE COMPAGNIE CENTRE SANTE '
+  + 'NUTRITION CONSUMER GRAND PUBLIC DERMO COSMETIQUE COSMETIQUES MEDICAMENT FACTURE FACTURES LOYER SALAIRE REMBOURSEMENT COOPERATION '
+  + 'INSTITUT DELA CLIENTELE RELEVE RETRO FOURNISSEUR FOURNISSEURS CLIENT CLIENTS VIREMENT CHEQUE REGLEMENT PAIEMENT AVOIR ACOMPTE '
+  + 'SOLDE DIVERS SOCIETE GROUPE ECHEANCE REMISE PRELEVEMENT TRAITE').split(' '));
+const lettToks = (s) => new Set((String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().match(/[A-Z]{4,}/g) || []).filter((t) => !LETT_STOP.has(t)));
 
-// Sous-ensemble de `cands` (dans l'ordre de préférence) dont la somme fait exactement `target` (centimes) : au plus
-// maxK écritures, recherche bornée (le premier trouvé, donc le plus proche en date, est retenu).
-function lettSubset(target, cands, maxK = 6, budget = 30000) {
-  const suf = [];
-  for (let i = cands.length - 1, t = 0; i >= 0; i--) { t += cands[i].a; suf[i] = t; }
-  const pick = [];
-  let steps = 0;
-  // Exactement k écritures, pour k = 2, 3… : la solution la plus courte d'abord
-  const dfs = (i, rem, k) => {
-    if (pick.length === k) return rem === 0;
-    if (i >= cands.length || suf[i] < rem) return false;
-    for (let j = i; j <= cands.length - (k - pick.length); j++) {
-      if (++steps > budget) return false;
-      if (cands[j].a > rem) continue;
-      pick.push(cands[j]);
-      if (dfs(j + 1, rem - cands[j].a, k)) return true;
-      pick.pop();
+// Hypothèses : règlement resté ouvert sur un compte, facture(s) de même montant sur un autre compte du même tiers (un
+// mot du nom en commun) ; rien n'est lettré.
+function lettHyp(accs, maxDays) {
+  const out = [];
+  const tok = new Map(accs.map((b) => [b, lettToks(b.name + ' ' + b.lines.filter((x) => x.type === 'achat').slice(0, 3).map((x) => x.label).join(' '))]));
+  for (const a of accs) {
+    for (const p of a.rest.filter((x) => x.side !== a.inv && x.type === 'reglement' && !x.hyp)) {
+      const tp = new Set([...lettToks(a.name), ...lettToks(p.label)]);
+      if (!tp.size) continue;
+      for (const b of accs) {
+        if (b === a || b.inv !== a.inv) continue;
+        const tb = tok.get(b);
+        if (![...tp].some((t) => tb.has(t))) continue;
+        const hit = lettWin(b.rest.filter((c) => c.side === b.inv && !c.hyp && c.d <= p.d).sort(lettKey), p.a, maxDays);
+        if (hit) { p.hyp = 1; hit.forEach((x) => { x.hyp = 1; }); out.push({ a, b, p, inv: hit }); break; }
+      }
     }
-    return false;
-  };
-  for (let k = 2; k <= Math.min(maxK, cands.length); k++) if (dfs(0, target, k)) return pick.slice();
-  return null;
+  }
+  return out;
 }
 
-// Calcul d'après la source chargée (grand livre ou FEC) et les journaux indiqués
+// Doublons : niveau 1 = même n° de facture et même montant ; niveau 2 = même compte, même date et même montant, n°
+// différent. Le n° est le dernier mot du libellé qui contient un chiffre (4 caractères au moins, hors dates et pièces).
+function lettDups(accs) {
+  const L = [], out = [];
+  accs.forEach((a) => a.lines.filter((x) => x.type === 'achat' && !x.an).forEach((x) => {
+    const t = x.label.split(/\s+/).filter((w) => /\d/.test(w) && w.length >= 4 && !/^B\d{9}$/.test(w) && !/^\d\d\/\d\d\/\d{4}$/.test(w));
+    x.num = (t.pop() || '').toUpperCase();
+    x.dup = 0;
+    L.push([a, x]);
+  }));
+  const grp = (key, filt) => {
+    const m = new Map();
+    L.filter(filt).forEach(([a, x]) => { const k = key(a, x); (m.get(k) || m.set(k, []).get(k)).push([a, x]); });
+    return [...m.values()].filter((g) => g.length > 1);
+  };
+  grp((a, x) => `${x.num}|${x.a}|${x.side}`, ([, x]) => x.num).forEach((g) => { g.forEach(([, x]) => { x.dup = 1; }); out.push({ l: 1, g }); });
+  grp((a, x) => `${a.code}|${x.d}|${x.a}|${x.side}`, ([, x]) => !x.dup).forEach((g) => { g.forEach(([, x]) => { x.dup = 1; }); out.push({ l: 2, g }); });
+  return out;
+}
+
+// Compte d'attente (LCR…) : pour chaque montant payé, factures ouvertes de même total chez un fournisseur ; une
+// proposition unique réserve ses factures pour les montants suivants. Rien n'est lettré.
+function lettLcr(lc, accs, maxDays, isNC) {
+  const out = [], used = new Set();
+  for (const a of lc) {
+    for (const p of a.lines.filter((x) => x.side === 'D' && !x.an).sort(lettKey)) {
+      const c = [];
+      for (const b of accs) {
+        if (b.inv !== 'C') continue;
+        const open = b.rest.filter((x) => x.side === 'C' && x.type === 'achat' && !x.hyp && !used.has(x) && x.d <= p.d).sort(lettKey);
+        let hit = lettWin(open, p.a, maxDays);
+        if (!hit && isNC(b)) hit = lettSubset(open, p.a);
+        if (hit) c.push({ b, hit });
+      }
+      if (c.length === 1) c[0].hit.forEach((x) => used.add(x));
+      out.push({ a, p, c });
+    }
+  }
+  return out;
+}
+
+// Règlements fournisseurs sans facture (ni hypothèse ni à-nouveau), hors comptes exclus : lignes du mail
+function lettMissing(accs, ex) {
+  const EX = lettList(ex);
+  const miss = [];
+  accs.filter((a) => a.inv === 'C' && !EX.includes(String(a.code).toUpperCase())).forEach((a) => a.rest
+    .filter((x) => x.side === 'D' && x.type === 'reglement' && !x.hyp && !x.an).forEach((x) => miss.push({ code: a.code, n: a.name || a.code, d: x.date, k: x.d, a: x.a })));
+  return miss.sort((x, y) => (x.n < y.n ? -1 : x.n > y.n ? 1 : x.k < y.k ? -1 : x.k > y.k ? 1 : 0));
+}
+const lettMailText = (miss) => 'Bonjour,\n\nPour finaliser le lettrage de notre compte fournisseurs, merci de nous transmettre les factures manquantes ci-dessous (fournisseur - date du règlement - facture manquante) :\n\n'
+  + miss.map((m) => `${m.n} - ${m.d} - facture manquante (règlement de ${lettFmt(m.a)} €)`).join('\n') + '\n\nMerci d\'avance.\n\nCordialement';
+
+// Calcul d'après la source chargée (grand livre ou FEC) et les réglages
 function lettCompute() {
   const st = lettState();
-  const { ja, jr } = lettJournals();
-  const JA = lettList(ja), JR = lettList(jr);
-  st.accs = (st.src === 'fec' && st.fec ? lettFromFec(st.fec.open, JA, JR, st.tiers) : st.src === 'gl' ? lettParseGl(st.text, JA, JR) : []).map(lettRun);
+  const set = lettSettings();
+  const JA = lettList(set.ja), JR = lettList(set.jr);
+  const all = st.src === 'fec' && st.fec ? lettFromFec(st.fec, JA, JR, st.tiers) : st.src === 'gl' ? lettParseGl(st.text, JA, JR) : [];
+  const IGN = lettList(set.ign);
+  const NCL = String(set.nc).split(',').map((s) => s.replace(/\s/g, '').toUpperCase()).filter(Boolean);
+  const isNC = (a) => NCL.some((t) => (a.code + a.name).replace(/\s/g, '').toUpperCase().includes(t));
+  const LT = String(set.lc).trim().toUpperCase();
+  const isLC = (a) => !!LT && `${a.code} ${a.name}`.toUpperCase().includes(LT);
+  const kept = all.filter((a) => !IGN.some((t) => `${a.code} ${a.name}`.toUpperCase().includes(t)));
+  const md = Math.max(0, parseInt(set.md, 10) || 45);
+  st.ignored = all.length - kept.length;
+  st.lcAccs = kept.filter(isLC);
+  st.accs = kept.filter((a) => !isLC(a)).map((a) => lettRun(a, md, isNC(a)));
+  st.hyp = lettHyp(st.accs, md);
+  st.dup = lettDups(st.accs);
+  st.lcr = lettLcr(st.lcAccs, st.accs, md, isNC);
+  st.miss = lettMissing(st.accs.filter((a) => !st.closed.has(a.code)), set.ex);
   const nl = st.accs.reduce((t, a) => t + a.lines.length, 0);
-  if (st.src === 'gl') st.msg = st.accs.length ? `${st.accs.length} compte(s) lu(s), ${nl} écriture(s).` : 'Aucun compte reconnu : le texte doit contenir les lignes « Compte … » et les écritures datées.';
-  else if (st.src === 'fec') st.msg = `${st.accs.length} compte(s) ${st.tiers === 'cli' ? 'clients' : 'fournisseurs'} avec des écritures non lettrées, ${nl} écriture(s)${st.fec.open.truncated ? ' (FEC très volumineux : liste tronquée)' : ''}.`;
+  const extra = `${st.ignored ? ` (${st.ignored} compte(s) ignoré(s) : ${IGN.join(', ')})` : ''}${st.lcAccs.length ? `, compte d'attente ${st.lcAccs.map((a) => a.code).join(', ')}` : ''}`;
+  if (st.src === 'gl') st.msg = st.accs.length ? `${st.accs.length} compte(s) lu(s)${extra}, ${nl} écriture(s).` : 'Aucun compte reconnu : le texte doit contenir les lignes « Compte … » et les écritures datées.';
+  else if (st.src === 'fec') st.msg = `${st.accs.length} compte(s) ${st.tiers === 'cli' ? 'clients' : 'fournisseurs'} avec des écritures non lettrées${extra}, ${nl} écriture(s)${st.fec.open.truncated ? ' (FEC très volumineux : liste tronquée)' : ''}.`;
 }
 const lettRefresh = () => { if (location.hash.startsWith('#/lettrage')) refresh(); };
 
@@ -237,7 +337,7 @@ async function lettFile(file) {
       lettRefresh();
       const r = await lettFecResult(file);
       if (run !== st.runId) return;
-      Object.assign(st, { src: 'fec', fec: { open: r.lettOpen, name: file.name, siren: r.meta.siren }, text: '', status: 'done' });
+      Object.assign(st, { src: 'fec', fec: { open: r.lettOpen, name: file.name, siren: r.meta.siren, start: r.meta.start }, text: '', status: 'done' });
     } else {
       const text = await file.text();
       if (run !== st.runId) return;
@@ -267,7 +367,7 @@ function lettUseOpenFec() {
   const r = ui.fec && ui.fec.result;
   if (!r || !r.lettOpen) return;
   st.runId++;
-  Object.assign(st, { src: 'fec', fec: { open: r.lettOpen, name: r.meta.fileName, siren: r.meta.siren }, text: '', fileName: r.meta.fileName, status: 'done' });
+  Object.assign(st, { src: 'fec', fec: { open: r.lettOpen, name: r.meta.fileName, siren: r.meta.siren, start: r.meta.start }, text: '', fileName: r.meta.fileName, status: 'done' });
   lettCompute();
   lettRefresh();
 }
@@ -284,19 +384,67 @@ function lettTotals(accs) {
   accs.forEach((a) => { a.groups.forEach((g) => { ng++; nl += g.lines.length; mt += g.lines.filter((x) => x.side === 'D').reduce((s, x) => s + x.a, 0); }); nr += a.rest.length; });
   return { nl, ng, mt, nr };
 }
+const lettInvTxt = (lines) => lines.map((x) => `${x.date} ${lettFmt(x.a)} €`).join(' + ');
+const lettRelevés = (accs) => {
+  const RL = [];
+  accs.forEach((a) => a.groups.filter((g) => g.rel).forEach((g) => RL.push([a, g])));
+  return RL;
+};
+
+// Encadrés : hypothèses, compte d'attente, relevés, doublons, mail des factures manquantes
+function lettPanels(st) {
+  const li = (s) => `<li>${s}</li>`;
+  let h = '';
+  if (st.hyp.length) {
+    h += `<section class="card lett-panel lett-hyp"><h2>${st.hyp.length} hypothèse(s) à valider</h2>
+      <p class="muted small">Règlement resté ouvert sur un compte, facture de même montant trouvée sur un autre compte du même tiers : probable erreur d'affectation. Rien n'est lettré automatiquement.</p>
+      <ul class="lett-list">${st.hyp.map((y) => li(`${esc(y.p.date)} · <strong>${lettFmt(y.p.a)} €</strong> réglé sur <strong>${esc(y.a.code)}</strong> ↔ ${esc(lettInvTxt(y.inv))} sur <strong>${esc(y.b.code)}</strong> <span class="muted">${esc(y.b.name)}</span>`)).join('')}</ul></section>`;
+  }
+  if (st.lcr.length) {
+    h += `<section class="card lett-panel lett-lcr"><h2>Compte d'attente ${esc(st.lcAccs.map((a) => a.code).join(', '))} : ${st.lcr.length} montant(s) à affecter</h2>
+      <p class="muted small">Pour chaque montant, l'outil cherche des factures ouvertes de même total chez un fournisseur. Ce sont des propositions à valider : rien n'est lettré automatiquement.</p>
+      <ul class="lett-list">${st.lcr.map(({ p, c }) => li(`${esc(p.date)} · <strong>${lettFmt(p.a)} €</strong> → ${c.length ? c.map(({ b, hit }) => `<strong>${esc(b.code)}</strong> ${esc(b.name)} (${esc(lettInvTxt(hit))})`).join(' <em>ou</em> ') : '<span class="badge warn">aucun fournisseur trouvé</span>'}${c.length > 1 ? ' <span class="badge warn">plusieurs possibilités</span>' : c.length === 1 ? ' <span class="badge ok">unique</span>' : ''}`)).join('')}</ul></section>`;
+  }
+  const RL = lettRelevés(st.accs);
+  if (RL.length) {
+    h += `<section class="card lett-panel lett-relc"><h2>${RL.length} relevé(s) probable(s) saisi(s) en plus des factures</h2>
+      <p class="small">Le relevé et les factures ont chacun le même total que le règlement. L'ensemble est lettré avec le règlement, mais ce lettrage n'est pas équilibré : le relevé est à annuler ou à supprimer avant de lettrer dans le logiciel.</p>
+      <ul class="lett-list">${RL.map(([a, g]) => { const r = g.rel, p = g.lines.find((x) => x.side !== a.inv); return li(`<strong>${esc(a.code)}</strong> · lettre <strong>${esc(g.l)}</strong> · relevé ${esc(r.date)} (${lettFmt(r.a)} €) ⇄ ${esc(lettInvTxt(g.lines.filter((x) => x.side === a.inv && x !== r)))} · règlement ${esc(p ? p.date : '')}`); }).join('')}</ul></section>`;
+  }
+  if (st.dup.length) {
+    h += `<section class="card lett-panel lett-dup"><h2>${st.dup.length} doublon(s) probable(s)</h2>
+      <p class="muted small">Niveau 1 : même numéro de facture et même montant. Niveau 2 : même compte, même date et même montant avec un numéro différent (à vérifier).</p>
+      <ul class="lett-list">${st.dup.map((d) => li(`<span class="badge warn">niveau ${d.l}</span> <strong>${esc([...new Set(d.g.map(([a]) => a.code))].join(' / '))}</strong> · ${d.g.map(([, x]) => `${d.l === 1 ? `n° ${esc(x.num)} · ` : ''}${esc(x.date)} · ${lettFmt(x.a)} €`).join(' ⇄ ')}`)).join('')}</ul></section>`;
+  }
+  if (st.accs.some((a) => a.inv === 'C')) {
+    const gen = lettMailText(st.miss);
+    st.mailGen = gen;
+    const txt = st.mail && st.mail.gen === gen ? st.mail.txt : gen;
+    h += st.miss.length ? `<section class="card lett-panel lett-mail"><h2>${st.miss.length} règlement(s) sans facture : mail à préparer</h2>
+      <label for="lett-mail" class="small muted">Modifiable avant envoi</label>
+      <textarea id="lett-mail" data-lett="mail" rows="9">${esc(txt)}</textarea>
+      <button class="btn" data-action="lett-mail">Copier le mail</button></section>`
+      : '<section class="card lett-panel lett-mail"><p>Tous les règlements ont une facture : aucun mail à envoyer.</p></section>';
+  }
+  return h;
+}
 
 function viewLettrage() {
   const st = lettState();
-  const { ja, jr } = lettJournals();
+  const set = lettSettings();
   const accs = st.accs;
   const T = lettTotals(accs);
   const q = norm(st.q || '');
-  const shown = accs.filter((a) => a.lines.length && (!st.hide || a.groups.length) && (!q || norm(`${a.code} ${a.name}`).includes(q)));
+  const closed = accs.filter((a) => st.closed.has(a.code));
+  const shown = accs.filter((a) => a.lines.length && !st.closed.has(a.code) && (!st.hide || a.groups.length) && (!q || norm(`${a.code} ${a.name}`).includes(q)));
   const openFec = ui.fec && ui.fec.result && ui.fec.result.lettOpen ? ui.fec.result.meta.fileName : '';
-  const kindOf = (x, g) => (g ? `<span class="lett-l" title="${esc(g.m)}">${esc(g.l)}</span>${g.m === 'Plusieurs règlements' || g.m === 'Règlement de plusieurs factures' ? ` <span class="muted small">${g.m === 'Plusieurs règlements' ? 'en plusieurs fois' : 'plusieurs factures'}</span>` : ''}` : x.type === 'autre' ? '<span class="muted" title="Journal ni d\'achat ni de règlement : non lettré">—</span>' : '<span class="lett-open">ouvert</span>');
+  const kindOf = (x, g) => (g ? `<span class="lett-l${g.rel ? ' rel' : ''}" title="${esc(g.m)}">${esc(g.l)}</span>${/à vérifier|non consécutives/.test(g.m) ? ' <span class="muted small">à vérifier</span>' : ''}`
+    : x.type === 'autre' ? '<span class="muted" title="Journal ni d\'achat ni de règlement : non lettré">—</span>' : `<span class="lett-open">${x.hyp ? 'hypothèse' : 'ouvert'}</span>`);
+  const rowCls = (x, g) => (x.type === 'autre' ? 'muted' : g ? (g.rel ? (g.rel === x ? 'lett-rel lett-rel-r' : 'lett-rel') : '') : 'lett-o');
+  const field = (k, label, extra = '') => `<label>${label} <input data-lett="${k}" value="${esc(set[k])}"${extra}></label>`;
   return `<div class="page-head"><h1>Lettrage des comptes de tiers</h1>
       <div class="head-actions">${accs.some((a) => a.groups.length) ? '<button class="btn" data-action="lett-copy">Copier les lettrages (tableur)</button><button class="btn" data-action="lett-xlsx">Exporter en Excel</button>' : ''}${st.src ? '<button class="btn" data-action="lett-clear">Effacer</button>' : ''}</div></div>
-    <p class="muted">Chargez le grand livre non lettré (PDF de l'édition « Grands-livres », ou son texte) ou un FEC : l'outil propose, compte par compte, les écritures à lettrer en réglant d'abord les factures les plus anciennes, puis en rapprochant les montants identiques, les factures réglées en plusieurs fois et les règlements de plusieurs factures. Rien n'est envoyé ni conservé.</p>
+    <p class="muted">Chargez le grand livre non lettré (PDF de l'édition « Grands-livres », ou son texte) ou un FEC : l'outil propose, compte par compte, les écritures à lettrer en réglant d'abord les factures les plus anciennes. Un règlement n'est jamais rapproché d'une facture postérieure, et les factures d'un même règlement sont peu espacées. Il signale aussi les relevés saisis en plus des factures, les règlements dont la facture est sur un autre compte, les doublons et les montants du compte d'attente à affecter, et prépare le mail des factures manquantes. Rien n'est envoyé ni conservé.</p>
     <div class="fec-drop card" data-action="lett-pick" role="button" tabindex="0">
       ${icon('file', 'fec-drop-ico')}
       <p><strong>${st.fileName ? esc(st.fileName) : 'Sélectionnez ou déposez ici le grand livre (PDF, texte) ou un FEC'}</strong></p>
@@ -304,40 +452,51 @@ function viewLettrage() {
     </div>
     <section class="card">
       <div class="lett-opts">
-        <label>Journaux d'achat (ou de vente) <input data-lett="ja" value="${esc(ja)}"></label>
-        <label>Journaux de règlement <input data-lett="jr" value="${esc(jr)}"></label>
+        ${field('ja', 'Journaux d\'achat (ou de vente)')}
+        ${field('jr', 'Journaux de règlement')}
+        ${field('md', 'Écart max entre factures d\'un même règlement (jours)', ' inputmode="numeric"')}
+        ${field('nc', 'Fournisseurs à factures non consécutives', ' placeholder="noms ou codes, séparés par des virgules"')}
+        ${field('lc', 'Compte d\'attente à affecter (code ou nom)')}
+        ${field('ex', 'Comptes exclus du mail (codes)')}
+        ${field('ign', 'Comptes ignorés (code ou nom contenant)')}
         ${st.src === 'fec' ? `<label>Comptes <select data-lett="tiers">${options({ frs: 'Fournisseurs (401, 404)', cli: 'Clients (411)' }, st.tiers)}</select></label>` : ''}
         ${openFec && !(st.src === 'fec' && st.fec && st.fec.name === openFec) ? `<button class="btn" data-action="lett-fec">Utiliser le FEC ouvert (${esc(openFec)})</button>` : ''}
       </div>
-      <p class="muted small">${st.src === 'fec' ? 'FEC : une écriture de banque ou de caisse est un règlement, une écriture de charges, de produits ou d\'immobilisation une facture ; les journaux indiqués priment.' : 'Grand livre : seules les écritures des journaux indiqués sont lettrées ; les autres restent affichées (« — »).'}</p>
+      <p class="muted small">${st.src === 'fec' ? 'FEC : une écriture de banque ou de caisse est un règlement, une écriture de charges, de produits ou d\'immobilisation une facture ; les journaux indiqués priment.' : 'Grand livre : seules les écritures des journaux indiqués sont lettrées ; les autres restent affichées (« — »).'} Les réglages sont retenus pour la prochaine fois.</p>
       <details class="lett-paste"><summary>Ou coller le texte du grand livre</summary>
-        <textarea id="lett-tx" rows="5" placeholder="Compte FDEMO FOURNISSEUR DEMO&#10;10/08/2026 B0001 AC FOURNISSEUR DEMO F-101 1 250,00 -1 250,00">${st.src === 'gl' && st.fileName === 'texte collé' ? esc(st.text) : ''}</textarea>
+        <textarea id="lett-tx" rows="5" placeholder="Compte FDEMO FOURNISSEUR DEMO&#10;10/08/2026 B000000001 AC FOURNISSEUR DEMO F-101 1 250,00 -1 250,00">${st.src === 'gl' && st.fileName === 'texte collé' ? esc(st.text) : ''}</textarea>
         <button class="btn" data-action="lett-text">Analyser le texte</button></details>
       ${st.msg && st.status !== 'running' ? `<p class="${st.status === 'error' || !accs.length ? 'late' : 'muted'} small" role="status">${esc(st.msg)}</p>` : ''}
     </section>
     ${accs.length ? `<div class="kpis fec-kpis">
       ${kpiTile('Lettrages proposés', T.ng)}${kpiTile('Écritures à lettrer', T.nl)}${kpiTile('Montant lettrable', `${lettFmt(T.mt)} €`)}${kpiTile('Écritures restant ouvertes', T.nr, T.nr ? 'kpi-wait' : '')}
     </div>
+    ${lettPanels(st)}
     <div class="lett-opts">
       <label class="check inline"><input type="checkbox" data-lett="hide"${st.hide ? ' checked' : ''}> Masquer les comptes sans lettrage possible</label>
       <label>Rechercher <input type="search" data-lett="q" value="${esc(st.q || '')}" placeholder="compte ou nom"></label>
     </div>
     ${shown.map((a) => {
       const ok = !a.rest.length && a.groups.length;
-      const rows = a.lines.slice().sort((x, y) => (x.d < y.d ? -1 : x.d > y.d ? 1 : x.i - y.i));
-      return `<details class="card lett-acc"${ok ? '' : ' open'}><summary><strong>${esc(a.code)}</strong> <span class="muted">${esc(a.name)} · ${a.groups.length} lettrage(s)${(() => { const k = a.groups.filter((g) => g.m === 'Plusieurs règlements').length; return k ? ` dont ${k} en plusieurs règlements` : ''; })()} · ${a.rest.length} ouverte(s)</span> <span class="badge ${ok ? 'ok' : 'wait'}">${ok ? 'Soldé' : `Solde ouvert ${lettFmt(Math.abs(a.bal))} €`}</span></summary>
+      const rows = a.lines.slice().sort(lettKey);
+      return `<details class="card lett-acc"${ok ? '' : ' open'}><summary><strong>${esc(a.code)}</strong> <span class="muted">${esc(a.name)} · ${a.groups.length} lettrage(s) · ${a.rest.length} ouverte(s)</span> <span class="badge ${ok ? 'ok' : 'wait'}">${ok ? 'Soldé' : `Solde ouvert ${lettFmt(Math.abs(a.bal))} €`}</span></summary>
+        <p class="lett-close"><button class="btn small" data-action="lett-close" data-code="${esc(a.code)}" title="Compte lettré dans le logiciel : il quitte la liste et le mail">Fermer ce compte (lettré)</button></p>
         <div class="grid-wrap"><table class="dtable lett-t"><thead><tr><th>Lettre</th><th>Date</th><th>Jnl</th><th>Libellé</th><th class="n">Débit</th><th class="n">Crédit</th></tr></thead><tbody>
-        ${rows.map((x) => { const g = a.map.get(x); return `<tr class="${x.type === 'autre' ? 'muted' : g ? '' : 'lett-o'}"><td>${kindOf(x, g)}</td><td>${esc(x.date)}</td><td>${esc(x.j)}</td><td class="lbl">${esc(x.label)}</td><td class="n">${x.side === 'D' ? lettFmt(x.a) : ''}</td><td class="n">${x.side === 'C' ? lettFmt(x.a) : ''}</td></tr>`; }).join('')}
-        </tbody></table></div>${a.skipped ? `<p class="muted small">${a.skipped} écriture(s) hors journaux d'achat et de règlement, non lettrée(s).</p>` : ''}</details>`;
+        ${rows.map((x) => { const g = a.map.get(x); return `<tr class="${rowCls(x, g)}"><td>${kindOf(x, g)}</td><td>${esc(x.date)}</td><td>${esc(x.j)}</td><td class="lbl">${esc(x.label)}${g && g.rel === x ? ' <span class="badge lett-relb">RELEVÉ</span>' : ''}${x.dup ? ' <span class="badge warn">doublon ?</span>' : ''}</td><td class="n">${x.side === 'D' ? lettFmt(x.a) : ''}</td><td class="n">${x.side === 'C' ? lettFmt(x.a) : ''}</td></tr>`; }).join('')}
+        </tbody></table></div>${a.groups.length ? `<p class="muted small lett-leg">${a.groups.map((g) => `<span class="lett-l${g.rel ? ' rel' : ''}">${esc(g.l)}</span> ${esc(g.m)}`).join(' · ')}</p>` : ''}${a.skipped ? `<p class="muted small">${a.skipped} écriture(s) hors journaux d'achat et de règlement, non lettrée(s).</p>` : ''}</details>`;
     }).join('')}
-    ${!accs.some((a) => a.groups.length) ? '<section class="card"><p class="muted">Aucun lettrage possible avec les journaux indiqués.</p></section>' : !shown.length ? '<p class="muted">Aucun compte ne correspond à la recherche.</p>' : ''}` : ''}`;
+    ${!accs.some((a) => a.groups.length) ? '<section class="card"><p class="muted">Aucun lettrage possible avec les journaux indiqués.</p></section>' : !shown.length ? '<p class="muted">Aucun compte ne correspond à la recherche.</p>' : ''}
+    ${closed.length ? `<section class="card lett-closed"><h2>${closed.length} compte(s) fermé(s)</h2>
+      <p class="muted small">Lettrés de votre côté : ils ne figurent plus dans la liste ni dans le mail.</p>
+      <ul class="lett-list">${closed.map((a) => `<li><strong>${esc(a.code)}</strong> <span class="muted">${esc(a.name)}</span> <button class="btn small" data-action="lett-reopen" data-code="${esc(a.code)}">Rouvrir</button></li>`).join('')}</ul></section>` : ''}` : ''}`;
 }
 
 function onLettChange(t) {
   const st = lettState();
   const k = t.dataset.lett;
-  if (k === 'ja' || k === 'jr') {
-    data.settings.lettrage = Object.assign(lettJournals(), { [k]: t.value.trim() });
+  if (k === 'mail') { st.mail = { gen: st.mailGen, txt: t.value }; return; }
+  if (k in LETT_DEF) {
+    data.settings.lettrage = Object.assign(lettSettings(), { [k]: t.value.trim() });
     persist();
     lettCompute();
   } else if (k === 'tiers') { st.tiers = t.value; lettCompute(); }
@@ -346,15 +505,30 @@ function onLettChange(t) {
   refresh();
 }
 
+// Fermer (lettré de son côté) ou rouvrir un compte
+function lettClose(code, on) {
+  const st = lettState();
+  if (on) st.closed.add(code); else st.closed.delete(code);
+  st.miss = lettMissing(st.accs.filter((a) => !st.closed.has(a.code)), lettSettings().ex);
+  refresh();
+}
+
 function lettRows() {
   const out = [];
   lettState().accs.forEach((a) => a.groups.forEach((g) => g.lines.forEach((x) => out.push({ a, g, x }))));
   return out;
 }
-async function lettCopy() {
+async function lettClip(text, done) {
+  try { await navigator.clipboard.writeText(text); toast(done); } catch (e) { toast('Copie impossible sur ce navigateur.', true); }
+}
+function lettCopy() {
   const t = ['Compte\tLettre\tDate\tJournal\tLibellé\tDébit\tCrédit'];
   lettRows().forEach(({ a, g, x }) => t.push([a.code, g.l, x.date, x.j, x.label, x.side === 'D' ? lettFmt(x.a) : '', x.side === 'C' ? lettFmt(x.a) : ''].join('\t')));
-  try { await navigator.clipboard.writeText(t.join('\n')); toast('Lettrages copiés : collez-les dans Excel.'); } catch (e) { toast('Copie impossible sur ce navigateur.', true); }
+  return lettClip(t.join('\n'), 'Lettrages copiés : collez-les dans Excel.');
+}
+function lettCopyMail() {
+  const el = document.getElementById('lett-mail');
+  if (el) return lettClip(el.value, 'Mail copié : collez-le dans votre messagerie.');
 }
 async function lettExport() {
   const ok = await ask({ title: 'Fichier non chiffré', message: 'Le classeur contient les écritures et les noms des tiers <strong>non chiffrés</strong>. Supprimez-le après usage.', okLabel: 'Exporter' });
@@ -365,15 +539,27 @@ async function lettExport() {
   const H = (cells) => cells.map((x) => t(x, 1));
   const amounts = (x) => [x.side === 'D' ? n(x.a) : t(''), x.side === 'C' ? n(x.a) : t('')];
   const lett = [H(['Compte', 'Nom', 'Lettre', 'Méthode', 'Date', 'Journal', 'Libellé', 'Débit', 'Crédit'])]
-    .concat(lettRows().map(({ a, g, x }) => [t(a.code), t(a.name), t(g.l), t(g.m), t(x.date), t(x.j), t(x.label)].concat(amounts(x))));
-  const open = [H(['Compte', 'Nom', 'Date', 'Journal', 'Libellé', 'Débit', 'Crédit'])];
-  st.accs.forEach((a) => a.rest.slice().sort((x, y) => (x.d < y.d ? -1 : 1)).forEach((x) => open.push([t(a.code), t(a.name), t(x.date), t(x.j), t(x.label)].concat(amounts(x)))));
+    .concat(lettRows().map(({ a, g, x }) => [t(a.code), t(a.name), t(g.l), t(g.rel === x ? `RELEVÉ — ${g.m}` : g.m), t(x.date), t(x.j), t(x.label)].concat(amounts(x))));
+  const open = [H(['Compte', 'Nom', 'Date', 'Journal', 'Libellé', 'Débit', 'Crédit', 'Remarque'])];
+  st.accs.forEach((a) => a.rest.slice().sort(lettKey).forEach((x) => open.push([t(a.code), t(a.name), t(x.date), t(x.j), t(x.label)].concat(amounts(x), [t([x.hyp ? 'hypothèse' : '', x.dup ? 'doublon ?' : ''].filter(Boolean).join(', '))]))));
   const syn = [H(['Compte', 'Nom', 'Lettrages', 'Écritures lettrées', 'Écritures ouvertes', 'Solde ouvert'])]
     .concat(st.accs.filter((a) => a.lines.length).map((a) => [t(a.code), t(a.name), { v: a.groups.length, s: 2 }, { v: a.groups.reduce((s, g) => s + g.lines.length, 0), s: 2 }, { v: a.rest.length, s: 2 }, n(a.bal)]));
-  const blob = XlsxWriter.build({ sheets: [
-    { name: 'Lettrages', rows: lett, widths: [14, 30, 8, 22, 12, 8, 50, 14, 14], freeze: { row: 1 } },
-    { name: 'Écritures ouvertes', rows: open, widths: [14, 30, 12, 8, 50, 14, 14], freeze: { row: 1 } },
+  const sheets = [
+    { name: 'Lettrages', rows: lett, widths: [14, 30, 8, 30, 12, 8, 50, 14, 14], freeze: { row: 1 } },
+    { name: 'Écritures ouvertes', rows: open, widths: [14, 30, 12, 8, 50, 14, 14, 16], freeze: { row: 1 } },
     { name: 'Synthèse', rows: syn, widths: [14, 34, 10, 12, 12, 14], freeze: { row: 1 } },
-  ] });
+  ];
+  const add = (name, head, rows, widths) => { if (rows.length) sheets.push({ name, rows: [H(head)].concat(rows), widths, freeze: { row: 1 } }); };
+  add('Hypothèses', ['Compte du règlement', 'Nom', 'Date', 'Montant', 'Compte des factures', 'Nom', 'Factures'],
+    st.hyp.map((y) => [t(y.a.code), t(y.a.name), t(y.p.date), n(y.p.a), t(y.b.code), t(y.b.name), t(lettInvTxt(y.inv))]), [14, 30, 12, 14, 14, 30, 50]);
+  add('Compte d\'attente', ['Compte', 'Date', 'Montant', 'Proposition', 'Statut'],
+    st.lcr.map(({ a, p, c }) => [t(a.code), t(p.date), n(p.a), t(c.map(({ b, hit }) => `${b.code} ${b.name} (${lettInvTxt(hit)})`).join(' ou ')), t(c.length === 1 ? 'unique' : c.length ? 'plusieurs possibilités' : 'aucun fournisseur trouvé')]), [14, 12, 14, 60, 22]);
+  add('Relevés', ['Compte', 'Lettre', 'Date du relevé', 'Montant', 'Factures', 'Règlement'],
+    lettRelevés(st.accs).map(([a, g]) => [t(a.code), t(g.l), t(g.rel.date), n(g.rel.a), t(lettInvTxt(g.lines.filter((x) => x.side === a.inv && x !== g.rel))), t((g.lines.find((x) => x.side !== a.inv) || {}).date)]), [14, 8, 14, 14, 50, 14]);
+  const dupRows = [];
+  st.dup.forEach((d, k) => d.g.forEach(([a, x]) => dupRows.push([{ v: k + 1, s: 2 }, { v: d.l, s: 2 }, t(a.code), t(x.num), t(x.date), n(x.a), t(x.side === 'D' ? 'Débit' : 'Crédit')])));
+  add('Doublons', ['Groupe', 'Niveau', 'Compte', 'N° de facture', 'Date', 'Montant', 'Sens'], dupRows, [8, 8, 14, 18, 12, 14, 8]);
+  add('Règlements sans facture', ['Compte', 'Fournisseur', 'Date du règlement', 'Montant'], st.miss.map((m) => [t(m.code), t(m.n), t(m.d), n(m.a)]), [14, 34, 14, 14]);
+  const blob = XlsxWriter.build({ sheets });
   download(`lettrage-${(st.fec && st.fec.siren) || 'grand-livre'}-${todayStr()}.xlsx`, blob, blob.type);
 }
