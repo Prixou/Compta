@@ -227,6 +227,15 @@ function syncReviewMission() {
 // Comptes justifiés et statut des pièces du dossier de révision (feuille de l'exercice).
 const wpAccStore = () => { const st = wpStore(); return (st.comptes = st.comptes || {}); };
 const wpDocStore = () => { const st = wpStore(); return (st.docs = st.docs || {}); };
+const wpSoldeStore = () => { const st = wpStore(); return (st.soldes = st.soldes || {}); };
+// Solde selon la pièce, saisi tel qu'il figure sur le document (« 12 345,67 ») ; vide : effacé.
+function wpSetSolde(compte, txt) {
+  const st = wpSoldeStore();
+  const v = Number(String(txt).replace(/[\s\u00a0\u202f€]/g, '').replace(',', '.'));
+  if (!String(txt).trim() || !Number.isFinite(v)) delete st[compte];
+  else st[compte] = Math.round(Math.abs(v) * 100) / 100;
+  wpSave();
+}
 function wpSetAcc(compte, on) {
   const st = wpAccStore();
   if (on) st[compte] = { by: data.settings.utilisateur || '', at: nowIso() };
@@ -275,14 +284,14 @@ function workpaperHtml() {
       ${els.map((e) => `<tr class="wp-sub"><td></td><td>${esc(e)}</td><td>${esc(WP_ST[elOf(it, e).st || ''])}</td><td>${esc(elOf(it, e).note || '')}</td></tr>`).join('')}`;
   };
   const com = revueComments().comments;
-  const acc = wpAccStore();
+  const so = wpSoldeStore();
   const block = (cycle) => {
     const rev = st.cycles[cycle];
     const accts = cycleAccounts(r, cycle);
     const docs = cycleDocs(r, cycle);
     return `<h2>${esc(CYCLES[cycle])}</h2><p class="note-sub">${rev ? `Revu${rev.by ? ` par ${esc(rev.by)}` : ''} le ${fmtDate(rev.at.slice(0, 10))}` : 'Revue non signée'}</p>
       <table class="note-table wp-table"><thead><tr><th>Niveau</th><th>Contrôle</th><th>Statut</th><th>Commentaire</th></tr></thead><tbody>${cc[cycle].filter((x) => !x.linked).map((x) => row(x.via || cycle, x)).join('') || '<tr><td colspan="4">Aucun point.</td></tr>'}</tbody></table>
-      ${accts.length ? `<table class="note-table wp-table"><thead><tr><th>Compte</th><th>Solde</th><th>N-1</th><th>Justifié</th><th>Commentaire</th></tr></thead><tbody>${accts.map((a) => `<tr><td>${esc(a.compte)} ${esc(a.lib)}</td><td>${dcTxt(a.s)}</td><td>${a.n1 === null ? '—' : dcTxt(a.n1)}</td><td>${acc[a.compte] ? 'Oui' : a.todo ? 'À justifier' : ''}</td><td>${esc(com[a.compte] || '')}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${accts.length ? `<table class="note-table wp-table"><thead><tr><th>Compte</th><th>Solde</th><th>N-1</th><th>Selon pièce</th><th>Écart</th><th>Justifié</th><th>Commentaire</th></tr></thead><tbody>${accts.map((a) => `<tr><td>${esc(a.compte)} ${esc(a.lib)}</td><td>${dcTxt(a.s)}</td><td>${a.n1 === null ? '—' : dcTxt(a.n1)}</td><td>${so[a.compte] === undefined ? '' : eur(so[a.compte])}</td><td>${accEcart(a) === null ? '' : eur(accEcart(a))}</td><td>${accDone(a) ? 'Oui' : a.todo ? 'À justifier' : ''}</td><td>${esc(com[a.compte] || '')}</td></tr>`).join('')}</tbody></table>` : ''}
       ${docs.length ? `<table class="note-table wp-table"><thead><tr><th>Pièce</th><th>Statut</th></tr></thead><tbody>${docs.map((x) => `<tr><td>${esc(x.text)}</td><td>${esc((x.cab ? DOC_ST_CAB : DOC_ST)[x.st] || '')}</td></tr>`).join('')}</tbody></table>` : ''}`;
   };
   const ecr = r.cycles ? ecrProposals(r).filter((p) => p.on) : [];

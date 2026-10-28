@@ -52,7 +52,7 @@ function checksList() {
 
 // Points de révision généraux rangés dans leur cycle (A par défaut) : statut et mémoire communs avec la synthèse (feuille
 // « gen »), non recomptés dans les totaux.
-const GEN_CYCLE = [[/^(Caisse|Banque|Compte courant)|transit|^Écarts de caisse/, 'treso'], [/^Fournisseurs débiteurs|remise/i, 'achats'],
+const GEN_CYCLE = [[/^(Caisse|Banque)|transit|^Écarts de caisse/, 'treso'], [/^Fournisseurs débiteurs|remise/i, 'achats'],
   [/^Clients créditeurs|tiers payant|^Trop-perçus|^Honoraires de dispensation/, 'clients'], [/TVA|^Ventes sans taux/, 'etat']];
 const genCycle = (label) => (GEN_CYCLE.find(([re]) => re.test(label)) || [0, 'regul'])[1];
 function genIn(r, out, key) {
@@ -273,16 +273,39 @@ function chkTreso(r, ref, coh) {
   if (yearEnd(r) && emp > 1000 && Math.abs(solde(['1688'])) < 0.01) out.add('info', "Pas d'intérêts courus sur emprunts (1688)", `Emprunts de ${eur(emp, 0)} € à la clôture : intérêts courus non échus entre la dernière échéance et la clôture, d'après les tableaux d'amortissement.`);
   const newEmp = r.balance.filter((b) => /^16[4-8]/.test(b.compte) && !b.compte.startsWith('1688')).reduce((s, b) => s + b.cm, 0);
   if (newEmp >= 1000) out.add('info', `Emprunts souscrits dans l'exercice : ${eur(newEmp, 0)} €`, "Contrat de prêt, tableau d'amortissement et garanties (caution, nantissement) ; frais de dossier et assurance à ventiler.");
-  const vmp = solde(['50'], ['509']);
-  if (vmp > 1) out.add('info', `Valeurs mobilières de placement : ${eur(vmp, 0)} €`, "Valeur d'inventaire au cours de clôture : moins-value latente à déprécier (590), plus-value latente non comptabilisée.");
+  // Valeurs mobilières : justifiées par le document de valorisation à la clôture (valeur saisie dans les comptes du cycle)
+  const vmp = balOf(r, ['50'], ['509']).filter((b) => Math.abs(b.s) >= 1);
+  if (vmp.length) {
+    const tot = vmp.reduce((s, b) => s + b.s, 0), dep = -solde(['590']), so = wpSoldeStore();
+    if (vmp.every((b) => so[b.compte] !== undefined)) {
+      const val = vmp.reduce((s, b) => s + so[b.compte], 0), ml = tot - dep - val;
+      if (ml >= 1) out.add('warn', 'Moins-value latente sur les valeurs mobilières', `Valeur à la clôture ${eur(val)} € pour ${eur(tot)} € inscrits${dep >= 0.01 ? `, dépréciation comptabilisée ${eur(dep)} €` : ''} : dépréciation complémentaire de ${eur(ml)} € à comptabiliser (590).`);
+      else out.add('ok', 'Valeurs mobilières justifiées par leur valorisation', `Valeur à la clôture ${eur(val)} € pour ${eur(tot)} € inscrits${dep >= 0.01 ? `, dépréciation ${eur(dep)} €` : ''}.`);
+    } else out.add('info', `Valeurs mobilières de placement : ${eur(tot, 0)} €`, "À justifier par le document de valorisation à la date de clôture : saisissez la valeur de chaque compte dans « Comptes du cycle » (moins-value latente à déprécier en 590, plus-value latente non comptabilisée).");
+  }
+  // Compte courant d'associé : jamais débiteur, ni à la fin de la période (compte par compte) ni en cours d'exercice (solde
+  // de fin de journée des comptes 455 cumulés, d'après leurs écritures)
+  const ccaEnd = balOf(r, ['455']).filter((b) => b.s >= 0.01);
+  const ccaLines = ((r.pieces && r.pieces.cca) || []).slice().sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+  const per = [];
+  let cs = sums(r).opening(['455']), from = '', max = 0, maxD = '';
+  ccaLines.forEach((l, i) => {
+    cs += l.d - l.c;
+    if (ccaLines[i + 1] && ccaLines[i + 1].date === l.date) return;
+    if (cs >= 0.01) { if (!from) { from = l.date; max = 0; } if (cs > max) { max = cs; maxD = l.date; } }
+    else if (from) { per.push(`Débiteur du ${fmtDate(from)} au ${fmtDate(addDays(l.date, -1))}, jusqu'à ${eur(max)} € le ${fmtDate(maxD)}`); from = ''; }
+  });
+  if (from && !ccaEnd.length) per.push(`Débiteur depuis le ${fmtDate(from)}, jusqu'à ${eur(max)} € le ${fmtDate(maxD)}`);
+  if (ccaEnd.length || per.length) out.add('error', "Compte courant d'associé débiteur", "Un compte courant d'associé ne doit jamais être débiteur, même quelques jours : avance interdite aux associés personnes physiques des SARL et aux dirigeants des SA et SAS (art. L223-21, L225-43 et L227-12 du code de commerce), risque d'abus de biens sociaux et de réintégration fiscale.", ccaEnd.map((b) => `${b.compte} ${b.lib} : solde débiteur de ${eur(b.s)} € à la fin de la période`).concat(per), { full: ccaLines.length < 300 });
+  else if (balOf(r, ['455']).length) out.add('ok', "Compte courant d'associé jamais débiteur", ccaLines.length >= 300 ? "Solde créditeur ou nul à la fin de la période (contrôle en cours d'exercice sur les 300 premières écritures)." : "Solde créditeur ou nul tout au long de la période.");
   const banks = t.accounts.filter((a) => /^51[2-9]/.test(a.compte));
   banks.filter((a) => a.negDays > 0).forEach((a) => out.add(a.negDays > 30 ? 'warn' : 'info', `Découvert : ${a.lib || a.compte}`, `${a.negDays} jour(s) à découvert en comptabilité, plus bas ${eur(a.min)} € le ${fmtDate(a.minDate)} : autorisation de découvert, agios et rapprochement à vérifier.`));
   if (banks.length && !banks.some((a) => a.negDays)) out.add('ok', 'Aucun découvert bancaire en comptabilité', `${banks.length} compte(s) bancaire(s) toujours créditeurs.`);
   if (t.cash.n) out.add('warn', 'Opérations en espèces de 1 000 € ou plus', `${t.cash.n} opération(s), ${eur(t.cash.total, 0)} € : paiement en espèces limité à 1 000 € entre professionnels et avec les particuliers résidents (art. L112-6 et D112-3 du code monétaire et financier), amende jusqu'à 5 % des sommes.`, t.cash.ex, { full: t.cash.ex.length >= t.cash.n });
   else if (t.accounts.some((a) => a.compte.startsWith('53'))) out.add('ok', 'Pas de paiement en espèces de 1 000 € ou plus', '');
   const caisses = t.accounts.filter((a) => a.compte.startsWith('53'));
-  const totCaisse = caisses.reduce((s, a) => s + a.solde, 0);
-  if (totCaisse > Math.max(3000, r.kpi.ca / 24)) out.add('info', `Solde de caisse élevé : ${eur(totCaisse, 0)} €`, "Plus de deux semaines de chiffre d'affaires en espèces : procès-verbal de caisse, remises en banque non comptabilisées ?");
+  const high = caisses.filter((a) => a.solde > 10000);
+  if (high.length) out.add('warn', 'Solde de caisse élevé', "Plus de 10 000 € d'espèces en caisse, montant inhabituel : à justifier par le procès-verbal de caisse (remises en banque, recettes ou dépenses non comptabilisées ?).", high.map((a) => `${a.compte} ${a.lib} : ${eur(a.solde)} €`));
   caisses.filter((a) => a.last && Math.abs(a.solde) >= 1 && daysUntilFrom(a.last, ref) > 60).forEach((a) => out.add('info', `Caisse sans mouvement depuis le ${fmtDate(a.last)}`, `${a.lib} : solde de ${eur(a.solde)} € inchangé : espèces réellement détenues ?`));
   if (!pharma) {
     const ve = t.accounts.filter((a) => a.compte.startsWith('511') && Math.abs(a.solde) >= 0.01);
@@ -306,7 +329,7 @@ function cycleChecks(r) {
   const ref = pharmaRef(r);
   const prev = fecPrev();
   const terme = fecTerme();
-  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', ui.fec.prev ? ui.fec.prev.meta.fileName : '', terme, ui.fec.seuil || '', r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore())].join('|');
+  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', ui.fec.prev ? ui.fec.prev.meta.fileName : '', terme, ui.fec.seuil || '', r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore()), JSON.stringify(wpSoldeStore())].join('|');
   if (r._cc && r._cc.key === key) return r._cc.val;
   const coh = coherenceChecks(r, prev, clientById(ui.fec.clientId));
   const val = {
@@ -505,7 +528,7 @@ function viewTreso() {
       ${kpiTile('Jours de découvert', neg, neg ? 'kpi-wait' : '')}
       ${kpiTile('Frais et agios bancaires', eurK(mv(['627', '6615'])), '', prev ? eurK(sums(prev).mv(['627', '6615'])) : null)}
     </div>
-    ${cycleHead('treso', "Découverts, caisse, espèces de 1 000 € ou plus, virements internes, comptes dormants, flux avec les associés et comptes d'attente. Le rapprochement avec le relevé se fait dans l'onglet Rapprochement.")}
+    ${cycleHead('treso', "Banques justifiées par le relevé à la date de clôture, emprunts par leur tableau d'amortissement (capital restant dû), caisse par le procès-verbal (10 000 € au plus), valeurs mobilières par leur valorisation, compte courant d'associé jamais débiteur ; découverts, espèces de 1 000 € ou plus, comptes dormants. Le rapprochement détaillé avec le relevé se fait dans l'onglet Rapprochement.")}
     ${r.monthly.length ? `<section class="card"><h2>Encaissements et décaissements par mois</h2>
       ${legend([['--series-1', 'Encaissements'], ['--series-2', 'Décaissements']])}
       ${barChart(r.monthly, [{ key: 'enc', label: 'Encaissements', color: '--series-1' }, { key: 'dec', label: 'Décaissements', color: '--series-2' }], { aria: 'Encaissements et décaissements par mois', xLabel: (x) => moisLabel(x.mois), tipTitle: (x) => moisLabel(x.mois).replace(/ \d+$/, '') + ' ' + x.mois.slice(0, 4) })}
@@ -820,14 +843,27 @@ function cycleAccounts(r, key) {
     const delta = n1 === null ? null : same ? Math.abs(a.s) - Math.abs(n1) : a.s - n1;
     const pct = n1 !== null && same && Math.abs(n1) >= 0.005 ? delta / Math.abs(n1) : null;
     const flagged = n1 !== null && Math.abs(delta) >= seuil && (pct === null || Math.abs(pct) >= 0.2);
-    // Compte 471 : à traiter dès qu'il contient une écriture, même soldé (il doit rester vide)
-    return Object.assign(a, { bilan, n1, same, delta, pct, flagged, todo: (bilan && Math.abs(a.s) >= 1) || flagged || (a.compte.startsWith('471') && a.mvt >= 0.01) });
+    // À justifier même soldés : compte 471 mouvementé (il doit rester vide), banques (relevé) et emprunts (tableau d'amortissement)
+    return Object.assign(a, { bilan, n1, same, delta, pct, flagged, todo: (bilan && Math.abs(a.s) >= 1) || flagged || (/^(471|51[2-9]|16[4-8])/.test(a.compte) && a.mvt >= 0.01) });
   }).filter((a) => Math.abs(a.s) >= 0.005 || a.mvt >= 0.005 || Math.abs(a.an) >= 0.005 || (a.n1 !== null && Math.abs(a.n1) >= 0.005))
     .sort((x, y) => x.compte.localeCompare(y.compte));
   memo.set(mk, out);
   return out;
 }
-const accLeft = (r, key) => { const st = wpAccStore(); return cycleAccounts(r, key).filter((a) => a.todo && !st[a.compte]).length; };
+// Solde selon la pièce (relevé, tableau d'amortissement, procès-verbal…) : écart = solde du compte − pièce ; valeurs mobilières :
+// plus-value (+) ou moins-value (−) latente. Compte justifié : case cochée, ou écart nul (valeurs mobilières : pas de moins-value).
+const pieceHint = (c) => (/^16/.test(c) ? 'Capital restant dû' : /^51[2-9]/.test(c) ? 'Solde du relevé' : /^511/.test(c) ? 'Solde communiqué' : /^53/.test(c) ? 'Procès-verbal' : /^50/.test(c) ? 'Valeur de clôture' : 'Solde de la pièce');
+function accEcart(a) {
+  const v = wpSoldeStore()[a.compte];
+  if (v === undefined || !a.bilan) return null;
+  return Math.round((a.compte.startsWith('50') ? v - Math.abs(a.s) : Math.abs(a.s) - v) * 100) / 100;
+}
+function accDone(a) {
+  if (wpAccStore()[a.compte]) return true;
+  const e = accEcart(a);
+  return e !== null && (a.compte.startsWith('50') ? e >= 0 : e === 0);
+}
+const accLeft = (r, key) => cycleAccounts(r, key).filter((a) => a.todo && !accDone(a)).length;
 // Cycle sans objet : aucun compte et aucun point relevé (le cycle A s'applique à tout FEC).
 const cycleUsed = (r, key) => key === 'regul' || cycleAccounts(r, key).length > 0 || (cycleChecks(r)[key] || []).some((x) => x.level !== 'ok');
 
@@ -843,21 +879,27 @@ function comptesCard(r, key) {
   const rows = cycleAccounts(r, key);
   const prev = fecPrev();
   if (!rows.length) return `<section class="card"><h2>Comptes du cycle</h2><p class="muted">Aucun compte de ce cycle dans le FEC${prev ? " ni dans celui de l'exercice précédent" : ''}.</p></section>`;
-  const st = wpAccStore();
+  const st = wpAccStore(), so = wpSoldeStore();
   const com = revueComments().comments;
   const groups = new Map();
   rows.forEach((a) => { const g = accGroup(a.compte); (groups.get(g) || groups.set(g, []).get(g)).push(a); });
   const varTxt = (a) => (a.n1 === null ? '—' : !a.same ? 'sens inversé' : Math.abs(a.delta) < 0.5 ? '0' : `${a.delta > 0 ? '+' : '−'}${eur(Math.abs(a.delta), 0)}`);
   const body = Array.from(groups.entries()).map(([g, list]) => {
     const s = list.reduce((t, a) => t + a.s, 0), n1 = list.some((a) => a.n1 !== null) ? list.reduce((t, a) => t + (a.n1 || 0), 0) : null;
-    return `${list.length > 1 ? `<tr class="strong"><td>${esc(g)}</td><td>${esc(GROUP_LIB[g] || RUBRIQUES[g] || RUBRIQUES[g.slice(0, 2)] || '')}</td><td>${n1 === null ? '—' : dcTxt(n1, 0)}</td><td>${dcTxt(s, 0)}</td><td colspan="4"></td></tr>` : ''}
-      ${list.map((a) => `<tr class="${a.todo && !st[a.compte] ? 'flag' : st[a.compte] ? 'done' : ''}"><td>${esc(a.compte)}</td><td>${esc(a.lib)}</td><td>${a.n1 === null ? '—' : dcTxt(a.n1)}</td><td>${dcTxt(a.s)}</td><td>${varTxt(a)}</td>${a.n1 === null ? '<td class="muted">—</td>' : pctCell(a.pct)}
-        <td class="chk"><input type="checkbox" data-wpacc="${esc(a.compte)}"${st[a.compte] ? ' checked' : ''} aria-label="Compte ${esc(a.compte)} justifié"></td>
-        <td class="comment"><input data-comment="${esc(a.compte)}" value="${esc(com[a.compte] || '')}" placeholder="${a.bilan ? 'Justification du solde…' : 'Explication de la variation…'}" spellcheck="false" autocomplete="off" aria-label="Commentaire du compte ${esc(a.compte)}"></td></tr>`).join('')}`;
+    return `${list.length > 1 ? `<tr class="strong"><td>${esc(g)}</td><td>${esc(GROUP_LIB[g] || RUBRIQUES[g] || RUBRIQUES[g.slice(0, 2)] || '')}</td><td>${n1 === null ? '—' : dcTxt(n1, 0)}</td><td>${dcTxt(s, 0)}</td><td colspan="6"></td></tr>` : ''}
+      ${list.map((a) => {
+        const done = accDone(a), e = accEcart(a), hint = pieceHint(a.compte);
+        const ok = e !== null && (a.compte.startsWith('50') ? e >= 0 : e === 0);
+        return `<tr class="${a.todo && !done ? 'flag' : done ? 'done' : ''}"><td>${esc(a.compte)}</td><td>${esc(a.lib)}</td><td>${a.n1 === null ? '—' : dcTxt(a.n1)}</td><td>${dcTxt(a.s)}</td><td>${varTxt(a)}</td>${a.n1 === null ? '<td class="muted">—</td>' : pctCell(a.pct)}
+        <td class="solde">${a.bilan ? `<input type="text" inputmode="decimal" data-wpsolde="${esc(a.compte)}" value="${so[a.compte] === undefined ? '' : esc(eur(so[a.compte]))}" placeholder="${hint}" autocomplete="off" aria-label="${hint} (compte ${esc(a.compte)})">` : ''}</td>
+        <td class="${e === null ? '' : ok ? 'ecart-ok' : 'cred'}">${e === null ? '' : e === 0 ? '0' : `${e > 0 ? '+' : '−'}${eur(Math.abs(e))}`}</td>
+        <td class="chk"><input type="checkbox" data-wpacc="${esc(a.compte)}"${done ? ' checked' : ''}${done && !st[a.compte] ? ' disabled title="Justifié par la pièce"' : ''} aria-label="Compte ${esc(a.compte)} justifié"></td>
+        <td class="comment"><input data-comment="${esc(a.compte)}" value="${esc(com[a.compte] || '')}" placeholder="${a.bilan ? 'Justification du solde…' : 'Explication de la variation…'}" spellcheck="false" autocomplete="off" aria-label="Commentaire du compte ${esc(a.compte)}"></td></tr>`;
+      }).join('')}`;
   }).join('');
-  return `<section class="card"><h2>Comptes du cycle <span class="count">${rows.filter((a) => a.todo && !st[a.compte]).length}</span></h2>
-    <p class="muted small">Solde de chaque compte du cycle${prev ? `, comparé à l'exercice précédent (${esc(prev.meta.fileName)})` : ", comparé à l'ouverture pour les comptes de bilan (chargez le FEC N-1 dans l'onglet Revue N / N-1 pour comparer aussi les charges et les produits)"}. Surlignés : à justifier — compte de bilan non soldé, ou variation d'au moins ${eur(ui.fec.seuil || defaultSeuil(r), 0)} € et 20 %. Les commentaires sont repris dans la revue N / N-1.</p>
-    <div class="grid-wrap"><table class="dtable num cyc-acc"><thead><tr><th>Compte</th><th>Libellé</th><th>${prev ? 'N-1' : 'Ouverture'}</th><th>Solde</th><th>Variation</th><th>%</th><th>Justifié</th><th>Commentaire</th></tr></thead>
+  return `<section class="card"><h2>Comptes du cycle <span class="count">${rows.filter((a) => a.todo && !accDone(a)).length}</span></h2>
+    <p class="muted small">Solde de chaque compte du cycle${prev ? `, comparé à l'exercice précédent (${esc(prev.meta.fileName)})` : ", comparé à l'ouverture pour les comptes de bilan (chargez le FEC N-1 dans l'onglet Revue N / N-1 pour comparer aussi les charges et les produits)"}. Surlignés : à justifier — compte de bilan non soldé, banque ou emprunt mouvementé, ou variation d'au moins ${eur(ui.fec.seuil || defaultSeuil(r), 0)} € et 20 %. « Selon pièce » : solde du relevé, capital restant dû du tableau d'amortissement, procès-verbal de caisse, valeur des placements… ; le compte est justifié quand l'écart est nul. Les commentaires sont repris dans la revue N / N-1.</p>
+    <div class="grid-wrap"><table class="dtable num cyc-acc"><thead><tr><th>Compte</th><th>Libellé</th><th>${prev ? 'N-1' : 'Ouverture'}</th><th>Solde</th><th>Variation</th><th>%</th><th>Selon pièce</th><th>Écart</th><th>Justifié</th><th>Commentaire</th></tr></thead>
     <tbody>${body}</tbody></table></div></section>`;
 }
 
@@ -884,6 +926,7 @@ function docsOf(r, key, arrete) {
     }
     if (live(['16'])) add('emprunt', `Tableaux d'amortissement des emprunts (capital restant dû au ${d})`, { std: !!fl.emprunt });
     if (balOf(r, ['164', '165', '166', '167']).reduce((s, b) => s + b.cm, 0) >= 1000) add('pret', "Contrats des prêts souscrits dans l'exercice (montant, taux, garanties)");
+    if (!pharma && balOf(r, ['511']).some((b) => Math.abs(b.s) >= 0.01)) add('511', `Détail du solde des valeurs à l'encaissement au ${d} (chèques et cartes remis en banque, non encore crédités)`);
     if (live(['53'])) add('caisse', `Procès-verbal de caisse (espèces en caisse au ${d})`, { std: !!fl.caisse });
     if (live(['455'])) add('cca', "Relevé du compte courant d'associé et convention de compte courant éventuelle", { std: !!fl.cca, cat: 'associe' });
     if (live(['50'])) add('vmp', `Relevé du portefeuille de valeurs mobilières au ${d} (valeur au cours de clôture)`);

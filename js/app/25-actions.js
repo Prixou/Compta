@@ -616,6 +616,9 @@ document.addEventListener('change', (e) => {
     it.lib = t.dataset.lib;
     it[t.dataset.supp] = t.value.trim();
     persist();
+  } else if (t.dataset.wpsolde && ui.fec && ui.fec.result) {
+    wpSetSolde(t.dataset.wpsolde, t.value);
+    refresh();
   } else if (t.dataset.wpacc && ui.fec && ui.fec.result) {
     wpSetAcc(t.dataset.wpacc, t.checked);
     refresh();

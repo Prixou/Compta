@@ -84,6 +84,39 @@ const CYCLES = ['regul', 'treso', 'achats', 'charges', 'clients', 'stocks', 'imm
   const store = await p.evaluate(() => { const st = wpStore(); return { comptes: Object.keys(st.comptes || {}).length, docs: Object.keys(st.docs || {}).length, com: Object.values(revueComments().comments).filter(Boolean).length }; });
   ko(store.comptes === 1 && store.com === 1 && store.docs === (docsB ? 1 : 0), `feuille de travail : ${JSON.stringify(store)}`);
 
+  // Cycle B : solde selon la pièce (relevé bancaire) — écart nul : compte justifié ; écart : affiché, compte à justifier
+  const cnt = () => p.$eval('.cyc-acc', (t) => Number(t.closest('.card').querySelector('h2 .count').textContent));
+  const n0 = await cnt();
+  await p.fill('input[data-wpsolde="512000"]', '78 728,64'); await p.press('input[data-wpsolde="512000"]', 'Tab'); await p.waitForTimeout(150);
+  const ok512 = await p.$eval('input[data-wpacc="512000"]', (x) => x.checked && x.disabled);
+  ko(ok512 && (await cnt()) === n0 - 1, `banque justifiée par le relevé (écart nul) : ${n0} → ${await cnt()}`);
+  await p.fill('input[data-wpsolde="512000"]', '78 700'); await p.press('input[data-wpsolde="512000"]', 'Tab'); await p.waitForTimeout(150);
+  const ec = await p.$eval('input[data-wpsolde="512000"]', (x) => x.closest('tr').cells[7].textContent.trim());
+  ko(/^\+28,64$/.test(ec) && (await cnt()) === n0, `écart avec le relevé affiché : ${ec}`);
+  // Compte courant débiteur (un seul point, dans le cycle B), caisse de plus de 10 000 €
+  const cb = await p.evaluate(() => {
+    const r = ui.fec.result; const cc = cycleChecks(r);
+    const cca = cc.treso.filter((x) => /Compte courant/.test(x.label)).map((x) => `${x.level} ${x.label} : ${x.examples.join(' / ')}`);
+    const gen = genPoints(r).filter((x) => /Compte courant/.test(x.label)).length;
+    const c = r.cycles.treso.accounts.find((a) => a.compte.startsWith('53')); const s0 = c.solde; c.solde = 12000; delete r._cc;
+    const caisse = cycleChecks(r).treso.filter((x) => /caisse élevé/.test(x.label)).map((x) => `${x.level} ${x.label}`);
+    c.solde = s0; delete r._cc;
+    return { cca, gen, caisse };
+  });
+  console.log('cycle B :', JSON.stringify(cb));
+  ko(cb.cca.length === 1 && /^error .*455000 .*débiteur/.test(cb.cca[0]) && cb.gen === 0, 'B : compte courant débiteur dans le cycle B seulement');
+  ko(cb.caisse.join() === 'warn Solde de caisse élevé', 'B : caisse de plus de 10 000 €');
+  // Compte courant débiteur quelques jours, créditeur à la fin : périodes débitrices signalées
+  const inYear = await p.evaluate(() => {
+    const r = ui.fec.result; const b = r.balance.find((x) => x.compte === '455000'); const lines = r.pieces.cca; const s0 = b.s;
+    r.pieces.cca = lines.concat([{ date: '2025-12-20', lib: 'Apport associé', d: 0, c: 3500 }]); b.s = -500; delete r._cc;
+    const x = cycleChecks(r).treso.filter((y) => /Compte courant/.test(y.label)).map((y) => `${y.level} ${y.examples.join(' / ')}`);
+    r.pieces.cca = lines; b.s = s0; delete r._cc;
+    return x;
+  });
+  console.log('compte courant en cours d\'exercice :', inYear.join(' | '));
+  ko(inYear.length === 1 && /^error Débiteur du \d\d\/\d\d\/2025 au 19\/12\/2025, jusqu'à 3 000,00 €/.test(inYear[0]), 'B : compte courant débiteur en cours d\'exercice');
+
   // Points généraux : statut commun avec la synthèse
   const gen = await p.evaluate(() => { const r = ui.fec.result; const cc = cycleChecks(r); return Object.keys(cc).map((k) => `${k}:${cc[k].filter((x) => x.via).length}`).join(' ') + ` / gen:${genPoints(r).length}`; });
   console.log('points généraux par cycle :', gen);
