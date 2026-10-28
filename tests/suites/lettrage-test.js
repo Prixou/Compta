@@ -3,8 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
-// Lettrage proposé (page « Lettrage ») : grand livre fournisseurs inventé (tests/gen/genlettrage.py) en PDF et en texte,
-// puis FEC inventé (tests/gen/gentvarevue.py), fournisseurs et clients.
+// Lettrage proposé (page « Lettrage ») : grand livre fournisseurs inventé (tests/gen/genlettrage.py) en PDF et en texte
+// (lettrages, hypothèses, compte d'attente, relevé, doublons, mail, comptes fermés, réglages), puis FEC inventé
+// (tests/gen/gentvarevue.py), fournisseurs et clients.
 let ko = 0;
 const expect = (cond, label, info) => { if (cond) console.log(`OK ${label}`); else { ko++; console.log(`KO ${label}${info ? ' : ' + info : ''}`); } };
 const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
@@ -21,21 +22,29 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   const S = () => pg.evaluate(() => {
     const st = ui.lett;
     const tot = { accounts: st.accs.length, lines: st.accs.reduce((t, a) => t + a.lines.length, 0), groups: 0, lettered: 0, amount: 0, open: 0 };
+    const hyp = st.hyp.map((y) => [y.a.code, y.b.code, y.p.a / 100]);
+    const dups = st.dup.map((d) => [d.l, d.g.map(([a]) => a.code)]);
+    const lcr = st.lcr.map((r) => [r.p.a / 100, r.c.map((c) => c.b.code)]);
+    const mail = st.miss.map((m) => `${m.n} - ${m.d} - facture manquante (règlement de ${lettFmt(m.a)} €)`);
     const by = {};
     st.accs.forEach((a) => {
       a.groups.forEach((g) => { tot.groups++; tot.lettered += g.lines.length; tot.amount += g.lines.filter((x) => x.side === 'D').reduce((s, x) => s + x.a, 0) / 100; });
       tot.open += a.rest.length;
       by[a.code] = { groups: a.groups.length, open: a.rest.length, skipped: a.skipped, methods: a.groups.map((g) => g.m), letters: a.groups.map((g) => g.l), sizes: a.groups.map((g) => g.lines.length) };
     });
-    return { tot, by, src: st.src, msg: st.msg };
+    return { tot, by, src: st.src, msg: st.msg, ignored: st.ignored, hyp, dups, lcr, mail };
   });
   const check = (s, what) => {
     const t = s.tot;
-    expect(t.accounts === EXP.accounts && t.lines === EXP.lines && t.groups === EXP.groups && t.lettered === EXP.lettered && Math.abs(t.amount - EXP.amount) < 0.01 && t.open === EXP.open,
-      `${what} : ${EXP.groups} lettrages, ${EXP.lettered} écritures, ${EXP.amount} € lettrables, ${EXP.open} ouvertes`, JSON.stringify(t));
+    expect(t.accounts === EXP.accounts && t.lines === EXP.lines && t.groups === EXP.groups && t.lettered === EXP.lettered && Math.abs(t.amount - EXP.amount) < 0.01 && t.open === EXP.open && s.ignored === EXP.ignored,
+      `${what} : ${EXP.groups} lettrages, ${EXP.lettered} écritures, ${EXP.amount} € lettrables, ${EXP.open} ouvertes, compte BNC ignoré, compte d'attente à part`, JSON.stringify(t));
     const ok = Object.entries(EXP.byAccount).every(([code, e]) => { const b = s.by[code]; return b && b.groups === e.groups && b.open === e.open && (e.skipped === undefined || b.skipped === e.skipped) && (!e.methods || e.methods.join() === b.methods.join()) && (!e.sizes || e.sizes.join() === b.sizes.join()); });
-    expect(ok, `${what} : par compte, plus anciennes d'abord (FALPHA, à-nouveau compris), montant identique (FBETA), facture client payée en trois fois malgré une facture plus ancienne impayée (C0001), virement de deux factures du même mois (FEPS), jamais de règlement avant sa facture (FGAMMA, C0001) ni de factures de mois différents (FEPS), EI ignoré, compte continué sur la page suivante`, JSON.stringify(s.by));
+    expect(ok, `${what} : par compte, factures consécutives les plus anciennes d'abord (FALPHA, à-nouveau compris), montant identique (FBETA), facture client de 9 000 € payée en trois fois (C0001), jamais de règlement avant sa facture (FGAMMA, C0001), factures peu espacées (FEPS), relevé saisi en plus (FSIGMA), avoirs (FTAU), EI ignoré, compte continué sur la page suivante`, JSON.stringify(s.by));
+    expect(JSON.stringify(s.hyp) === JSON.stringify(EXP.hyp) && JSON.stringify(s.dups) === JSON.stringify(EXP.dups) && JSON.stringify(s.lcr) === JSON.stringify(EXP.lcr) && JSON.stringify(s.mail) === JSON.stringify(EXP.mail),
+      `${what} : hypothèse entre deux comptes du même fournisseur, doublons de niveaux 1 et 2, compte d'attente (proposition unique, montant sans fournisseur), règlements sans facture`, JSON.stringify([s.hyp, s.dups, s.lcr, s.mail]));
   };
+  const setOpt = async (k, v) => { await pg.fill(`input[data-lett=${k}]`, v); await pg.dispatchEvent(`input[data-lett=${k}]`, 'change'); await pg.waitForTimeout(150); };
+  const mailLines = () => pg.$eval('#lett-mail', (x) => x.value.split('\n').filter((l) => l.includes('facture manquante ('))).catch(() => []);
 
   // 1. Grand livre PDF
   const [ch] = await Promise.all([pg.waitForEvent('filechooser'), pg.click('.fec-drop')]);
@@ -43,29 +52,77 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   await pg.waitForFunction(() => ui.lett && ui.lett.status === 'done' && ui.lett.accs.length, null, { timeout: 15000 });
   await pg.waitForTimeout(200);
   check(await S(), 'grand livre PDF');
-  expect(await pg.$$eval('details.lett-acc', (x) => x.length) === 4, 'compte sans lettrage possible masqué');
-  expect(await pg.$eval('details.lett-acc:has-text("C0001")', (x) => x.textContent.includes('dont 1 en plusieurs règlements') && x.textContent.includes('en plusieurs fois')), 'facture payée en plusieurs fois signalée');
+  expect(await pg.$$eval('details.lett-acc', (x) => x.length) === EXP.shownHidden, 'comptes sans lettrage possible masqués');
   expect(await pg.$eval('details.lett-acc:has-text("FALPHA") .lett-l', (x) => x.textContent) === 'AA', 'lettres AA, AB… par compte');
+  expect(await pg.$eval('details.lett-acc:has-text("C0001") .lett-leg', (x) => x.textContent.includes('1 facture ↔ 3 règlements')), 'méthode de chaque lettrage sous le tableau');
+  const panels = await pg.evaluate(() => ({
+    hyp: (document.querySelector('.lett-hyp') || {}).textContent || '', lcr: (document.querySelector('.lett-lcr') || {}).textContent || '',
+    rel: (document.querySelector('.lett-relc') || {}).textContent || '', dup: (document.querySelector('.lett-dup') || {}).textContent || '',
+    relRow: document.querySelectorAll('tr.lett-rel-r .lett-relb').length, relRows: document.querySelectorAll('tr.lett-rel').length,
+  }));
+  expect(panels.hyp.includes('FDELTA1') && panels.hyp.includes('FDELTA2') && panels.lcr.includes('FLCR') && panels.lcr.includes('FOMEGA') && panels.lcr.includes('unique') && panels.lcr.includes('aucun fournisseur trouvé')
+    && panels.rel.includes('FSIGMA') && panels.relRow === 1 && panels.relRows === 4 && panels.dup.includes('niveau 1') && panels.dup.includes('niveau 2'),
+  'encadrés : hypothèses, compte d\'attente, relevé (lignes surlignées, badge RELEVÉ), doublons', JSON.stringify(panels).slice(0, 300));
+  expect(JSON.stringify(await mailLines()) === JSON.stringify(EXP.mail), 'mail des factures manquantes');
   await pg.screenshot({ path: O + 'lettrage.png', fullPage: true });
   await pg.uncheck('input[data-lett=hide]'); await pg.waitForTimeout(150);
-  expect(await pg.$$eval('details.lett-acc', (x) => x.length) === 5, 'tous les comptes affichés quand la case est décochée');
-  await pg.fill('input[data-lett=q]', 'beta'); await pg.dispatchEvent('input[data-lett=q]', 'change'); await pg.waitForTimeout(150);
+  expect(await pg.$$eval('details.lett-acc', (x) => x.length) === EXP.accounts, 'tous les comptes affichés quand la case est décochée');
+  expect(await pg.$$eval('.lett-t .badge.warn', (x) => x.filter((b) => b.textContent === 'doublon ?').length) === 4 && await pg.$$eval('.lett-open', (x) => x.filter((b) => b.textContent === 'hypothèse').length) === 2,
+    'écritures en doublon et en hypothèse signalées dans les comptes');
+  await setOpt('q', 'beta');
   expect(await pg.$$eval('details.lett-acc', (x) => x.length) === 1, 'recherche par compte ou nom');
-  await pg.fill('input[data-lett=q]', ''); await pg.dispatchEvent('input[data-lett=q]', 'change'); await pg.waitForTimeout(150);
+  await setOpt('q', '');
 
-  // 2. Journaux de règlement : sans LCR, la traite de FBETA n'est plus lettrée ; choix conservé
-  await pg.fill('input[data-lett=jr]', 'OD, BQ'); await pg.dispatchEvent('input[data-lett=jr]', 'change'); await pg.waitForTimeout(200);
+  // 2. Fermer un compte lettré de son côté : il quitte la liste et le mail ; il se rouvre
+  await pg.click('details.lett-acc:has-text("FGAMMA") [data-action=lett-close]'); await pg.waitForTimeout(150);
+  let codes = await pg.$$eval('details.lett-acc summary strong', (x) => x.map((e) => e.textContent));
+  expect(!codes.includes('FGAMMA') && codes.length === EXP.accounts - 1 && (await pg.textContent('.lett-closed')).includes('FGAMMA') && (await mailLines()).length === 1,
+    'compte fermé : retiré de la liste et du mail, listé parmi les comptes fermés', JSON.stringify(codes));
+  await pg.click('.lett-closed [data-action=lett-reopen]'); await pg.waitForTimeout(150);
+  expect(await pg.$$eval('details.lett-acc', (x) => x.length) === EXP.accounts && !(await pg.$('.lett-closed')) && (await mailLines()).length === 2, 'compte rouvert');
+  await pg.check('input[data-lett=hide]'); await pg.waitForTimeout(150);
+
+  // 3. Mail : modifiable (texte conservé), copié
+  await pg.fill('#lett-mail', (await pg.inputValue('#lett-mail')).replace('Bonjour,', 'Bonjour Madame,'));
+  await pg.dispatchEvent('#lett-mail', 'change');
+  await setOpt('q', '');
+  expect((await pg.inputValue('#lett-mail')).startsWith('Bonjour Madame,'), 'mail modifié conservé');
+  await pg.click('[data-action=lett-mail]'); await pg.waitForTimeout(150);
+  const mailClip = await pg.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+  expect(mailClip.startsWith('Bonjour Madame,') && EXP.mail.every((l) => mailClip.includes(l)), 'mail copié', mailClip.slice(0, 80));
+
+  // 4. Réglages : retenus, lettrage recalculé
+  await setOpt('ex', 'FGAMMA');
+  expect((await mailLines()).length === 1 && (await pg.evaluate(() => data.settings.lettrage.ex)) === 'FGAMMA', 'compte exclu du mail, choix conservé');
+  await setOpt('ex', '');
+  await setOpt('nc', 'nonsuite');
   let s = await S();
+  expect(s.by.FNC.groups === 1 && s.by.FNC.open === 1 && /non consécutives/.test(s.by.FNC.methods[0]), 'fournisseur à factures non consécutives', JSON.stringify(s.by.FNC));
+  await setOpt('nc', '');
+  await setOpt('md', '3');
+  s = await S();
+  expect(s.by.FEPS.groups === 1 && s.by.FEPS.open === 4, 'écart maximal entre factures d\'un même règlement', JSON.stringify(s.by.FEPS));
+  await setOpt('md', '45');
+  await setOpt('jr', 'OD, BQ');
+  s = await S();
   expect(s.by.FBETA.groups === 0 && s.by.FBETA.skipped === 2 && (await pg.evaluate(() => data.settings.lettrage.jr)) === 'OD, BQ', 'journaux de règlement modifiés : lettrage recalculé, choix conservé', JSON.stringify(s.by.FBETA));
-  await pg.fill('input[data-lett=jr]', 'OD, BQ, LCR'); await pg.dispatchEvent('input[data-lett=jr]', 'change'); await pg.waitForTimeout(200);
+  await setOpt('jr', 'OD, BQ, LCR, CA, CE');
+  await setOpt('ign', '');
+  s = await S();
+  expect(s.tot.accounts === EXP.accounts + 1 && s.ignored === 0, 'plus aucun compte ignoré', JSON.stringify(s.tot));
+  await setOpt('ign', 'BNC');
+  await setOpt('lc', '');
+  s = await S();
+  expect(s.tot.accounts === EXP.accounts + 1 && !(await pg.$('.lett-lcr')), 'sans compte d\'attente : compte lettré comme les autres', JSON.stringify(s.tot));
+  await setOpt('lc', 'LCR');
 
-  // 3. Texte collé
+  // 5. Texte collé
   await pg.click('.lett-paste summary');
   await pg.fill('#lett-tx', fs.readFileSync(D + 'lettrage/grand-livre.txt', 'utf8'));
   await pg.click('[data-action=lett-text]'); await pg.waitForTimeout(200);
   check(await S(), 'texte collé');
 
-  // 4. Copie (tableur) et export Excel
+  // 6. Copie (tableur) et export Excel
   await pg.click('[data-action=lett-copy]'); await pg.waitForTimeout(200);
   const clip = await pg.evaluate(() => navigator.clipboard.readText().catch(() => ''));
   expect(clip.startsWith('Compte\tLettre\tDate') && clip.trim().split('\n').length === EXP.lettered + 1, 'copie : une ligne par écriture lettrée', clip.slice(0, 120));
@@ -73,9 +130,10 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#ask button[type=submit]')]);
   await dl.saveAs(O + dl.suggestedFilename());
   const zip = fs.readFileSync(O + dl.suggestedFilename());
-  expect(zip.slice(0, 2).toString() === 'PK' && ['Lettrages', 'Écritures ouvertes', 'Synthèse'].every((x) => zip.includes(Buffer.from(x))), 'export Excel : lettrages, écritures ouvertes, synthèse', dl.suggestedFilename());
+  const sheets = ['Lettrages', 'Écritures ouvertes', 'Synthèse', 'Hypothèses', "Compte d'attente", 'Relevés', 'Doublons', 'Règlements sans facture'];
+  expect(zip.slice(0, 2).toString() === 'PK' && sheets.every((x) => zip.includes(Buffer.from(x))), 'export Excel : lettrages, écritures ouvertes, synthèse, hypothèses, compte d\'attente, relevés, doublons, règlements sans facture', sheets.filter((x) => !zip.includes(Buffer.from(x))).join());
 
-  // 5. FEC : lignes non lettrées des fournisseurs, puis des clients
+  // 7. FEC : lignes non lettrées des fournisseurs, puis des clients
   const [ch2] = await Promise.all([pg.waitForEvent('filechooser'), pg.click('.fec-drop')]);
   await ch2.setFiles(D + '600000006FEC20261231.txt');
   await pg.waitForFunction(() => ui.lett && ui.lett.src === 'fec' && ui.lett.status === 'done', null, { timeout: 30000 });
@@ -87,7 +145,7 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   s = await S();
   expect(s.tot.accounts === 1 && s.tot.lines === 1 && s.tot.groups === 0, 'FEC, clients : seule la facture non lettrée reste (vente de mars)', JSON.stringify(s));
 
-  // 6. FEC ouvert dans l'analyse
+  // 8. FEC ouvert dans l'analyse
   await pg.click('[data-action=lett-clear]');
   await pg.goto('http://localhost:8765/#/fec'); await pg.waitForSelector('.fec-drop');
   const [ch3] = await Promise.all([pg.waitForEvent('filechooser'), pg.click('.fec-drop')]);
@@ -97,7 +155,7 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   s = await S();
   expect(s.src === 'fec' && s.tot.groups === 3, 'bouton « Utiliser le FEC ouvert »', JSON.stringify(s.tot));
 
-  // 7. Téléphone et verrouillage
+  // 9. Téléphone et verrouillage
   await pg.setViewportSize({ width: 390, height: 844 }); await pg.waitForTimeout(300);
   const over = await pg.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(over <= 1, 'téléphone : pas de débordement horizontal', String(over));

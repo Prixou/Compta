@@ -1,50 +1,127 @@
 {
- "accounts": 5,
- "lines": 27,
- "groups": 5,
- "lettered": 14,
- "amount": 6350.0,
- "open": 12,
+ "accounts": 11,
+ "lines": 48,
+ "groups": 9,
+ "lettered": 27,
+ "amount": 16000.0,
+ "open": 20,
+ "shownHidden": 6,
+ "ignored": 1,
  "byAccount": {
   "FALPHA": {
    "groups": 2,
    "open": 1,
    "methods": [
-    "Plus anciennes d'abord",
-    "Plus anciennes d'abord"
+    "1 r\u00e8glement \u2194 1 facture",
+    "1 r\u00e8glement \u2194 2 factures"
    ]
   },
   "FBETA": {
    "groups": 1,
-   "open": 2,
+   "open": 4,
    "skipped": 1,
    "methods": [
-    "Montant identique"
+    "1 r\u00e8glement \u2194 1 facture"
    ]
   },
   "FGAMMA": {
    "groups": 0,
-   "open": 2
+   "open": 3
   },
   "C0001": {
    "groups": 1,
    "open": 3,
    "methods": [
-    "Plusieurs r\u00e8glements"
+    "1 facture \u2194 3 r\u00e8glements"
    ],
    "sizes": [
     4
    ]
   },
   "FEPS": {
-   "groups": 1,
-   "open": 4,
+   "groups": 2,
+   "open": 1,
    "methods": [
-    "R\u00e8glement de plusieurs factures"
+    "1 r\u00e8glement \u2194 2 factures",
+    "1 r\u00e8glement \u2194 2 factures"
+   ]
+  },
+  "FSIGMA": {
+   "groups": 1,
+   "open": 0,
+   "methods": [
+    "relev\u00e9 + 2 factures \u2194 1 r\u00e8glement (\u00e9cart de 300,00 \u20ac)"
    ],
    "sizes": [
-    3
+    4
    ]
+  },
+  "FTAU": {
+   "groups": 2,
+   "open": 0,
+   "methods": [
+    "2 factures + 1 avoir \u2194 1 r\u00e8glement",
+    "1 avoir \u2194 1 facture"
+   ],
+   "sizes": [
+    4,
+    2
+   ]
+  },
+  "FDELTA1": {
+   "groups": 0,
+   "open": 1
+  },
+  "FDELTA2": {
+   "groups": 0,
+   "open": 1
+  },
+  "FOMEGA": {
+   "groups": 0,
+   "open": 2
+  },
+  "FNC": {
+   "groups": 0,
+   "open": 4
   }
- }
+ },
+ "hyp": [
+  [
+   "FDELTA1",
+   "FDELTA2",
+   750.0
+  ]
+ ],
+ "dups": [
+  [
+   1,
+   [
+    "FGAMMA",
+    "FGAMMA"
+   ]
+  ],
+  [
+   2,
+   [
+    "FBETA",
+    "FBETA"
+   ]
+  ]
+ ],
+ "lcr": [
+  [
+   880.0,
+   [
+    "FOMEGA"
+   ]
+  ],
+  [
+   999.0,
+   []
+  ]
+ ],
+ "mail": [
+  "FOURNISSEUR GAMMA - 01/03/2026 - facture manquante (r\u00e8glement de 99,90 \u20ac)",
+  "FOURNISSEUR NONSUITE - 10/06/2026 - facture manquante (r\u00e8glement de 300,00 \u20ac)"
+ ]
 }
