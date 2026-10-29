@@ -94,6 +94,35 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   const mailClip = await pg.evaluate(() => navigator.clipboard.readText().catch(() => ''));
   expect(mailClip.startsWith('Bonjour Madame,') && EXP.mail.every((l) => mailClip.includes(l)), 'mail copié', mailClip.slice(0, 80));
 
+  // 3 bis. Visa d'une hypothèse : règlement transféré sur l'autre compte et lettré avec ses factures ; décoché, retour
+  await pg.check('.lett-hyp input[data-lett=visa]'); await pg.waitForTimeout(150);
+  let v = await pg.evaluate(() => { const y = ui.lett.hyp[0]; const g = y.b.groups.find((x) => x.visa); return { ok: y.ok, inA: y.a.lines.includes(y.p), g: g && g.lines.length, inv: y.inv.length, b: y.b.code, moved: y.p.moved, a: y.a.code }; });
+  expect(v.ok && !v.inA && v.g === v.inv + 1 && v.moved === v.a && (await pg.textContent('.lett-hyp h2')).includes('1 validée')
+    && (await pg.textContent(`details.lett-acc[data-code="${v.b}"]`)).includes(`transféré de ${v.a}`) && await pg.$('.lett-hyp [data-action=lett-go]'),
+  'visa d\'une hypothèse : règlement transféré et lettré, signalé dans le compte', JSON.stringify(v));
+  await pg.click('.lett-hyp [data-action=lett-go]'); await pg.waitForTimeout(100);
+  await pg.uncheck('.lett-hyp input[data-lett=visa]'); await pg.waitForTimeout(150);
+  v = await pg.evaluate(() => { const y = ui.lett.hyp[0]; return { ok: y.ok, inA: y.a.lines.includes(y.p), visa: y.b.groups.some((x) => x.visa) }; });
+  expect(!v.ok && v.inA && !v.visa, 'visa retiré : règlement rendu à son compte', JSON.stringify(v));
+
+  // 3 ter. Mails de bilan (un par fournisseur à problème) et de révision mensuelle
+  await pg.check('.lett-mx input[data-f=bilan]'); await pg.waitForTimeout(150);
+  await pg.fill('.lett-mx input[data-f=sc]', 'SOCIETE DEMO'); await pg.dispatchEvent('.lett-mx input[data-f=sc]', 'change'); await pg.waitForTimeout(150);
+  const bil = await pg.$$eval('.lett-mx textarea[data-lett=mxtxt]', (x) => x.map((t) => [t.dataset.i, t.value]));
+  const missCodes = await pg.evaluate(() => [...new Set(ui.lett.miss.map((m) => m.code))]);
+  expect(bil.length >= missCodes.length && missCodes.every((c) => bil.some(([i]) => i === c)) && bil.every(([, t]) => t.includes('SOCIETE DEMO') && t.includes('extrait de compte'))
+    && (await pg.textContent('.lett-mx')).includes('Bilan au 31/12/'), 'mails de bilan : un par fournisseur à problème, société reprise', JSON.stringify(bil.map(([i]) => i)));
+  await pg.check('.lett-mx input[data-f=situation]'); await pg.waitForTimeout(150);
+  expect(!(await pg.isChecked('.lett-mx input[data-f=bilan]')) && (await pg.textContent('.lett-mx')).includes('Situation au'), 'bilan ou situation, au choix');
+  await pg.click('[data-action=lett-mx-all]'); await pg.waitForTimeout(150);
+  const allClip = await pg.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+  expect(allClip.startsWith('Objet : Situation au') && allClip.split('--------').length === bil.length, 'copie de tous les mails', allClip.slice(0, 80));
+  await pg.uncheck('.lett-mx input[data-f=situation]');
+  await pg.check('.lett-mx input[data-f=rev]'); await pg.waitForTimeout(150);
+  const rev = await pg.$eval('.lett-mx textarea[data-i="#rev"]', (x) => x.value);
+  expect(rev.includes('révision mensuelle arrêtée au') && EXP.mail.every((l) => rev.includes(l)), 'mail de révision mensuelle : factures manquantes', rev.slice(0, 120));
+  await pg.uncheck('.lett-mx input[data-f=rev]'); await pg.waitForTimeout(100);
+
   // 4. Réglages : retenus, lettrage recalculé
   await setOpt('ex', 'FGAMMA');
   expect((await mailLines()).length === EXP.mail.length - 1 && (await pg.evaluate(() => data.settings.lettrage.ex)) === 'FGAMMA', 'compte exclu du mail, choix conservé');

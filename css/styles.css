@@ -958,6 +958,13 @@ button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2p
 .lett-lcr { border: 2px solid var(--primary); }
 .lett-list { list-style: none; padding: 0; margin: .25rem 0 0; }
 .lett-list li { padding: .4rem 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.lett-visa { margin-right: .5rem; font-weight: 600; }
+.lett-go { border: 0; cursor: pointer; font: inherit; font-size: .75rem; text-decoration: underline; }
+.lett-acc.lett-flash { outline: 3px solid var(--primary); }
+.lett-mxg { border-top: 1px solid var(--border); margin-top: .75rem; padding-top: .5rem; }
+.lett-mxg h3, .lett-mxm h3 { font-size: .95rem; margin: .25rem 0; }
+.lett-mxm { border-top: 1px solid var(--border); margin-top: .6rem; padding-top: .5rem; }
+.lett-mxm textarea { width: 100%; box-sizing: border-box; font: inherit; margin: .25rem 0 .4rem; }
 .lett-mail textarea { display: block; width: 100%; box-sizing: border-box; min-height: 10rem; margin: .25rem 0 .5rem; font: inherit; }
 .lett-leg { margin: .4rem 0 0; }
 .lett-close { margin: 0 0 .4rem; }

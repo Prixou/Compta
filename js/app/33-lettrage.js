@@ -26,9 +26,12 @@
 // FEC : lignes non lettrées des comptes 401 et 404 (ou 411) ; une écriture de banque ou de caisse est un règlement, une
 // écriture de charges, de produits ou d'immobilisation une facture, quel que soit son journal.
 // Un compte lettré de son côté se ferme : il quitte la liste et le mail (jusqu'à « Rouvrir » ou « Effacer »).
-// Tout reste en mémoire : rien n'est enregistré, et le verrouillage efface l'écran ; seuls les réglages sont retenus.
+// Une hypothèse visée transfère le règlement sur le compte proposé, où il est lettré avec les factures. Mails de bilan ou
+// de situation (demande d'extrait de compte aux fournisseurs dont le lettrage pose problème) et de révision mensuelle.
+// Tout reste en mémoire (visas compris) : rien n'est enregistré, et le verrouillage efface l'écran ; seuls les réglages
+// sont retenus.
 
-const lettState = () => (ui.lett = ui.lett || { src: '', fileName: '', text: '', fec: null, accs: [], lcAccs: [], ignored: 0, hyp: [], dup: [], lcr: [], miss: [], msg: '', hide: true, q: '', tiers: 'frs', status: 'idle', runId: 0, mail: null, closed: new Set() });
+const lettState = () => (ui.lett = ui.lett || { src: '', fileName: '', text: '', fec: null, accs: [], lcAccs: [], ignored: 0, hyp: [], dup: [], lcr: [], miss: [], msg: '', hide: true, q: '', tiers: 'frs', status: 'idle', runId: 0, mail: null, closed: new Set(), vis: new Set(), mx: null, mxEdit: {} });
 const LETT_DEF = { ja: 'AC, AH, HA, VT, VE', jr: 'OD, BQ, LCR, CA, CE', md: '45', nc: '', m1: '', lc: 'LCR', ex: '', ign: 'BNC' };
 function lettSettings() {
   const s = data.settings.lettrage || {};
@@ -40,6 +43,7 @@ const lettList = (s) => String(s || '').toUpperCase().split(/[,;\s]+/).filter(Bo
 const lettCents = (s) => Math.round(parseFloat(s.replace(/\s/g, '').replace(',', '.')) * 100);
 const lettFmt = (c) => (c / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const lettKey = (x, y) => (x.d < y.d ? -1 : x.d > y.d ? 1 : x.i - y.i);
+const lettLetter = (n) => String.fromCharCode(65 + (Math.floor(n / 26) % 26)) + String.fromCharCode(65 + (n % 26));
 const LETT_N = '(-?\\d{1,3}(?:\\s\\d{3})*,\\d{2})';
 const LETT_END = new RegExp('(?<=\\s)' + LETT_N + '\\s+' + LETT_N + '\\s*$');
 const LETT_NOISE = /Page - \d+|Grands-livres|Edition provisoire|^Du \d|^Date |^Pièce|^Débit|^Comp[ .]|^Total|^\d{6,8} - |^Let\./;
@@ -330,7 +334,7 @@ function lettRun(a, maxDays, nc) {
   }
   const first = (g) => g.lines.reduce((m, z) => (z.d < m ? z.d : m), g.lines[0].d);
   found.sort((x, y) => (first(x) < first(y) ? -1 : first(x) > first(y) ? 1 : 0));
-  a.groups = found.map((g, n) => Object.assign(g, { l: String.fromCharCode(65 + (Math.floor(n / 26) % 26)) + String.fromCharCode(65 + (n % 26)) }));
+  a.groups = found.map((g, n) => Object.assign(g, { l: lettLetter(n) }));
   a.rest = L.filter((x) => !x.used);
   a.bal = L.reduce((s, x) => s + (x.side === 'D' ? x.a : -x.a), 0);
   a.skipped = a.lines.filter((x) => x.type === 'autre').length;
@@ -361,11 +365,33 @@ function lettHyp(accs, maxDays) {
         if (![...tp].some((t) => tb.has(t))) continue;
         const hit = lettWinAv(b.rest.filter((c) => c.side === b.inv && !c.hyp && lettPays(c, p, b.m1)).sort(lettKey),
           b.rest.filter((c) => c.side !== b.inv && c.type === 'achat' && !c.hyp && lettPays(c, p, b.m1)), p.a, maxDays);
-        if (hit) { p.hyp = 1; hit.forEach((x) => { x.hyp = 1; }); out.push({ a, b, p, inv: hit }); break; }
+        if (hit) { p.hyp = 1; hit.forEach((x) => { x.hyp = 1; }); out.push({ a, b, p, inv: hit, key: `${p.d}|${p.a}|${a.code}|${b.code}` }); break; }
       }
     }
   }
   return out;
+}
+
+// Visa d'une hypothèse : le règlement est transféré sur le compte proposé et lettré avec les factures
+function lettApplyVisa(hyp, vis) {
+  const bal = (z) => z.lines.filter((x) => x.type !== 'autre').reduce((s, x) => s + (x.side === 'D' ? x.a : -x.a), 0);
+  hyp.forEach((y) => {
+    y.ok = vis.has(y.key);
+    if (!y.ok) return;
+    const { a, b, p, inv } = y;
+    a.lines = a.lines.filter((x) => x !== p);
+    a.rest = a.rest.filter((x) => x !== p);
+    b.lines.push(p);
+    p.moved = a.code;
+    p.hyp = 0;
+    inv.forEach((x) => { x.hyp = 0; });
+    b.rest = b.rest.filter((x) => !inv.includes(x));
+    const g = { m: `visa : règlement transféré de ${a.code}`, lines: [...inv, p], visa: 1, l: lettLetter(b.groups.length) };
+    b.groups.push(g);
+    g.lines.forEach((x) => b.map.set(x, g));
+    a.bal = bal(a);
+    b.bal = bal(b);
+  });
 }
 
 // Doublons : niveau 1 = même n° de facture et même montant ; niveau 2 = même compte, même date et même montant, n°
@@ -420,6 +446,69 @@ function lettMissing(accs, ex) {
 const lettMailText = (miss) => 'Bonjour,\n\nPour finaliser le lettrage de notre compte fournisseurs, merci de nous transmettre les factures manquantes ci-dessous (fournisseur - date du règlement - facture manquante) :\n\n'
   + miss.map((m) => `${m.n} - ${m.d} - facture manquante (règlement de ${lettFmt(m.a)} €)`).join('\n') + '\n\nMerci d\'avance.\n\nCordialement';
 
+// Mails de bilan ou de situation (un par fournisseur dont le lettrage pose problème : règlement sans facture, avoir
+// ouvert, doublon, hypothèse non visée) et de révision mensuelle (factures manquantes)
+function lettMx(st) {
+  if (!st.mx) {
+    const t = new Date();
+    st.mx = { type: '', rev: false, db: `${t.getFullYear()}-12-31`, dd: `${t.getFullYear()}-01-01`, ddT: false, sc: null, dr: ymd(new Date(t.getFullYear(), t.getMonth(), 0)) };
+  }
+  if (st.mx.sc === null) { const c = st.fec && clientBySiren(st.fec.siren); st.mx.sc = c ? c.nom : ''; }
+  return st.mx;
+}
+function lettMxMails(st) {
+  const mx = lettMx(st), EX = lettList(lettSettings().ex), out = { bil: [], rev: null };
+  const fd = (s) => (s ? fmtDate(s) : '…');
+  if (mx.type) {
+    const kind = mx.type === 'bilan' ? 'Bilan' : 'Situation';
+    out.bil = st.accs.filter((a) => a.inv === 'C' && !st.closed.has(a.code) && !EX.includes(String(a.code).toUpperCase()))
+      .filter((a) => st.miss.some((m) => m.code === a.code) || a.rest.some((x) => x.side === 'D' && x.type === 'achat' && !x.an)
+        || st.dup.some((d) => d.g.some(([b]) => b === a)) || st.hyp.some((y) => !y.ok && (y.a === a || y.b === a)))
+      .map((a) => {
+        const n = a.name || a.code;
+        return { id: a.code, n, sub: `${kind} au ${fd(mx.db)} - demande d'extrait de compte - ${n}`,
+          body: `Bonjour,\n\nNous sommes en pleine élaboration d'${mx.type === 'bilan' ? 'un bilan' : 'une situation'} à la date du ${fd(mx.db)} pour le compte de la société ${mx.sc || 'XXX'} dont le numéro client est le XXX.\n\nSerait-il possible de nous fournir un extrait de compte allant du ${fd(mx.dd)} au ${fd(mx.db)} ?\n\nVous remerciant pour votre collaboration,\n\nCordialement` };
+      });
+  }
+  if (mx.rev) {
+    out.rev = { id: '#rev', n: 'Révision mensuelle', sub: `Révision mensuelle au ${fd(mx.dr)} - pièces manquantes`,
+      body: `Bonjour,\n\nDans le cadre de la révision mensuelle arrêtée au ${fd(mx.dr)}, ${st.miss.length ? `merci de nous transmettre les factures manquantes ci-dessous (fournisseur - date du règlement - facture manquante) :\n\n${st.miss.map((m) => `${m.n} - ${m.d} - facture manquante (règlement de ${lettFmt(m.a)} €)`).join('\n')}\n` : "nous n'avons relevé aucune pièce manquante.\n"}\nMerci d'avance.\n\nCordialement` };
+  }
+  return out;
+}
+// Texte affiché d'un mail : celui modifié à la main tant que le mail généré n'a pas changé
+const lettMxText = (st, m) => (st.mxEdit[m.id] && st.mxEdit[m.id].gen === m.body ? st.mxEdit[m.id].txt : m.body);
+function lettMxPanel(st) {
+  const mx = lettMx(st), X = lettMxMails(st);
+  const box = (f, on, label) => `<label class="check inline"><input type="checkbox" data-lett="mx" data-f="${f}"${on ? ' checked' : ''}> ${label}</label>`;
+  const date = (f, label) => `<label>${label} <input type="date" data-lett="mx" data-f="${f}" value="${esc(mx[f])}"></label>`;
+  const mail = (m) => `<div class="lett-mxm"><h3>${esc(m.n)}</h3><p class="small">Objet : ${esc(m.sub)}</p>
+      <textarea data-lett="mxtxt" data-i="${esc(m.id)}" rows="${m.id === '#rev' ? 9 + st.miss.length : 10}">${esc(lettMxText(st, m))}</textarea>
+      <button class="btn small" data-action="lett-mx-copy" data-i="${esc(m.id)}">Copier ce mail</button></div>`;
+  return `<section class="card lett-panel lett-mx"><h2>Mails de situation et de révision</h2>
+    <p class="muted small">${st.miss.length} règlement(s) sans facture. Cochez une option pour générer les mails.</p>
+    <div class="lett-opts">${box('bilan', mx.type === 'bilan', 'Bilan')}${box('situation', mx.type === 'situation', 'Situation')}${date('db', 'Date de clôture')}
+      ${box('rev', mx.rev, 'Révision mensuelle')}${date('dr', 'Révision arrêtée au')}</div>
+    ${mx.type ? `<div class="lett-opts"><label>Société (nom du client) <input data-lett="mx" data-f="sc" value="${esc(mx.sc)}" placeholder="XXX"></label>${date('dd', 'Début d\'exercice')}</div>
+    <div class="lett-mxg"><h3>${mx.type === 'bilan' ? 'Bilan' : 'Situation'} au ${esc(fmtDate(mx.db))} : ${X.bil.length} mail(s) aux fournisseurs dont le lettrage pose problème</h3>
+      ${X.bil.length ? `<button class="btn" data-action="lett-mx-all">Copier tous les mails</button>${X.bil.map(mail).join('')}` : '<p class="muted small">Aucun fournisseur concerné.</p>'}</div>` : ''}
+    ${X.rev ? `<div class="lett-mxg">${mail(X.rev)}</div>` : ''}</section>`;
+}
+function lettMxCopy(id) {
+  const st = lettState(), X = lettMxMails(st);
+  const area = (i) => [...document.querySelectorAll('textarea[data-lett=mxtxt]')].find((t) => t.dataset.i === i);
+  if (id) { const el = area(id); return el && lettClip(el.value, 'Mail copié : collez-le dans votre messagerie.'); }
+  return lettClip(X.bil.map((m) => `Objet : ${m.sub}\n\n${(area(m.id) || {}).value || lettMxText(st, m)}`).join('\n\n--------\n\n'), `${X.bil.length} mail(s) copié(s) : collez-les dans votre messagerie.`);
+}
+function lettGo(code) {
+  const el = [...document.querySelectorAll('details.lett-acc')].find((d) => d.dataset.code === code);
+  if (!el) return toast('Compte masqué : effacez la recherche ou rouvrez-le.', true);
+  el.open = true;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  el.classList.add('lett-flash');
+  setTimeout(() => el.classList.remove('lett-flash'), 2500);
+}
+
 // Calcul d'après la source chargée (grand livre ou FEC) et les réglages
 function lettCompute() {
   const st = lettState();
@@ -439,6 +528,7 @@ function lettCompute() {
   st.lcAccs = kept.filter(isLC);
   st.accs = kept.filter((a) => !isLC(a)).map((a) => { a.m1 = isM1(a); return lettRun(a, md, isNC(a)); });
   st.hyp = lettHyp(st.accs, md);
+  lettApplyVisa(st.hyp, st.vis);
   st.dup = lettDups(st.accs);
   st.lcr = lettLcr(st.lcAccs, st.accs, md, isNC);
   st.miss = lettMissing(st.accs.filter((a) => !st.closed.has(a.code)), set.ex);
@@ -526,9 +616,10 @@ function lettPanels(st) {
   const li = (s) => `<li>${s}</li>`;
   let h = '';
   if (st.hyp.length) {
-    h += `<section class="card lett-panel lett-hyp"><h2>${st.hyp.length} hypothèse(s) à valider</h2>
-      <p class="muted small">Règlement resté ouvert sur un compte, facture de même montant trouvée sur un autre compte du même tiers : probable erreur d'affectation. Rien n'est lettré automatiquement.</p>
-      <ul class="lett-list">${st.hyp.map((y) => li(`${esc(y.p.date)} · <strong>${lettFmt(y.p.a)} €</strong> réglé sur <strong>${esc(y.a.code)}</strong> ↔ ${esc(lettInvTxt(y.inv))} sur <strong>${esc(y.b.code)}</strong> <span class="muted">${esc(y.b.name)}</span>`)).join('')}</ul></section>`;
+    const nOk = st.hyp.filter((y) => y.ok).length;
+    h += `<section class="card lett-panel lett-hyp"><h2>${st.hyp.length - nOk} hypothèse(s) à valider${nOk ? ` · ${nOk} validée(s)` : ''}</h2>
+      <p class="muted small">Règlement resté ouvert sur un compte, facture de même montant trouvée sur un autre compte du même tiers : probable erreur d'affectation. Cochez le visa pour transférer le règlement sur le compte proposé et le lettrer avec les factures.</p>
+      <ul class="lett-list">${st.hyp.map((y) => li(`<label class="check inline lett-visa"><input type="checkbox" data-lett="visa" data-k="${esc(y.key)}"${y.ok ? ' checked' : ''}> Visa</label> ${esc(y.p.date)} · <strong>${lettFmt(y.p.a)} €</strong> réglé sur <strong>${esc(y.a.code)}</strong> ↔ ${esc(lettInvTxt(y.inv))} sur <strong>${esc(y.b.code)}</strong> <span class="muted">${esc(y.b.name)}</span>${y.ok ? ` <button class="badge ok lett-go" data-action="lett-go" data-code="${esc(y.b.code)}">transféré vers ${esc(y.b.code)} et lettré →</button>` : ''}`)).join('')}</ul></section>`;
   }
   if (st.lcr.length) {
     h += `<section class="card lett-panel lett-lcr"><h2>Compte d'attente ${esc(st.lcAccs.map((a) => a.code).join(', '))} : ${st.lcr.length} montant(s) à affecter</h2>
@@ -555,6 +646,7 @@ function lettPanels(st) {
       <textarea id="lett-mail" data-lett="mail" rows="9">${esc(txt)}</textarea>
       <button class="btn" data-action="lett-mail">Copier le mail</button></section>`
       : '<section class="card lett-panel lett-mail"><p>Tous les règlements ont une facture : aucun mail à envoyer.</p></section>';
+    h += lettMxPanel(st);
   }
   return h;
 }
@@ -610,10 +702,10 @@ function viewLettrage() {
     ${shown.map((a) => {
       const ok = !a.rest.length && a.groups.length;
       const rows = a.lines.slice().sort(lettKey);
-      return `<details class="card lett-acc"${ok ? '' : ' open'}><summary><strong>${esc(a.code)}</strong> <span class="muted">${esc(a.name)}${a.m1 ? ' · échéance M+1' : ''} · ${a.groups.length} lettrage(s) · ${a.rest.length} ouverte(s)</span> <span class="badge ${ok ? 'ok' : 'wait'}">${ok ? 'Soldé' : `Solde ouvert ${lettFmt(Math.abs(a.bal))} €`}</span></summary>
+      return `<details class="card lett-acc" data-code="${esc(a.code)}"${ok ? '' : ' open'}><summary><strong>${esc(a.code)}</strong> <span class="muted">${esc(a.name)}${a.m1 ? ' · échéance M+1' : ''} · ${a.groups.length} lettrage(s) · ${a.rest.length} ouverte(s)</span> <span class="badge ${ok ? 'ok' : 'wait'}">${ok ? 'Soldé' : `Solde ouvert ${lettFmt(Math.abs(a.bal))} €`}</span></summary>
         <p class="lett-close"><button class="btn small" data-action="lett-close" data-code="${esc(a.code)}" title="Compte lettré dans le logiciel : il quitte la liste et le mail">Fermer ce compte (lettré)</button></p>
         <div class="grid-wrap"><table class="dtable lett-t"><thead><tr><th>Lettre</th><th>Date</th><th>Jnl</th><th>Libellé</th><th class="n">Débit</th><th class="n">Crédit</th></tr></thead><tbody>
-        ${rows.map((x) => { const g = a.map.get(x); return `<tr class="${rowCls(x, g)}"><td>${kindOf(x, g)}</td><td>${esc(x.date)}</td><td>${esc(x.j)}</td><td class="lbl">${esc(x.label)}${g && g.rel === x ? ' <span class="badge lett-relb">RELEVÉ</span>' : ''}${x.dup ? ' <span class="badge warn">doublon ?</span>' : ''}</td><td class="n">${x.side === 'D' ? lettFmt(x.a) : ''}</td><td class="n">${x.side === 'C' ? lettFmt(x.a) : ''}</td></tr>`; }).join('')}
+        ${rows.map((x) => { const g = a.map.get(x); return `<tr class="${rowCls(x, g)}"><td>${kindOf(x, g)}</td><td>${esc(x.date)}</td><td>${esc(x.j)}</td><td class="lbl">${esc(x.label)}${x.moved ? ` <span class="badge ok">transféré de ${esc(x.moved)}</span>` : ''}${g && g.rel === x ? ' <span class="badge lett-relb">RELEVÉ</span>' : ''}${x.dup ? ' <span class="badge warn">doublon ?</span>' : ''}</td><td class="n">${x.side === 'D' ? lettFmt(x.a) : ''}</td><td class="n">${x.side === 'C' ? lettFmt(x.a) : ''}</td></tr>`; }).join('')}
         </tbody></table></div>${a.groups.length ? `<p class="muted small lett-leg">${a.groups.map((g) => `<span class="lett-l${g.rel ? ' rel' : ''}">${esc(g.l)}</span> ${esc(g.m)}`).join(' · ')}</p>` : ''}${a.skipped ? `<p class="muted small">${a.skipped} écriture(s) hors journaux d'achat et de règlement, non lettrée(s).</p>` : ''}</details>`;
     }).join('')}
     ${!accs.some((a) => a.groups.length) ? '<section class="card"><p class="muted">Aucun lettrage possible avec les journaux indiqués.</p></section>' : !shown.length ? '<p class="muted">Aucun compte ne correspond à la recherche.</p>' : ''}
@@ -626,6 +718,24 @@ function onLettChange(t) {
   const st = lettState();
   const k = t.dataset.lett;
   if (k === 'mail') { st.mail = { gen: st.mailGen, txt: t.value }; return; }
+  if (k === 'mxtxt') {
+    const X = lettMxMails(st);
+    const m = X.bil.concat(X.rev || []).find((x) => x.id === t.dataset.i);
+    if (m) st.mxEdit[m.id] = { gen: m.body, txt: t.value };
+    return;
+  }
+  if (k === 'visa') { if (t.checked) st.vis.add(t.dataset.k); else st.vis.delete(t.dataset.k); lettCompute(); return refresh(); }
+  if (k === 'mx') {
+    const mx = lettMx(st), f = t.dataset.f;
+    if (f === 'bilan' || f === 'situation') mx.type = t.checked ? f : '';
+    else if (f === 'rev') mx.rev = t.checked;
+    else {
+      mx[f] = t.value;
+      if (f === 'dd') mx.ddT = true;
+      if (f === 'db' && !mx.ddT && t.value) mx.dd = `${t.value.slice(0, 4)}-01-01`;
+    }
+    return refresh();
+  }
   if (k in LETT_DEF) {
     data.settings.lettrage = Object.assign(lettSettings(), { [k]: t.value.trim() });
     persist();
@@ -681,8 +791,8 @@ async function lettExport() {
     { name: 'Synthèse', rows: syn, widths: [14, 34, 10, 12, 12, 14], freeze: { row: 1 } },
   ];
   const add = (name, head, rows, widths) => { if (rows.length) sheets.push({ name, rows: [H(head)].concat(rows), widths, freeze: { row: 1 } }); };
-  add('Hypothèses', ['Compte du règlement', 'Nom', 'Date', 'Montant', 'Compte des factures', 'Nom', 'Factures'],
-    st.hyp.map((y) => [t(y.a.code), t(y.a.name), t(y.p.date), n(y.p.a), t(y.b.code), t(y.b.name), t(lettInvTxt(y.inv))]), [14, 30, 12, 14, 14, 30, 50]);
+  add('Hypothèses', ['Compte du règlement', 'Nom', 'Date', 'Montant', 'Compte des factures', 'Nom', 'Factures', 'Visa'],
+    st.hyp.map((y) => [t(y.a.code), t(y.a.name), t(y.p.date), n(y.p.a), t(y.b.code), t(y.b.name), t(lettInvTxt(y.inv)), t(y.ok ? 'transféré et lettré' : 'à valider')]), [14, 30, 12, 14, 14, 30, 50, 18]);
   add('Compte d\'attente', ['Compte', 'Date', 'Montant', 'Proposition', 'Statut'],
     st.lcr.map(({ a, p, c }) => [t(a.code), t(p.date), n(p.a), t(c.map(({ b, hit }) => `${b.code} ${b.name} (${lettInvTxt(hit)})`).join(' ou ')), t(c.length === 1 ? 'unique' : c.length ? 'plusieurs possibilités' : 'aucun fournisseur trouvé')]), [14, 12, 14, 60, 22]);
   add('Relevés', ['Compte', 'Lettre', 'Date du relevé', 'Montant', 'Factures', 'Règlement'],
