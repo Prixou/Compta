@@ -677,8 +677,8 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
 @media (max-width: 760px) {
   .calc-fields { grid-template-columns: minmax(0, 1fr); }
   .calc-vent input { width: 6rem; }
-  /* Barre du bas limitée à six entrées : le calcul de TVA est dans la barre du haut. */
-  .nav a[data-nav=calcul], .nav a[data-nav=releves], .nav a[data-nav=rapprochement] { display: none; }
+  /* Barre du bas limitée à six entrées : le calcul de TVA est dans la barre du haut, les ratios sur la fiche du dossier. */
+  .nav a[data-nav=calcul], .nav a[data-nav=releves], .nav a[data-nav=rapprochement], .nav a[data-nav=ratios] { display: none; }
 }
 .tva-params select { min-height: 32px; font-size: .82rem; max-width: 100%; }
 .tva-params td { vertical-align: top; }
@@ -1011,3 +1011,55 @@ pre.lcr-file { max-width: none; margin: 0; max-height: 22rem; overflow: auto; ba
 .lcr-entry .grid-wrap { margin: 0; }
 .lcr-journal tr.lcr-credit td { font-weight: 600; background: var(--primary-soft); }
 .lcr-journal tr.lcr-rej td { color: var(--muted); text-decoration: line-through; }
+
+/* Ratios sectoriels */
+.rat-search label { margin: 0; }
+.rat-search input { font-size: 1rem; }
+.rat-sugg { list-style: none; margin: .5rem 0 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; max-height: 22rem; overflow: auto; }
+.rat-sugg li + li { border-top: 1px solid var(--border); }
+.rat-sugg button { display: flex; gap: .7rem; align-items: baseline; width: 100%; padding: .5rem .75rem; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.rat-sugg button:hover, .rat-sugg button:focus-visible { background: var(--primary-soft); }
+.rat-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .82rem; font-weight: 700; color: var(--primary); white-space: nowrap; }
+.rat-lvl { margin-left: auto; font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); white-space: nowrap; }
+.rat-crumbs { display: flex; flex-wrap: wrap; gap: .2rem .6rem; align-items: center; margin-bottom: .2rem; }
+.rat-crumbs .link-btn { color: var(--muted); text-align: left; }
+.rat-title { font-size: 1.5rem; margin: .2rem 0; }
+.rat-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 1rem; }
+.rat-kpis .kpi:hover { border-color: var(--border); }
+.rat-kpis .kpi strong { font-size: 1.35rem; margin: .2rem 0; }
+.rat-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 1rem; align-items: start; }
+.rat-client { position: sticky; top: 1rem; }
+.rat-client label { font-size: .8rem; }
+.rat-client fieldset { border: 0; padding: 0; margin: .8rem 0 0; }
+.rat-client legend { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--primary); font-weight: 700; padding: 0; margin-bottom: .4rem; }
+.rat-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem .7rem; }
+.rat-fields label { margin: 0; color: var(--muted); }
+.rat-fields input { text-align: right; font-variant-numeric: tabular-nums; min-height: 34px; padding: .3rem .5rem; }
+.rat-form { margin-bottom: .8rem; }
+.dtable.rat-table td { text-align: right; font-variant-numeric: tabular-nums; vertical-align: top; }
+.dtable.rat-table th:not(:first-child) { text-align: right; }
+.dtable.rat-table td:first-child { text-align: left; white-space: normal; min-width: 10rem; }
+.dtable.rat-table th, .dtable.rat-table td { padding-left: .45rem; padding-right: .45rem; }
+.dtable.rat-table tbody tr { cursor: default; }
+.dtable.rat-table tr.rat-fam td { background: var(--surface-2); color: var(--primary); font-weight: 700; text-align: left; }
+.rat-lab { font-weight: 600; }
+.rat-def { display: block; font-size: .75rem; color: var(--muted); }
+.rat-u { color: var(--muted); font-size: .75rem; }
+.rat-pos { display: inline-block; font-size: .72rem; font-weight: 700; padding: .1rem .5rem; border-radius: 999px; white-space: nowrap; }
+.rat-pos.good { background: var(--ok-soft); color: var(--ok); }
+.rat-pos.bad { background: var(--danger-soft); color: var(--danger); }
+.rat-pos.neu { background: var(--wait-soft); color: var(--wait); }
+.rat-pos.eq { background: var(--primary-soft); color: var(--primary); }
+.rat-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }
+.rat-chip { border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: .82rem; border-radius: 999px; padding: .3rem .7rem; cursor: pointer; text-align: left; }
+.rat-chip:hover { border-color: var(--primary); }
+.rat-chip .rat-code { margin-right: .4rem; }
+.rat-note { max-width: 90ch; line-height: 1.55; }
+.rat-ref { flex-wrap: wrap; max-width: 100%; }
+.rat-ref select { max-width: 100%; min-width: 0; }
+@media (max-width: 1100px) { .rat-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 960px) {
+  .rat-layout { grid-template-columns: minmax(0, 1fr); }
+  .rat-client { position: static; }
+}
+@media (max-width: 760px) { .rat-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

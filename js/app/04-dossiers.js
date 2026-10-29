@@ -111,6 +111,7 @@ function viewDossier(id) {
         <button class="btn" data-action="edit-client" data-id="${c.id}">Modifier</button>
         ${open.length ? `<button class="btn" data-action="open-msg" data-client="${c.id}">${icon('mail')}Écrire au client</button>` : ''}
         <button class="btn" data-action="open-cal" data-client="${c.id}">${icon('calendar')}Échéances de l'année</button>
+        <a class="btn" href="#/ratios/${c.id}">${icon('chart')}Ratios sectoriels</a>
         <button class="btn primary" data-action="new-mission" data-client="${c.id}">${icon('plus')}Mission</button>
       </div>
     </div>
@@ -146,6 +147,7 @@ function viewDossier(id) {
             ${field('Régime de TVA', c.regimeTva)}
             ${c.tvaClient ? field('Déclarations de TVA', 'Faites par le client (hors suivi TVA)') : ''}
             ${field('Activité (analyse FEC)', c.activite ? ACTIVITES[c.activite] : 'Détectée sur le FEC')}
+            ${field('Code NAF / APE', c.naf)}
             ${field('Jour limite TVA', c.jourTva)}
             ${field('Clôture', c.cloture)}
             ${field('Responsable', c.responsable)}
@@ -203,6 +205,7 @@ function clientForm(c) {
           <label>Régime fiscal<select name="regimeFiscal">${options(REGIMES_FISCAUX, c.regimeFiscal, true)}</select></label>
           <label>Régime de TVA<select name="regimeTva">${options(REGIMES_TVA, c.regimeTva, true)}</select></label>
           <label>Activité (analyse FEC)<select name="activite">${options(ACTIVITES, c.activite, 'Détectée sur le FEC')}</select></label>
+          <label>Code NAF / APE<input name="naf" value="${esc(c.naf)}" placeholder="ex. 69.20Z" maxlength="6"></label>
           <label>Jour limite de dépôt TVA<input type="number" name="jourTva" min="1" max="31" value="${esc(c.jourTva)}" placeholder="ex. 21"></label>
           <label class="check span2"><input type="checkbox" name="tvaClient"${c.tvaClient ? ' checked' : ''}><span>TVA déclarée par le client lui-même : dossier masqué du suivi de TVA</span></label>
           <label>Responsable<input name="responsable" list="collabs" value="${esc(c.responsable || (isNew ? data.settings.utilisateur : ''))}"></label>

@@ -329,6 +329,11 @@ const actions = {
   'calc-vent-mode': (el) => { calcState().ventMode = el.dataset.mode; refresh(); },
   'calc-vent-reset': () => { calcState().vent = {}; refresh(); },
   'calc-vent-copy': () => calcVentCopy(),
+  'ratios-go': (el) => ratiosGo(el),
+  'ratios-fec': () => ratTakeFec(),
+  'ratios-copy': () => ratiosCopy(),
+  'ratios-naf': () => ratiosSetNaf(),
+  'ratios-clear': () => { const st = ratState(); st.vals = { tva: 20 }; st.src = ''; ratSave(); refresh(); },
   'fec-pick': async (el) => {
     // Depuis l'accueil de l'analyse : l'espace choisi s'ouvrira à l'arrivée du FEC.
     if (el.dataset.space && FEC_SPACES[el.dataset.space] && data.settings.fecSpace !== el.dataset.space) { data.settings.fecSpace = el.dataset.space; persist(); }
@@ -567,6 +572,11 @@ document.addEventListener('keydown', (e) => {
       return;
     }
   }
+  if (e.key === 'Enter' && e.target.dataset.ratios === 'q' && data) {
+    e.preventDefault();
+    ratiosEnter(e.target);
+    return;
+  }
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role=button][data-action]')) {
     e.preventDefault();
     e.target.click();
@@ -586,6 +596,8 @@ document.addEventListener('change', (e) => {
   if (!data) return;
   if (t.dataset.imp && ui.imp) {
     onImportChange(t);
+  } else if (t.dataset.ratios === 'ref' || t.dataset.ratios === 'client') {
+    ratiosChange(t);
   } else if (t.dataset.cab && ui.cab) {
     onCabChange(t);
   } else if (t.dataset.cal && ui.cal) {
@@ -851,6 +863,7 @@ let filterTimer = null;
 document.addEventListener('input', (e) => {
   const t = e.target;
   if ((t.dataset.calc || t.dataset.calcVent) && data) return calcUpdate(t);
+  if ((t.dataset.ratios === 'q' || t.dataset.ratiosF) && data) return ratiosInput(t);
   if (t.dataset.filter && data) {
     const path = t.dataset.filter.split('.');
     const value = t.type === 'checkbox' ? t.checked : t.value;

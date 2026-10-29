@@ -148,6 +148,7 @@ function renderShell() {
           <a href="#/grille" data-nav="grille">${icon('grid')}<span>Suivi mensuel</span></a>
           <a href="${fecHref()}" data-nav="fec">${icon('chart')}<span>Analyse FEC</span></a>
           <a href="#/calcul" data-nav="calcul">${icon('calc')}<span>Calcul TVA</span></a>
+          <a href="#/ratios" data-nav="ratios">${icon('chart')}<span>Ratios sectoriels</span></a>
           <a href="#/releves" data-nav="releves">${icon('file')}<span>Relevés PDF</span></a>
           <a href="#/rapprochement" data-nav="rapprochement">${icon('bank')}<span>Rapprochement</span></a>
           <a href="#/lettrage" data-nav="lettrage">${icon('link')}<span>Lettrage</span></a>
@@ -217,6 +218,7 @@ function route() {
     case 'lettrage': main.innerHTML = viewLettrage(); break;
     case 'lcr': main.innerHTML = viewLcr(); break;
     case 'calcul': main.innerHTML = viewCalc(); calcUpdate(); break;
+    case 'ratios': main.innerHTML = viewRatios(parts[1]); break;
     case 'parametres': main.innerHTML = viewSettings(); break;
     default: main.innerHTML = viewDashboard();
   }

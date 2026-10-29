@@ -60,6 +60,7 @@ Elle a été conçue pour respecter le **secret professionnel** et la **déontol
 - **Rapprochement bancaire** : import du relevé (CFONB 120 / EBICS, OFX, CAMT.053, CSV ou Excel), puis appariement automatique avec le compte de banque du FEC (dates proches, regroupements), état de rapprochement et opérations non comptabilisées ajoutées aux pièces à demander.
 - **Import du classeur du cabinet** : INFO DOSSIER, SUIVI TVA, SUIVI RÉVISION (vos étapes de bilan), SUIVI SITUATION, SUIVI DÉCLARATION et SUIVI SAISIE en une fois, avec un filtre (ex. CJ = ABC). Les onglets d'identifiants ne sont jamais lus, et le réimport ne crée aucun doublon.
 - **Calcul de TVA** (menu « Calcul TVA ») : HT, TVA et TTC aux taux de 20 %, 10 %, 5,5 % et 2,1 % à partir de n'importe lequel des trois montants, le même montant aux quatre taux, et ventilation d'un ticket ou d'un Z de caisse multi-taux, copiables dans Excel.
+- **Ratios sectoriels** (menu « Ratios sectoriels » ou fiche du dossier) : ratios de l'INSEE (Ésane 2023) pour les quelque 670 sous-classes NAF, embarqués dans l'application (aucune connexion). Recherche par code ou par libellé, ratios du groupe avec le rappel 2022 ou de la division par taille (micro, PME, ETI / GE), indicateurs de résultat. Les chiffres du dossier (en k€) se saisissent ou se reprennent de l'analyse FEC ouverte ; écart et position (au-dessus, en dessous, dans la norme) pour chaque ratio, saisie conservée dans le dossier, code NAF sur la fiche, copie pour Excel.
 - **Aide intégrée** dans l'application. Les fonctions marquées **bêta** n'ont pas encore été validées sur de vrais dossiers : leurs résultats sont à contrôler.
 - **Sauvegarde chiffrée** exportable, pour se prémunir d'une perte de l'appareil et **transférer les données entre PC et téléphone**. Export CSV possible (non chiffré, avec avertissement).
 - **Hors ligne** et installable comme une application (PWA), en mode clair ou sombre selon l'appareil.
@@ -133,6 +134,7 @@ js/fec-worker.js      analyse du FEC dans un Web Worker (contrôles, balance, SI
 js/archive-reader.js  lecture locale des archives .zip FEC + justificatifs (noms des fichiers uniquement)
 js/bank-reader.js     lecture locale des relevés bancaires (CFONB 120, OFX, CAMT.053, CSV, Excel)
 js/silae-pdf.js       lecture locale des éditions de paie Silae en PDF (journal de paie, détail des cotisations, solde de repos)
+js/ratios-insee.js    ratios sectoriels INSEE (Ésane 2023) par code NAF, chargés à la demande
 js/app/               application, en modules chargés dans l'ordre (voir js/app/README.md)
 tests/                tests de bout en bout sur données fictives (voir tests/README.md)
 sw.js                 service worker (fonctionnement hors ligne)
