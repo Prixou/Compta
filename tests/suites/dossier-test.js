@@ -132,11 +132,10 @@ const CYCLES = ['regul', 'treso', 'achats', 'charges', 'clients', 'stocks', 'imm
   ko(!dup.length, `aucune pièce en double ${dup.join(' | ')}`);
   ko(!pieces.some((t) => /journal de paie|Bulletins|DSN|Effectif au|cotisations personnelles/i.test(t)), 'aucune pièce de paie demandée au client (paie sur Silae)');
 
-  // Cycle H : pièces = éditions Silae du cabinet (le rapprochement est testé dans silae-test.js)
+  // Cycle H : paie faite au cabinet (cadrage dans le menu CYCLE SOCIAL), aucune pièce dans le cycle
   await fecTab(p, 'social', 0); await p.waitForTimeout(120);
   const hDocs = await p.$$eval('.cyc-docs li', (l) => l.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-  console.log('pièces H :', hDocs.join(' | '));
-  ko(hDocs.length && hDocs.every((t) => /\(Silae\) cabinet/.test(t)), 'H : pièces = éditions Silae du cabinet');
+  ko(!hDocs.length, `H : aucune pièce de paie ${hDocs.join(' | ')}`);
 
   // FEC N-1 : à-nouveaux rapprochés de la clôture N-1, colonne N-1 des comptes
   await fecTab(p, 'revue', 0);

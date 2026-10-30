@@ -228,10 +228,6 @@ function syncReviewMission() {
 const wpAccStore = () => { const st = wpStore(); return (st.comptes = st.comptes || {}); };
 const wpDocStore = () => { const st = wpStore(); return (st.docs = st.docs || {}); };
 const wpSoldeStore = () => { const st = wpStore(); return (st.soldes = st.soldes || {}); };
-// Montants retenus des éditions de paie Silae (cycle H), par contrôle (brut, org:<compte 645>, cp, cpch) → { v, lab, group, col, file }.
-const silaeStore = () => { const st = wpStore(); return (st.silae = st.silae || {}); };
-// Ligne de l'organisme de chaque compte 645 dans le détail des cotisations, choisie à la main (propre au dossier).
-const silaeDossierMap = () => { const c = clientById(ui.fec.clientId); return c ? (c.silaeLines = c.silaeLines || {}) : (ui.fec.silaeLines = ui.fec.silaeLines || {}); };
 // Solde selon la pièce, saisi tel qu'il figure sur le document (« 12 345,67 ») ; vide : effacé.
 function wpSetSolde(compte, txt) {
   const st = wpSoldeStore();

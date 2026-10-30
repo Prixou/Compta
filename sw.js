@@ -20,7 +20,6 @@ const ASSETS = [
   'js/pdf-reader.js?v=' + VERSION,
   'js/releve-pdf.js?v=' + VERSION,
   'js/ca3-pdf.js?v=' + VERSION,
-  'js/silae-pdf.js?v=' + VERSION,
   'js/fec-compare.js?v=' + VERSION,
   'js/ratios-insee.js?v=' + VERSION,
   'js/app/01-core.js?v=' + VERSION,
