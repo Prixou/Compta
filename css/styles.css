@@ -561,6 +561,16 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
 .tool-set[open] > summary { margin-bottom: .8rem; }
 .tool-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; margin: 0 0 1rem; }
 .tool-bar label { margin: 0; }
+/* Tableau de bord : à faire d'abord, puis reprendre */
+.dash-sub { margin: .2rem 0 0; }
+.dash-backup { padding: .5rem .9rem; }
+.page-head .head-actions select { width: auto; min-height: 40px; margin: 0; }
+.dash-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 1rem; align-items: start; }
+@media (max-width: 1100px) { .dash-cols { grid-template-columns: minmax(0, 1fr); } }
+.dash-rec-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1.2rem; }
+.dash-rec-cols h3 { margin: .3rem 0 .4rem; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.dash-rec { display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; padding: .45rem .2rem; border-top: 1px solid var(--border); text-decoration: none; color: var(--text); font-weight: 600; }
+.dash-rec:hover { color: var(--primary); }
 .fec-tabs { margin-bottom: 1rem; flex-wrap: wrap; }
 .fec-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .fec-kpis .kpi strong { font-size: 1.4rem; }

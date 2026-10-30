@@ -236,6 +236,7 @@ function route() {
     default: main.innerHTML = viewDashboard();
   }
   applyWidths(main);
+  if (view === 'dossier' ? clientById(parts[1]) : true) noteRecent(view, parts[1]);
 }
 
 function refresh() {
