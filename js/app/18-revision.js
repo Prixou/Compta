@@ -228,10 +228,11 @@ function syncReviewMission() {
 const wpAccStore = () => { const st = wpStore(); return (st.comptes = st.comptes || {}); };
 const wpDocStore = () => { const st = wpStore(); return (st.docs = st.docs || {}); };
 const wpSoldeStore = () => { const st = wpStore(); return (st.soldes = st.soldes || {}); };
-// Montants retenus des éditions de paie Silae (cycle H), par contrôle (brut, org:<compte 645>, cp, cpch) → { v, lab, group, col, file }.
-const silaeStore = () => { const st = wpStore(); return (st.silae = st.silae || {}); };
-// Ligne de l'organisme de chaque compte 645 dans le détail des cotisations, choisie à la main (propre au dossier).
-const silaeDossierMap = () => { const c = clientById(ui.fec.clientId); return c ? (c.silaeLines = c.silaeLines || {}) : (ui.fec.silaeLines = ui.fec.silaeLines || {}); };
+// Montants relevés par l'ancien rapprochement Silae du cycle H (avant CYCLE SOCIAL), par contrôle (brut, org:<compte 645>,
+// cp, cpch) → { v, lab, group, col, file } : lus seulement, tant que le cadrage de la paie n'est pas refait.
+const silaeStore = () => wpStore().silae || {};
+// Cadrage de la paie (CYCLE SOCIAL) enregistré pour l'exercice : { at, docs, sum: [{ key, sec, title, name, s, c, e, st, note }], … }
+const socSummary = () => wpStore().social || null;
 // Solde selon la pièce, saisi tel qu'il figure sur le document (« 12 345,67 ») ; vide : effacé.
 function wpSetSolde(compte, txt) {
   const st = wpSoldeStore();

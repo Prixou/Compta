@@ -8,7 +8,7 @@
  *   rows : lignes portant au moins un montant (nombre à deux décimales) ; lab : texte de la ligne avant le premier montant ;
  *   group : dernier intitulé de groupe lu au-dessus (ligne de texte seule sous l'en-tête des colonnes : organisme…) ;
  *   col : intitulé de la colonne du montant (textes courts des lignes d'en-tête de la page situés au-dessus de lui).
- * SilaePdf.pick(rows, key, memo) → { row, amount } : ligne et montant retenus pour un contrôle ('brut', 'pat', 'cp', 'cpch')
+ * SilaePdf.pick(rows, key, memo) → { row, amount } : ligne et montant retenus pour un contrôle ('brut', 'net', 'pat', 'cp', 'cpch')
  *   d'après les intitulés (« brut », « part patronale », « indemnité », « charges », ligne de total…), ou le choix mémorisé
  *   (memo : { lab, col } en clés de SilaePdf.key) ; null si rien n'est reconnu.
  * SilaePdf.candidates(rows, key) → [{ row, amount, sc }] : lignes proposées pour le choix à la main, les plus probables d'abord.
@@ -89,6 +89,7 @@
   // Intitulés attendus pour chaque contrôle (libellé de la ligne ou de la colonne) et intitulés à écarter.
   const RULES = {
     brut: { yes: /\bbrut/, no: /\bnet\b|imposable|abatt|plafon|tranche|base|assiette/ },
+    net: { yes: /net a payer|net paye|net verse/, no: /imposable|avant|social/ },
     pat: { yes: /patron|employeur/, no: /salari/ },
     cp: { yes: /indemnit|provision|valoris|montant/, no: /charge|cotis|jour|nombre|\bnb\b|acquis|pris\b/ },
     cpch: { yes: /charge|cotis/, no: /jour|nombre|\bnb\b|acquis|pris\b/ },

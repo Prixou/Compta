@@ -38,6 +38,10 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
   `genbanques.py` produit des relevés inventés aux mises en page des principales banques (`fixtures/banques/` : dix PDF
   lus par les en-têtes ou par les colonnes déduites, CSV de banques en ligne, QIF, MT940, CAMT.052) et les résultats
   attendus, pour `suites/banques-test.js`.
+  `gensilae_fec.py` et `gensilae_pdf.py` produisent le FEC d'un dossier payé sur Silae (`fixtures/silae/`, congés payés en
+  641200 / 645200, mutuelle volontairement en écart de 20 €) et ses éditions PDF (journal de paie, détail des cotisations,
+  solde de repos), pour le cadrage de la paie ouvert depuis le cycle H (`suites/silae-test.js`) ; `gensocial.py` produit les
+  exports Excel SILAE et le FEC du CYCLE SOCIAL (`fixtures/social/`, `suites/social-test.js`).
   `genlcr.py` produit des relevés LCR en PDF (relevés d'effets à payer au format Crédit Agricole, relevé de lettres de
   change au format CIC) et deux listings fournisseurs (`fixtures/lcr/`) pour la page « Écritures LCR » (`suites/lcr-test.js`).
 - `suites/` : une suite par fonction (analyse FEC, cycles, TVA, pièces, portefeuille, suivi mensuel, sécurité…) ; `suites/lib.js` regroupe les aides de navigation (onglets et espaces Mois / Révision / Consultation de l'analyse FEC, choix du mois).

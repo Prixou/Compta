@@ -122,11 +122,12 @@ cotis = grouped('DÉTAILS DES COTISATIONS', 'Période du 01/01/2025 au 31/12/202
                 [('Organisme / cotisation', None), ('Base', None), ('Part', 'salariale'), ('Part', 'patronale'), ('Total', None)], items, [300, 380, 460, 550])
 
 
-SAL = [('DUPONT Jean', 12000.00), ('MARTIN Claire', 10500.00), ('LEROY Paul', 8000.00)]
+# Cotisations salariales = 4 567,50 et net à payer = 25 932,50, comme le détail des cotisations et le 421 du FEC fictif
+SAL = [('DUPONT Jean', 12000.00, 1797.00), ('MARTIN Claire', 10500.00, 1572.50), ('LEROY Paul', 8000.00, 1198.00)]
 PAT = [4957.38, 4337.70, 3304.92]  # 12 600,00
 journal = table('JOURNAL DE PAIE', 'Période du 01/01/2025 au 31/12/2025',
                 [('Salarié', None), ('Salaire', 'brut'), ('Cotisations', 'salariales'), ('Cotisations', 'patronales'), ('Net', 'imposable'), ('Net', 'à payer')],
-                [(n, [b, round(b * 0.22, 2), p, round(b * 0.81, 2), round(b * 0.78, 2)]) for (n, b), p in zip(SAL, PAT)],
+                [(n, [b, s, p, round(b - s + b * 0.02, 2), round(b - s, 2)]) for (n, b, s), p in zip(SAL, PAT)],
                 'Total', [230, 310, 390, 470, 550])
 repos = table('SOLDE DE REPOS', 'Situation au 31/12/2025 - Congés payés',
               [('Salarié', None), ('Acquis', None), ('Pris', None), ('Solde', '(jours)'), ('Indemnité', None), ('Charges', None)],

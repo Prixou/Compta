@@ -320,7 +320,7 @@ function cycleChecks(r) {
   const ref = pharmaRef(r);
   const prev = fecPrev();
   const terme = fecTerme();
-  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', ui.fec.prev ? ui.fec.prev.meta.fileName : '', terme, ui.fec.seuil || '', r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore()), JSON.stringify(wpSoldeStore()), JSON.stringify(silaeStore())].join('|');
+  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', ui.fec.prev ? ui.fec.prev.meta.fileName : '', terme, ui.fec.seuil || '', r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore()), JSON.stringify(wpSoldeStore()), JSON.stringify(silaeStore()), (socSummary() || {}).at || ''].join('|');
   if (r._cc && r._cc.key === key) return r._cc.val;
   const coh = coherenceChecks(r, prev, clientById(ui.fec.clientId));
   const val = {
@@ -1015,7 +1015,7 @@ function cycleDocs(r, key) {
   return list.map((x) => {
     const own = (loc[x.id] || {}).st || '';
     const lab = normLab(x.text);
-    const lu = x.silae && silaeControls(r).some((c) => c.doc === x.silae && silaeStore()[c.id]);
+    const lu = x.silae && silaeLu(r, x.silae);
     const auto = S.recvLab.has(lab) || lu ? 'recu' : S.pendLab.has(lab) ? 'demande' : '';
     return Object.assign(x, { own, auto, lu: !!lu, st: own || auto });
   });
@@ -1046,7 +1046,7 @@ const CYCLE_INTRO = {
   clients: "Officine : le tiers payant, le chiffre d'affaires et la TVA par taux ont leurs onglets.",
   stocks: "Variation de stock comparée aux stocks d'ouverture et de clôture, inventaire, dépréciation et évolution du stock.",
   immo: 'Investissements, cessions, dotations aux amortissements, immobilisations en cours et crédit-bail.',
-  social: "Rapprochement avec les éditions Silae (journal de paie, détail des cotisations, solde de repos), paie de chaque mois, salaires du dernier mois restant dus, cotisations du dernier mois ou du dernier trimestre restant dues, rémunération du dirigeant.",
+  social: "Cadrage de la paie avec les éditions Silae (CYCLE SOCIAL : brut, organismes, contributions, net, cotisations à payer, congés payés), paie de chaque mois, salaires du dernier mois restant dus, cotisations du dernier mois ou du dernier trimestre restant dues, rémunération du dirigeant.",
   etat: 'TVA, impôt sur les sociétés, CFE et autres impôts et taxes, crédit de TVA.',
   capitaux: "Capital, affectation du résultat de l'exercice précédent, réserve légale, subventions et provisions.",
   autres: 'Débiteurs et créditeurs divers, comptes de régularisation, opérations exceptionnelles et autres produits.',
@@ -1106,24 +1106,21 @@ function viewCycle(key) {
   const r = ui.fec.result;
   ui.fec.lastCycle = key;
   if (CYCLE_VIEWS[key] && !(key === 'clients' && ui.fecProfile === 'pharmacie')) return CYCLE_VIEWS[key]();
-  return `${cycleKpis(r, key)}${cycleBanner(r, key)}${key === 'social' ? silaeCard(r) : ''}${cycleHead(key, CYCLE_INTRO[key])}`;
+  return `${cycleKpis(r, key)}${cycleBanner(r, key)}${key === 'social' ? paieCard(r) : ''}${cycleHead(key, CYCLE_INTRO[key])}`;
 }
 
-// ---------- Cycle H : rapprochement avec les éditions de paie Silae ----------
+// ---------- Cycle H : cadrage de la paie (CYCLE SOCIAL) ----------
 
-// Chaque édition est déposée avec son bouton (le titre du PDF n'est pas lu) et rapprochée des comptes du dossier :
-//   - journal de paie : rémunération du personnel (comptes 641 du FEC hors congés payés : 641, 6411, 64111…) avec le brut ;
-//   - détail des cotisations : chaque compte 645 hors congés payés (un par organisme : URSSAF, Klesia…) avec la part patronale
-//     de son organisme, retrouvé d'après le libellé du compte ;
-//   - solde de repos : congés payés à payer (4282) et charges sociales sur congés payés (4382).
-// Congés payés : 6412 et 6452, ou comptes dont le libellé cite les congés. Les PDF sont lus sur l'appareil et ne sont pas
-// conservés : seuls les montants retenus sont enregistrés. Ligne choisie à la main : retenue pour le cabinet (journal de
-// paie, solde de repos : même mise en page partout) ou pour le dossier (organisme de chaque compte 645).
-const SILAE_DOCS = { journal: 'Journal de paie', cotis: 'Détail des cotisations', repos: 'Solde de repos' };
+// Le rapprochement avec les éditions Silae se fait dans CYCLE SOCIAL (js/app/37-social.js), ouvert depuis ce cycle avec le
+// FEC de l'analyse : 641 (hors congés payés) au brut, chaque 645 à la part patronale de ses organismes, 63 aux contributions
+// formation et apprentissage, 421 au net, 43x et 442 aux cotisations, 4282 et 4382 au solde de repos. Sa synthèse
+// (statut et note de chaque compte, éditions lues) est enregistrée dans la feuille de l'exercice et reprise ici : cadre
+// « Cadrage de la paie », contrôles du cycle, pièces (éditions lues = établies). Un rapprochement fait avec l'ancienne
+// version (montants par contrôle, silaeStore) reste repris dans les contrôles tant que le cadrage n'est pas refait.
 const SILAE_ED = { journal: 'journal de paie', cotis: 'détail des cotisations', repos: 'solde de repos' };
 const silaeCp = (b, p) => b.compte.startsWith(p + '2') || /cong/i.test(b.lib);
 
-// Contrôles du dossier, d'après ses comptes : { id, doc, label, comptes, fec }.
+// Contrôles de l'ancienne version, d'après les comptes du dossier : { id, doc, label, comptes, fec }.
 function silaeControls(r) {
   const out = [];
   const rem = balOf(r, ['641']).filter((b) => !silaeCp(b, '641') && b.dm + b.cm >= 0.01);
@@ -1137,130 +1134,58 @@ function silaeControls(r) {
   });
   return out.map((c) => Object.assign(c, { fec: Math.round(c.fec * 100) / 100 }));
 }
-const silaeEcart = (c, cur) => (cur ? Math.round((c.fec - cur.v) * 100) / 100 : null);
-const silaeName = (c) => (c.org ? `${c.comptes[0]} ${c.label}` : c.label);
+const paieName = (x) => `${x.title}${x.name ? ` ${x.name}` : ''}`;
 
 function silaeChecks(r, out) {
+  const sv = socSummary();
+  if (sv) {
+    const L = sv.sum.filter((x) => x.s != null);
+    L.filter((x) => x.st === 'anom').forEach((x) => out.add('warn', `${paieName(x)} : écart avec la paie Silae`, x.note.replace(/\n/g, ' – ')));
+    L.filter((x) => x.st === 'just').forEach((x) => out.add('ok', `${paieName(x)} : écart justifié avec la paie Silae`, x.note.replace(/\n/g, ' – ')));
+    const ok = L.filter((x) => x.st === 'ok');
+    if (ok.length) out.add('ok', `Paie Silae : ${ok.length} compte${ok.length > 1 ? 's' : ''} sans écart`, ok.map(paieName).join(', ') + '.');
+    return;
+  }
   const sil = silaeStore();
   const ctl = silaeControls(r);
   const read = ctl.filter((c) => sil[c.id]);
   if (!read.length) {
-    if (ctl.some((c) => c.doc === 'journal')) out.add('info', 'Rapprochement avec Silae à faire', 'Déposez le journal de paie, le détail des cotisations et le solde de repos (PDF Silae) dans le cadre « Rapprochement avec Silae » : chaque compte est comparé à l\'édition.');
+    if (ctl.some((c) => c.doc === 'journal')) out.add('info', 'Cadrage de la paie à faire', 'Ouvrez le cadrage de la paie (bouton « Faire le cadrage de la paie » de ce cycle) : le FEC est repris, déposez les éditions Silae (journal ou récapitulatif de paie, détail des cotisations, solde de repos) et chaque compte est rapproché de la paie.');
     return;
   }
   read.forEach((c) => {
-    const cur = sil[c.id], e = silaeEcart(c, cur);
+    const cur = sil[c.id], e = Math.round((c.fec - cur.v) * 100) / 100;
+    const name = c.org ? `${c.comptes[0]} ${c.label}` : c.label;
     const ligne = `« ${[cur.group, cur.lab].filter(Boolean).join(' · ')}${cur.col ? ` · ${cur.col}` : ''} »`;
-    if (Math.abs(e) >= 1) out.add('warn', `${silaeName(c)} : écart avec le ${SILAE_ED[c.doc]} Silae`, `${c.comptes.join(', ') || 'aucun compte'} : ${eur(c.fec)} € en comptabilité, ${eur(cur.v)} € dans l'édition (${ligne}) : écart de ${eur(e)} €.`);
-    else out.add('ok', `${silaeName(c)} : conforme au ${SILAE_ED[c.doc]} Silae`, `${eur(c.fec)} € (${c.comptes.join(', ')}).`);
+    if (Math.abs(e) >= 1) out.add('warn', `${name} : écart avec le ${SILAE_ED[c.doc]} Silae`, `${c.comptes.join(', ') || 'aucun compte'} : ${eur(c.fec)} € en comptabilité, ${eur(cur.v)} € dans l'édition (${ligne}) : écart de ${eur(e)} €.`);
+    else out.add('ok', `${name} : conforme au ${SILAE_ED[c.doc]} Silae`, `${eur(c.fec)} € (${c.comptes.join(', ')}).`);
   });
 }
 
-// Repère d'une ligne (libellé, groupe, colonne), comparable d'une édition à l'autre ; ligne retrouvée par ce repère.
-const silaeMemo = (row, a) => ({ lab: SilaePdf.key(row.lab), group: SilaePdf.key(row.group), col: SilaePdf.key(a.col) });
-function silaeFind(rows, m) {
-  for (let ri = 0; ri < rows.length; ri++) {
-    const row = rows[ri];
-    if (SilaePdf.key(row.lab) !== m.lab || (m.group !== undefined && SilaePdf.key(row.group) !== m.group)) continue;
-    const ai = row.amounts.findIndex((a) => SilaePdf.key(a.col) === m.col);
-    if (ai >= 0) return { row: ri, amount: ai };
+// Édition de paie lue pour l'exercice (pièce du cycle établie)
+const silaeLu = (r, doc) => {
+  const sv = socSummary();
+  if (sv) return !!(sv.docs || {})[doc];
+  const sil = silaeStore();
+  return silaeControls(r).some((c) => c.doc === doc && sil[c.id]);
+};
+
+function paieCard(r) {
+  const sv = socSummary();
+  const btn = `<button class="btn primary" data-action="social-from-fec">${sv ? 'Ouvrir le cadrage de la paie' : 'Faire le cadrage de la paie'}</button>`;
+  const intro = 'Rapprochement des comptes de paie avec les éditions Silae : 641 (hors congés payés) au brut, chaque 645 à la part patronale de ses organismes, 63 aux contributions formation et apprentissage, 421 au net, 43x et 442 aux cotisations, 4282 et 4382 au solde de repos. Le FEC de cette analyse est repris : déposez seulement les éditions (Excel ou PDF).';
+  if (!sv) {
+    const old = Object.keys(silaeStore()).length ? '<p class="muted small">Le rapprochement fait avec l\'ancienne version reste repris dans les contrôles jusqu\'à ce que le cadrage soit fait.</p>' : '';
+    return `<section class="card"><h2>Cadrage de la paie</h2><p class="muted small">${intro}</p>${old}<p>${btn}</p></section>`;
   }
-  return null;
-}
-
-// Organisme d'un compte 645 dans le détail des cotisations : mots du libellé du compte (URSSAF, Klesia…) retrouvés dans le
-// libellé de la ligne ou de son groupe ; ligne de total de l'organisme de préférence ; montant de la colonne patronale.
-const ORG_STOP = new Set(['cotisations', 'cotisation', 'charges', 'charge', 'sociales', 'sociale', 'social', 'patronales', 'patronale', 'salariales',
-  'salariale', 'organismes', 'organisme', 'caisse', 'caisses', 'total', 'part', 'des', 'les', 'aux', 'sur', 'pour', 'avec']);
-const orgWords = (s) => SilaePdf.key(s).split(' ').filter((w) => w.length >= 3 && !ORG_STOP.has(w));
-const patCol = (row) => { const i = row.amounts.findIndex((a) => /patron|employeur/.test(SilaePdf.key(a.col))); return i >= 0 ? i : row.amounts.length - 1; };
-function orgPick(rows, lib) {
-  const words = orgWords(lib);
-  let best = null;
-  rows.forEach((row, ri) => {
-    const nl = SilaePdf.key(row.lab);
-    if (/total (general|des cotisations|employeur|salari)/.test(nl)) return;
-    const txt = new Set(orgWords(`${row.lab} ${row.group || ''}`));
-    const hit = words.filter((w) => txt.has(w)).length;
-    if (!hit) return;
-    const ai = patCol(row), v = row.amounts[ai].v;
-    // La ligne de total de l'organisme l'emporte sur ses lignes de cotisations
-    const sc = (/total/.test(nl) ? 100 : 0) + hit * 10;
-    if (!best || sc > best.sc || (sc === best.sc && Math.abs(v) > Math.abs(best.v))) best = { row: ri, amount: ai, sc, v };
-  });
-  return best;
-}
-
-// Montant retenu pour un contrôle ; `remember` : choix fait à la main. Les congés payés (un seul compte 4282 ou 4382)
-// remplissent aussi la colonne « Selon pièce » des comptes du cycle.
-function silaeSet(c, d, ri, ai, remember) {
-  const row = d.rows[ri], a = row.amounts[ai];
-  silaeStore()[c.id] = { v: a.v, lab: row.lab, group: row.group || '', col: a.col, file: d.file };
-  if (remember) {
-    if (c.org) silaeDossierMap()[c.comptes[0]] = silaeMemo(row, a);
-    else (data.settings.silaeMap = data.settings.silaeMap || {})[c.id] = silaeMemo(row, a);
-  }
-  if (c.doc === 'repos' && c.comptes.length === 1) wpSoldeStore()[c.comptes[0]] = Math.abs(a.v);
-}
-
-async function silaeRead(doc, file) {
-  const f = ui.fec, r = f.result;
-  if (!file || !SILAE_DOCS[doc]) return;
-  f.silae = f.silae || {};
-  f.silaeMsg = [];
-  try {
-    const d = SilaePdf.parse(await PdfReader.read(await file.arrayBuffer()), PdfReader);
-    if (!d.rows.length) f.silaeMsg.push({ ok: false, t: `${file.name} : aucun montant lu (PDF scanné, sans texte ?).` });
-    else {
-      f.silae[doc] = { file: file.name, rows: d.rows };
-      const map = data.settings.silaeMap || {}, dmap = silaeDossierMap();
-      const got = silaeControls(r).filter((c) => c.doc === doc).map((c) => {
-        // Ligne choisie la dernière fois, sinon reconnue (intitulés habituels ; organisme d'après le libellé du compte)
-        const memo = c.org ? dmap[c.comptes[0]] : map[c.id];
-        const p = (memo && silaeFind(d.rows, memo)) || (c.org ? orgPick(d.rows, c.label) : SilaePdf.pick(d.rows, c.id));
-        if (!p) { delete silaeStore()[c.id]; return `${silaeName(c)} : ligne à choisir`; }
-        silaeSet(c, f.silae[doc], p.row, p.amount, false);
-        return `${silaeName(c)} ${eur(silaeStore()[c.id].v)} €`;
-      });
-      f.silaeMsg.push({ ok: true, t: `${file.name} lu comme ${SILAE_DOCS[doc].toLowerCase()} — ${got.join(' ; ') || 'aucun compte à rapprocher'}.` });
-    }
-  } catch (e) {
-    f.silaeMsg.push({ ok: false, t: `${file.name} : ${e.message || e}` });
-  }
-  wpSave();
-  refresh();
-}
-
-function silaeCard(r) {
-  const f = ui.fec, sil = silaeStore(), docs = f.silae || {}, ctl = silaeControls(r);
-  const lineTxt = (row, a) => `${[row.group, row.lab || '(sans libellé)'].filter(Boolean).join(' · ')}${a.col ? ` · ${a.col}` : ''} : ${eur(a.v)}`;
-  const src = (c, d) => {
-    const cur = sil[c.id];
-    if (!d) return cur ? `${esc([cur.group, cur.lab].filter(Boolean).join(' · '))}${cur.col ? ` · ${esc(cur.col)}` : ''}<div class="muted small">${esc(cur.file)}</div>` : '<span class="muted small">PDF non déposé</span>';
-    // Organisme : la colonne patronale de chaque ligne, celles qui citent l'organisme d'abord ; sinon lignes les plus probables
-    const list = c.org
-      ? d.rows.map((row, ri) => ({ row: ri, amount: patCol(row), sc: orgWords(`${row.lab} ${row.group || ''}`).filter((w) => orgWords(c.label).includes(w)).length })).sort((x, y) => y.sc - x.sc).slice(0, 120)
-      : SilaePdf.candidates(d.rows, c.id);
-    return `<select data-silae="${esc(c.id)}" aria-label="Ligne de l'édition : ${esc(silaeName(c))}"><option value="">— Choisir la ligne —</option>${list.map((x) => {
-      const row = d.rows[x.row], a = row.amounts[x.amount];
-      const on = cur && cur.file === d.file && cur.lab === row.lab && (cur.group || '') === (row.group || '') && cur.col === a.col && cur.v === a.v;
-      return `<option value="${x.row}:${x.amount}"${on ? ' selected' : ''}>${esc(lineTxt(row, a).slice(0, 120))}</option>`;
-    }).join('')}</select>`;
-  };
-  const block = (doc) => {
-    const d = docs[doc];
-    const rows = ctl.filter((c) => c.doc === doc).map((c) => {
-      const cur = sil[c.id], e = silaeEcart(c, cur);
-      return `<tr><td>${esc(c.comptes.join(', ') || '—')}</td><td>${esc(c.label)}</td><td>${eur(c.fec)}</td><td class="silae-src">${src(c, d)}</td><td>${cur ? eur(cur.v) : '—'}</td>
-        <td class="${e === null ? '' : Math.abs(e) < 1 ? 'ecart-ok' : 'cred'}">${e === null ? '' : Math.abs(e) < 1 ? '0' : `${e > 0 ? '+' : '−'}${eur(Math.abs(e))}`}</td></tr>`;
-    }).join('');
-    return `<div class="silae-doc"><h3>${SILAE_DOCS[doc]} <button class="btn small" data-action="silae-pick" data-doc="${doc}">${d ? 'Remplacer le PDF' : 'Déposer le PDF'}</button>${d ? `<span class="muted small">${esc(d.file)}</span>` : ''}</h3>
-      ${rows ? `<div class="grid-wrap"><table class="dtable num silae"><thead><tr><th>Compte</th><th>Libellé</th><th>Comptabilité</th><th>Ligne de l'édition</th><th>Édition</th><th>Écart</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="muted small">Aucun compte à rapprocher.</p>'}</div>`;
-  };
-  return `<section class="card"><h2>Rapprochement avec Silae</h2>
-    <p class="muted small">Déposez chaque édition avec son bouton : journal de paie et détail des cotisations de l'exercice, solde de repos à la clôture. Chaque compte est comparé à sa ligne : rémunération du personnel (641 hors congés payés) au brut du journal de paie, chaque compte 645 à la part patronale de son organisme (retrouvé d'après le libellé du compte), 4282 et 4382 au solde de repos. Si la ligne proposée n'est pas la bonne, choisissez-en une autre : le choix est retenu pour les éditions suivantes. Les PDF sont lus sur cet appareil et ne sont pas conservés.</p>
-    ${(f.silaeMsg || []).map((m) => `<div class="banner ${m.ok ? 'info' : 'warn'}"><span>${esc(m.t)}</span></div>`).join('')}
-    ${Object.keys(SILAE_DOCS).map(block).join('')}</section>`;
+  const L = sv.sum.filter((x) => x.s != null);
+  const ed = Object.entries(SILAE_ED).filter(([k]) => (sv.docs || {})[k]).map(([, v]) => v);
+  const rows = L.map((x) => `<tr><td>${esc(x.title)} <span class="muted small">${esc(x.name || '')}</span></td><td>${eur(x.s)}</td><td>${eur(x.c)}</td>
+    <td class="${x.st === 'anom' ? 'cred' : 'ecart-ok'}">${Math.abs(x.e) < 0.005 ? '0' : eur(x.e)}</td><td><span class="soc-chip ${x.st}">${SOC_CHIP[x.st]}</span></td></tr>`).join('');
+  return `<section class="card"><h2>Cadrage de la paie</h2>
+    <p class="muted small">Fait le ${fmtDateTime(sv.at)}${ed.length ? ` (éditions lues : ${ed.join(', ')})` : ''} : ${L.filter((x) => x.st === 'anom').length} compte(s) à justifier sur ${L.length}. Les notes de chaque compte sont dans le cadrage.</p>
+    <div class="grid-wrap"><table class="dtable num silae"><thead><tr><th>Compte</th><th>Silae</th><th>Comptabilité</th><th>Écart</th><th>Statut</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p>${btn}</p></section>`;
 }
 
 // ---------- Justificatifs (archive FEC + pièces) ----------

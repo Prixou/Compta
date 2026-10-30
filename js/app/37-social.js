@@ -1,21 +1,28 @@
 /*
- * Suivi Dossiers — CYCLE SOCIAL : cadrage de la paie (641, 645, 63 liés à la paie, 42 et 43) entre les éditions SILAE
- * (récapitulatif de paie, détail des cotisations) et le FEC (ou le grand livre du journal de paie), avec une note par
- * compte, les motifs d’écart et les écritures de reclassement.
+ * Suivi Dossiers — CYCLE SOCIAL : cadrage de la paie (641, 645, 63 liés à la paie, 42 et 43, congés payés 4282 et 4382)
+ * entre les éditions SILAE (récapitulatif ou journal de paie, détail des cotisations, solde de repos ; Excel ou PDF) et le
+ * FEC (celui de l'analyse en cours, déposé, ou un grand livre du journal de paie), avec une note par compte, les motifs
+ * d’écart et les écritures de reclassement. C'est aussi le rapprochement avec Silae du cycle H de la révision.
  * Scripts chargés dans l'ordre par index.html ; ils partagent la portée globale (voir js/app/README.md).
  */
 'use strict';
 
 // ---------- CYCLE SOCIAL ----------
-// Trois dépôts : récapitulatif de paie SILAE (brut, net, indemnités par période), détail des cotisations SILAE (par
-// organisme : parts salariale et patronale, détail mensuel, contributions formation et apprentissage), FEC (ou grand
-// livre Excel du journal de paie). Dans un FEC, les écritures de paie sont celles qui mouvementent un 645 ou créditent le
+// Quatre dépôts : récapitulatif de paie SILAE (Excel : brut, net, indemnités par période) ou journal de paie (PDF : brut et
+// net de l'exercice), détail des cotisations SILAE (Excel ou PDF ; par organisme : parts salariale et patronale, détail
+// mensuel en Excel, contributions formation et apprentissage), FEC (ou grand livre Excel du journal de paie), solde de
+// repos (facultatif, PDF ou Excel : indemnité et charges de congés payés à la clôture). Ouvert depuis le cycle H de
+// l'analyse, le FEC analysé est repris et la synthèse est enregistrée dans la feuille de l'exercice. Dans un FEC, les
+// écritures de paie sont celles qui mouvementent un 645 ou créditent le
 // 421, quel que soit leur journal ; dans un grand livre, celles des journaux de paie. Chaque compte est rapproché de la paie : 641 du brut, chaque 645 de la part patronale des organismes
 // qui lui sont rattachés (automatiquement, au plus près, ou à la main), 6312 / 6333 / 6335 des contributions, 421 du
 // net, 43x et 44x des cotisations (salariales + patronales) de leurs organismes. Un écart reçoit des motifs
 // (automatiques, saisis, pistes trouvées dans les autres comptes) ; deux écarts opposés sont proposés en reclassement.
-// Tout reste en mémoire (fichiers, motifs, reclassements) : rien n'est enregistré, et le verrouillage efface l'écran ;
-// seul le nom du logiciel comptable est retenu.
+// Congés payés : 6412 et les 641 / 645 dont le libellé cite les congés restent hors du brut et des organismes ; 4282 et
+// 4382 sont rapprochés du solde de repos. Les fichiers restent en mémoire (le verrouillage efface l'écran). Rattaché à un
+// dossier (FEC de l'analyse, ou FEC dont le SIREN est celui d'un dossier), le cadrage est enregistré chiffré dans la
+// feuille de l'exercice : organismes rattachés (par leur nom), comptes 641 retenus, motifs, reclassements et synthèse.
+// Le nom du logiciel comptable et la ligne choisie dans une édition PDF (brut, net, congés payés) valent pour le cabinet.
 
 const SOC_TOL = 0.05;
 const socFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -33,10 +40,11 @@ const socNum = (v) => {
 const socTxt = (v) => (v == null ? '' : String(v).replace(/\s+/g, ' ').trim());
 const socShort = (a) => { let s = String(a).replace(/0+$/, ''); while (s.length < 3) s += '0'; return s; };
 const socR2 = (n) => Math.round(n * 100) / 100;
+const socLL = (l) => [l.code, l.lib].filter(Boolean).join(' ');
 const socSum = (a) => socR2((a || []).reduce((x, y) => x + y, 0));
 
 function socState() {
-  ui.social = ui.social || { files: [], parsed: { recap: null, cot: null, gl: [] }, MAP: {}, MAN: {}, RM: {}, SAL: {}, RECL: [], dClo: '', last: null, err: '', inputs: {} };
+  ui.social = ui.social || { files: [], parsed: { recap: null, cot: null, gl: [], repos: null }, pdf: {}, MAP: {}, MAN: {}, RM: {}, SAL: {}, RECL: [], dClo: '', last: null, err: '', inputs: {}, link: null, fecOf: null };
   return ui.social;
 }
 const socSoft = () => data.settings.socialSoft || 'Pennylane';
@@ -47,6 +55,9 @@ async function socReadRows(file) {
   const out = [];
   book.sheets.forEach((s) => s.rows.forEach((r) => out.push(r.map((c) => c.text))));
   return out;
+}
+function socDecode(buf) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { return new TextDecoder('windows-1252').decode(buf); }
 }
 function socKindOf(rows) {
   const head = rows.slice(0, 15).map((r) => (r || []).map(socTxt).join(' | ')).join('\n');
@@ -123,6 +134,10 @@ function socParseCot(rows) {
     if (!code) continue;
     buf.push({ code, lib, sal: socNum(r[si]), pat: socNum(r[pi]) });
   }
+  return socOrgFinish(orgs);
+}
+// Organismes : clé, nom affiché (référence en cas d'homonymes), contributions formation et apprentissage, prélèvement à la source
+function socOrgFinish(orgs) {
   const names = {};
   orgs.forEach((o) => { names[o.name] = (names[o.name] || 0) + 1; });
   orgs.forEach((o, i) => {
@@ -134,6 +149,87 @@ function socParseCot(rows) {
     o.isPAS = Math.abs(o.pat) < 0.005 && /source|PAS|DGFIP/i.test(`${o.name} ${o.lines.map((l) => l.lib).join(' ')}`);
   });
   return orgs;
+}
+
+// ---------- Éditions PDF SILAE (et solde de repos en tableur) ----------
+// Lignes au format de js/silae-pdf.js : { lab, group, amounts: [{ v, col }] }. Montant retenu pour le brut et le net
+// (journal de paie), l'indemnité et les charges de congés payés (solde de repos) : reconnu d'après les intitulés, ou ligne
+// choisie à la main, retenue pour le cabinet (data.settings.silaeMap, repère comparable d'une édition à l'autre).
+const SOC_PDF_ZONE = { journal: 'recap', cotis: 'cot', repos: 'repos' };
+const SOC_LINE = { brut: 'Salaire brut', net: 'Net à payer', cp: 'Indemnité de congés payés', cpch: 'Charges sur congés payés' };
+const socLineZone = (id) => (id === 'brut' || id === 'net' ? 'recap' : 'repos');
+const socLineMemo = (row, a) => ({ lab: SilaePdf.key(row.lab), group: SilaePdf.key(row.group), col: SilaePdf.key(a.col) });
+function socLineFind(rows, m) {
+  for (let ri = 0; ri < rows.length; ri++) {
+    const row = rows[ri];
+    if (SilaePdf.key(row.lab) !== m.lab || (m.group !== undefined && SilaePdf.key(row.group) !== m.group)) continue;
+    const ai = row.amounts.findIndex((a) => SilaePdf.key(a.col) === m.col);
+    if (ai >= 0) return { row: ri, amount: ai };
+  }
+  return null;
+}
+function socLinePick(P, ids) {
+  const memo = data.settings.silaeMap || {};
+  ids.forEach((id) => {
+    const p = (memo[id] && socLineFind(P.rows, memo[id])) || SilaePdf.pick(P.rows, id);
+    P.sel[id] = p ? { row: p.row, amount: p.amount } : null;
+  });
+}
+// Montant retenu : { v, row, a } ou null
+function socLine(st, id) {
+  const P = st.pdf[socLineZone(id)], sel = P && P.sel[id];
+  if (!sel) return null;
+  const row = P.rows[sel.row], a = row && row.amounts[sel.amount];
+  return a ? { v: a.v, row, a } : null;
+}
+const socLineTxt = (row, a) => `${[row.group, row.lab || '(sans libellé)'].filter(Boolean).join(' · ')}${a.col ? ` · ${a.col}` : ''}`;
+async function socReadPdf(file) {
+  const d = SilaePdf.parse(await PdfReader.read(await file.arrayBuffer()), PdfReader);
+  if (!d.rows.length) throw new Error('aucun montant lu (PDF scanné, sans texte ?)');
+  return d;
+}
+// Détail des cotisations en PDF : un organisme par groupe (intitulé seul au-dessus de ses lignes), ses totaux sur la ligne
+// « Total <organisme> » (à défaut, somme de ses lignes) ; colonnes salariale et patronale d'après leur intitulé.
+function socCotFromPdf(rows) {
+  const SAL = /salari/, PAT = /patron|employeur/;
+  if (!rows.some((r) => r.amounts.some((a) => PAT.test(SilaePdf.key(a.col))))) throw new Error('Détail des cotisations : colonne « Part patronale » introuvable');
+  const col = (r, re) => { const a = r.amounts.find((x) => re.test(SilaePdf.key(x.col))); return a ? a.v : 0; };
+  const G = new Map();
+  rows.forEach((r) => {
+    const k = SilaePdf.key(r.lab);
+    if (/^total (general|des cotisations|employeur|salari|charges)/.test(k)) return;
+    if (!G.has(r.group || '')) G.set(r.group || '', { lines: [], tot: null });
+    const g = G.get(r.group || '');
+    if (/^total\b/.test(k)) g.tot = r;
+    else g.lines.push({ code: '', lib: r.lab, sal: col(r, SAL), pat: col(r, PAT) });
+  });
+  const orgs = [];
+  G.forEach((g, name) => {
+    if (!g.lines.length && !g.tot) return;
+    orgs.push({ name: name || 'Cotisations', monthly: {}, lines: g.lines,
+      sal: g.tot ? col(g.tot, SAL) : socSum(g.lines.map((l) => l.sal)), pat: g.tot ? col(g.tot, PAT) : socSum(g.lines.map((l) => l.pat)) });
+  });
+  if (!orgs.length) throw new Error('Détail des cotisations : aucun organisme lu');
+  return socOrgFinish(orgs);
+}
+// Tableur (solde de repos) → lignes : intitulé de chaque colonne chiffrée lu dans la dernière ligne de textes au-dessus,
+// groupe = ligne d'un seul texte
+function socSheetLines(rows) {
+  const isNum = (t) => /^-?\d{1,3}(?:[\s\u00a0\u202f.]\d{3})*(?:,\d+)?$|^-?\d+(?:[.,]\d+)?$/.test(t);
+  const out = [];
+  let head = [], group = '';
+  rows.forEach((r) => {
+    const c = (r || []).map(socTxt);
+    const nums = c.map((t, i) => (t && isNum(t) ? i : -1)).filter((i) => i >= 0), texts = c.filter((t) => t && !isNum(t));
+    if (!nums.length) {
+      if (texts.length >= 2) head = c;
+      else if (texts.length === 1 && head.length) group = texts[0];
+      return;
+    }
+    const lab = c.slice(0, nums[0]).filter(Boolean).join(' ');
+    out.push({ page: 1, lab, group, amounts: nums.map((i) => ({ v: socR2(socNum(c[i])), col: head[i] || '' })) });
+  });
+  return out;
 }
 
 // Date d'une écriture : AAAA-MM-JJ (lecteur de classeurs), numéro de série Excel ou JJ/MM/AA(AA)
@@ -155,17 +251,17 @@ function socParseGl(rows) {
   const ai = idx(/compte/i), exact = h.findIndex((c) => /^date$/i.test(c)), di = exact >= 0 ? exact : idx(/^date(?!.*éch)/i);
   const ji = idx(/journal/i), ti = idx(/^let/i), de = idx(/d[ée]bit/i), cr = idx(/cr[ée]dit/i);
   const out = [];
-  let lastAcc = '';
+  let lastAcc = '', lastLib = '';
   for (let k = hi + 1; k < rows.length; k++) {
     const r = rows[k] || [];
     const cell = socTxt(r[ai]);
     if (/\b(sous-)?total\b/i.test(r.map(socTxt).join(' '))) continue;
     const m = cell.replace(/\s/g, '').match(/^(\d{3,})/) || cell.match(/(\d{4,})/);
-    if (m) lastAcc = m[1];
+    if (m) { lastAcc = m[1]; lastLib = cell.replace(/^[\d\s]+[-–:]?\s*/, '').trim(); }
     const dv = socNum(r[de]), cv = socNum(r[cr]);
     if (!lastAcc || (Math.abs(dv) < 0.005 && Math.abs(cv) < 0.005)) continue;
     const d = socDate(r[di]);
-    out.push({ acc: lastAcc, date: d, mk: socMk(d), jnl: ji >= 0 ? socTxt(r[ji]).toUpperCase() : '', let: ti >= 0 ? socTxt(r[ti]) : '', d: dv, c: cv });
+    out.push({ acc: lastAcc, lib: lastLib, date: d, mk: socMk(d), jnl: ji >= 0 ? socTxt(r[ji]).toUpperCase() : '', let: ti >= 0 ? socTxt(r[ti]) : '', d: dv, c: cv });
   }
   return out;
 }
@@ -179,7 +275,7 @@ function socParseFec(text) {
   const clean = (x) => (x || '').trim().replace(/^"|"$/g, '');
   const H = h0.split(sep).map((x) => clean(x).toLowerCase());
   const ix = (n) => H.indexOf(n);
-  const iJ = ix('journalcode'), iN = ix('ecriturenum'), iD = ix('ecrituredate'), iC = ix('comptenum'), iDe = ix('debit'), iCr = ix('credit'), iL = ix('ecriturelet'), iM = ix('montant'), iS = ix('sens');
+  const iJ = ix('journalcode'), iN = ix('ecriturenum'), iD = ix('ecrituredate'), iC = ix('comptenum'), iCL = ix('comptelib'), iDe = ix('debit'), iCr = ix('credit'), iL = ix('ecriturelet'), iM = ix('montant'), iS = ix('sens');
   if (iC < 0 || iJ < 0) throw new Error('en-têtes FEC introuvables (JournalCode, CompteNum)');
   const out = [];
   for (let k = 1; k < lines.length; k++) {
@@ -191,7 +287,7 @@ function socParseFec(text) {
     const ds = (c[iD] || '').replace(/\D/g, '');
     const dt = ds.length === 8 ? new Date(Date.UTC(+ds.slice(0, 4), +ds.slice(4, 6) - 1, +ds.slice(6, 8), 12)) : socDate(c[iD]);
     const jnl = (c[iJ] || '').toUpperCase();
-    out.push({ acc, date: dt, mk: socMk(dt), jnl, ecr: `${jnl}|${c[iN] || k}`, let: iL >= 0 ? c[iL] || '' : '', d, c: cr });
+    out.push({ acc, lib: iCL >= 0 ? c[iCL] || '' : '', date: dt, mk: socMk(dt), jnl, ecr: `${jnl}|${c[iN] || k}`, let: iL >= 0 ? c[iL] || '' : '', d, c: cr });
   }
   return out;
 }
@@ -199,18 +295,40 @@ function socParseFec(text) {
 async function socLoad(list, zone) {
   const st = socState();
   if (!list.length) return;
-  if (zone !== 'gl') { st.files = st.files.filter((x) => x.zone !== zone); st.parsed[zone] = null; }
-  const N = { recap: 'un récapitulatif de paie', cot: 'un détail des cotisations', gl: 'un grand livre' };
+  if (zone !== 'gl') { st.files = st.files.filter((x) => x.zone !== zone); st.parsed[zone] = null; delete st.pdf[zone]; }
+  const N = { recap: 'un récapitulatif ou un journal de paie', cot: 'un détail des cotisations', gl: 'un grand livre', repos: 'un solde de repos' };
   for (const file of list) {
     try {
+      if (/\.pdf$/i.test(file.name) || /pdf/.test(file.type || '')) {
+        if (zone === 'gl') throw new Error('déposez ici le FEC (fichier texte) ou un grand livre Excel');
+        const d = await socReadPdf(file);
+        if (d.kind && SOC_PDF_ZONE[d.kind] !== zone) throw new Error(`ce fichier ressemble à ${N[SOC_PDF_ZONE[d.kind]]}, déposez-le dans la bonne case`);
+        let info;
+        if (zone === 'cot') {
+          st.parsed.cot = socCotFromPdf(d.rows);
+          info = `PDF : ${st.parsed.cot.length} organisme(s), part patronale ${socF(st.parsed.cot.reduce((x, o) => x + o.pat, 0))} €`;
+        } else {
+          const P = (st.pdf[zone] = { rows: d.rows, sel: {} }), ids = zone === 'recap' ? ['brut', 'net'] : ['cp', 'cpch'];
+          socLinePick(P, ids);
+          if (zone === 'recap') st.parsed.recap = { periods: [''], brut: [], net: [], indem: null, report: 0, patTot: 0, extras: [], pdf: true };
+          else st.parsed.repos = true;
+          info = `PDF : ${ids.map((id) => { const l = socLine(st, id); return `${SOC_LINE[id].toLowerCase()} ${l ? `${socF(l.v)} €` : 'à choisir'}`; }).join(', ')}`;
+        }
+        st.files.push({ name: file.name, zone, info });
+        continue;
+      }
       if (zone === 'gl' && !/\.xls/i.test(file.name)) {
-        const buf = new Uint8Array(await file.arrayBuffer());
-        let t;
-        try { t = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { t = new TextDecoder('windows-1252').decode(buf); }
+        const t = socDecode(new Uint8Array(await file.arrayBuffer()));
         if (/journalcode/i.test(t.slice(0, 1000))) {
+          // Un FEC est complet : il remplace ce qui était déposé dans la case (et le FEC de l'analyse : rattachement refait)
           const gl = socParseFec(t);
-          st.parsed.gl.push(...gl);
+          st.parsed.gl = gl;
+          st.glFec = true;
+          st.files = st.files.filter((x) => x.zone !== 'gl');
+          st.fecOf = null;
+          st.link = null;
           st.files.push({ name: file.name, zone, info: `FEC : ${gl.length} lignes retenues (classes 42, 43, 44, 63, 64) – comptes : ${[...new Set(gl.map((x) => socShort(x.acc)))].sort().join(', ')}` });
+          socLinkFile(st, file.name);
           continue;
         }
       }
@@ -220,8 +338,15 @@ async function socLoad(list, zone) {
       let info = '';
       if (zone === 'recap') st.parsed.recap = socParseRecap(rows);
       else if (zone === 'cot') st.parsed.cot = socParseCot(rows);
-      else {
+      else if (zone === 'repos') {
+        const P = (st.pdf.repos = { rows: socSheetLines(rows), sel: {} });
+        if (!P.rows.length) throw new Error('aucun montant lu');
+        socLinePick(P, ['cp', 'cpch']);
+        st.parsed.repos = true;
+      } else {
         const gl = socParseGl(rows);
+        // Grands livres : ils s'ajoutent entre eux, mais remplacent un FEC
+        if (st.glFec) { st.parsed.gl = []; st.files = st.files.filter((x) => x.zone !== 'gl'); st.glFec = false; st.fecOf = null; st.link = null; }
         st.parsed.gl.push(...gl);
         info = `${gl.length} lignes lues – comptes : ${[...new Set(gl.map((x) => socShort(x.acc)))].sort().join(', ') || 'aucun'}`;
       }
@@ -239,14 +364,87 @@ async function socLoad(list, zone) {
 }
 function socDrop(files, zone) {
   if (zone) socLoad(files, zone);
-  else toast('Déposez chaque fichier dans sa case : récapitulatif, détail des cotisations ou grand livre.', true);
+  else toast('Déposez chaque fichier dans sa case : récapitulatif ou journal de paie, détail des cotisations, FEC, solde de repos.', true);
+}
+
+// ---------- Dossier ----------
+// Feuille de l'exercice où le cadrage est enregistré : celle du dossier (chiffrée), ou celle de l'analyse en mémoire.
+function socSheet(st, create) {
+  const c = st.link && clientById(st.link.clientId);
+  if (c) {
+    const k = st.link.closing;
+    if (!create) return c.revision && c.revision[k] && c.revision[k].social ? c.revision[k] : null;
+    c.revision = c.revision || {};
+    return (c.revision[k] = c.revision[k] || { items: {}, cycles: {}, fileName: st.link.fileName || '' });
+  }
+  const f = st.fecOf;
+  if (!f || ui.fec !== f) return null;
+  if (!create) return f.wp && f.wp.social ? f.wp : null;
+  return (f.wp = f.wp || { items: {}, cycles: {} });
+}
+// Rattachement : les choix enregistrés (organismes, comptes 641, motifs, reclassements) sont repris s'il n'y en a pas encore.
+function socLink(st, clientId, closing, fileName) {
+  st.link = { clientId, closing, fileName: fileName || '' };
+  const ws = socSheet(st, false);
+  if (!ws || st.RECL.length || [st.MAP, st.SAL, st.MAN, st.RM].some((o) => Object.keys(o).length)) return;
+  const sv = JSON.parse(JSON.stringify(ws.social));
+  ['MAP', 'SAL', 'MAN', 'RM'].forEach((k) => { st[k] = sv[k] || {}; });
+  st.RECL = sv.RECL || [];
+}
+// FEC déposé : dossier retrouvé par le SIREN du nom du fichier (SIRENFECAAAAMMJJ), clôture d'après la date
+function socLinkFile(st, name) {
+  const m = /^(\d{9})FEC(\d{4})(\d{2})(\d{2})/i.exec(name || '');
+  if (!m) return;
+  const iso = `${m[2]}-${m[3]}-${m[4]}`;
+  if (!st.dClo) st.dClo = iso;
+  const c = clientBySiren(m[1]);
+  if (c && !st.link) socLink(st, c.id, iso, name);
+}
+function socSave(st) {
+  const ws = st.last && socSheet(st, true);
+  if (!ws) return;
+  const cards = st.last.cards;
+  ws.social = JSON.parse(JSON.stringify({ at: nowIso(), MAP: st.MAP, SAL: st.SAL, MAN: st.MAN, RM: st.RM, RECL: st.RECL,
+    docs: { journal: !!st.parsed.recap, cotis: !!st.parsed.cot, repos: !!st.parsed.repos },
+    sum: cards.map((cd) => ({ key: cd.key, sec: cd.sec, title: cd.title, name: cd.name || cd.sub, s: cd.s, c: cd.c, e: cd.s == null ? null : cd.e, st: cd.s == null ? '' : cd.st, note: socNote(st, cd) })) }));
+  // Congés payés : le montant du solde de repos remplit la colonne « Selon pièce » du compte (un seul 4282 ou 4382)
+  cards.filter((cd) => cd.sec === 'cp' && cd.s != null && (cd.accs || []).length === 1).forEach((cd) => { (ws.soldes = ws.soldes || {})[cd.accs[0]] = cd.s; });
+  if (st.link && clientById(st.link.clientId)) persist();
+}
+// Depuis le cycle H de l'analyse : le FEC analysé est repris (pas de nouveau dépôt), le cadrage rattaché à son exercice.
+async function socFromFec() {
+  const f = ui.fec, r = f && f.result;
+  if (!r) return;
+  const closing = r.meta.closing || r.meta.fileName;
+  let st = ui.social;
+  if (!(st && st.fecOf === f)) {
+    ui.social = null;
+    st = socState();
+    st.fecOf = f;
+    st.dClo = r.meta.closing || '';
+    socLink(st, f.clientId || '', closing, r.meta.fileName);
+    if (f.file) {
+      try {
+        const src = await fecSource(f.file);
+        const gl = socParseFec(socDecode(new Uint8Array(src.buffer)));
+        st.parsed.gl = gl;
+        st.glFec = true;
+        st.files.push({ name: src.name, zone: 'gl', info: `FEC de l'analyse : ${gl.length} lignes retenues (classes 42, 43, 44, 63, 64)` });
+      } catch (e) {
+        st.files.push({ name: f.fileName || r.meta.fileName, zone: 'gl', err: e.message || String(e) });
+      }
+    }
+    socRun();
+  }
+  location.hash = '#/social';
 }
 
 // ---------- Calcul ----------
 function socAggregate(rows) {
   const A = {};
   rows.forEach((r) => {
-    const a = A[r.acc] || (A[r.acc] = { acc: r.acc, short: socShort(r.acc), rows: [], D: 0, C: 0 });
+    const a = A[r.acc] || (A[r.acc] = { acc: r.acc, short: socShort(r.acc), lib: '', rows: [], D: 0, C: 0 });
+    if (!a.lib && r.lib) a.lib = r.lib;
     a.rows.push(r);
     a.D += r.d;
     a.C += r.c;
@@ -318,35 +516,46 @@ function socCompute(st) {
   const isP = (r) => (r.ecr ? PE.has(r.ecr) : PJS.has(r.jnl));
   const cards = [], orgByKey = {};
   O.forEach((o) => { orgByKey[o.key] = o; });
+  // Organismes rattachés à la main : retenus par leur nom (d'une édition à l'autre) ; nom disparu → rattachement automatique
+  const keysOf = (acc, auto) => {
+    const L = MAP[acc];
+    if (!L) return auto[acc] || [];
+    const ks = L.map((l) => (O.find((o) => o.label === l) || {}).key).filter(Boolean);
+    return ks.length || !L.length ? ks : auto[acc] || [];
+  };
+  // Congés payés : charge (6412, ou 641 / 645 dont le libellé cite les congés) et dettes 4282 / 4382
+  const CPRE = /cong|\bcp\b/i;
+  const cpCharge = (a) => (a.lib ? CPRE.test(a.lib) : /^6412/.test(a.acc));
+  const cpDebt = (a) => /^4[23]82/.test(a.acc) || (/^4[23]8/.test(a.acc) && CPRE.test(a.lib));
   const flows = (a) => socR2(a.rows.filter((r) => isP(r)).reduce((x, r) => x + r.c - r.d, 0));
   const month = (a) => { const m = {}; a.rows.forEach((r) => { m[r.mk] = (m[r.mk] || 0) + r.d - r.c; }); return m; };
   const monthPJ = (a) => { const m = {}; a.rows.filter((r) => isP(r)).forEach((r) => { m[r.mk] = (m[r.mk] || 0) + r.c - r.d; }); return m; };
 
   // 641
   const a641 = Object.values(A).filter((a) => /^641/.test(a.acc));
-  a641.forEach((a) => { a.sal = SAL[a.acc] === undefined ? a.rows.some((r) => isP(r)) : SAL[a.acc]; });
+  a641.forEach((a) => { a.sal = SAL[a.acc] === undefined ? a.rows.some((r) => isP(r)) && !cpCharge(a) : SAL[a.acc]; });
   const g1 = a641.filter((a) => a.sal && !/^6414/.test(a.acc)), g2 = a641.filter((a) => a.sal && /^6414/.test(a.acc));
   if (g1.length || R.brut.length) {
     const c = socR2(g1.reduce((x, a) => x + a.solde, 0));
     const mm = {};
     g1.forEach((a) => { const m = month(a); Object.keys(m).forEach((k) => { mm[k] = (mm[k] || 0) + m[k]; }); });
-    cards.push({ sec: '641', key: '641', title: '641', sub: 'Rémunérations (brut)', s: socSum(R.brut), c, solde: c, kind: 'charge',
+    cards.push({ sec: '641', key: '641', title: '641', sub: 'Rémunérations (brut)', s: socSum(R.brut), c, solde: c, kind: 'charge', line: R.pdf ? 'brut' : '',
       comp: g1.map((a) => `${a.short} : ${socF(a.solde)} €`).join(' ; '),
       monthly: per.map((p, i) => ({ p, s: R.brut[i] || 0, c: socR2(mm[p] || 0) })),
       cands: [...per.map((p, i) => ({ lib: `brut de ${p}`, amt: R.brut[i] || 0 })), ...R.extras] });
   }
   g2.forEach((a) => {
     const tva = O.flatMap((o) => o.lines.filter((l) => /TVA/i.test(l.lib)).map((l) => ({ lib: l.lib, amt: -l.pat })));
-    cards.push({ sec: '641', key: a.acc, title: a.short, sub: 'Indemnités hors brut', s: R.indem ? socSum(R.indem) : 0, c: a.solde, solde: a.solde, kind: 'charge', cands: [...R.extras, ...tva] });
+    cards.push({ sec: '641', key: a.acc, title: a.short, sub: 'Indemnités hors brut', name: a.lib, s: R.indem ? socSum(R.indem) : 0, c: a.solde, solde: a.solde, kind: 'charge', cands: [...R.extras, ...tva] });
   });
 
   // 645
-  const a645 = Object.values(A).filter((a) => /^645/.test(a.acc));
+  const a645 = Object.values(A).filter((a) => /^645/.test(a.acc) && !cpCharge(a));
   const o645 = O.filter((o) => !o.isPAS && Math.abs(o.pat) > 0.005);
   const auto645 = socAutoMap(a645.map((a) => ({ key: a.acc, amt: a.solde })), o645, [(o) => o.pat, (o) => o.pat - o.tcPat]);
-  const mapped = new Set([...Object.values(MAP).flat(), ...Object.values(auto645).flat()]);
+  const mapped = new Set([...Object.keys(MAP).flatMap((acc) => keysOf(acc, {})), ...Object.values(auto645).flat()]);
   a645.forEach((a) => {
-    const keys = MAP[a.acc] || auto645[a.acc] || [];
+    const keys = keysOf(a.acc, auto645);
     const os = keys.map((k) => orgByKey[k]).filter(Boolean);
     const s = socR2(os.reduce((x, o) => x + o.pat, 0)), tc = socR2(os.reduce((x, o) => x + o.tcPat, 0));
     const mpj = month(a);
@@ -354,10 +563,10 @@ function socCompute(st) {
     if (tc > 0.005 && Math.abs(s - a.solde - tc) < Math.abs(s - a.solde)) {
       auto.push({ id: 'tc', lib: `taxe d’apprentissage et contributions formation comptabilisées en classe 63${os.some((o) => o.tcLines.some((l) => /TVA/i.test(l.lib))) ? ' et TVA en 44566' : ''} (${[...new Set(os.flatMap((o) => o.tcLines.map((l) => l.lib)))].join(', ')})`, amt: tc });
     }
-    cards.push({ sec: '645', key: a.acc, title: a.short, sub: os.map((o) => o.label).join(' + ') || 'Aucun organisme rattaché', s, c: a.solde, solde: a.solde, kind: 'charge', orgs: o645, sel: keys, auto,
+    cards.push({ sec: '645', key: a.acc, title: a.short, name: a.lib, sub: os.map((o) => o.label).join(' + ') || 'Aucun organisme rattaché', s, c: a.solde, solde: a.solde, kind: 'charge', orgs: o645, sel: keys, auto,
       monthly: per.map((p) => ({ p, s: socR2(os.reduce((x, o) => x + ((o.monthly[p] || {}).pat || 0), 0)), c: socR2(mpj[p] || 0) })),
       cands: [...os.flatMap((o) => Object.entries(o.monthly).map(([p, v]) => ({ lib: `${o.label} ${p}`, amt: v.pat }))),
-        ...os.flatMap((o) => o.lines.filter((l) => Math.abs(l.pat) > 0.005).map((l) => ({ lib: `${l.code} ${l.lib}`, amt: l.pat }))),
+        ...os.flatMap((o) => o.lines.filter((l) => Math.abs(l.pat) > 0.005).map((l) => ({ lib: socLL(l), amt: l.pat }))),
         ...o645.filter((o) => !mapped.has(o.key)).map((o) => ({ lib: `organisme non rattaché ${o.label}`, amt: o.pat }))] });
   });
 
@@ -366,7 +575,7 @@ function socCompute(st) {
   O.forEach((o) => o.tcLines.forEach((l, i) => {
     if (/TVA/i.test(l.lib)) return;
     const amt = socR2(l.pat + l.sal);
-    if (Math.abs(amt) >= 0.005) tcItems.push({ key: `${o.key}t${i}`, label: `${l.code} ${l.lib} (${o.label})`, amt });
+    if (Math.abs(amt) >= 0.005) tcItems.push({ key: `${o.key}t${i}`, org: o.key, label: `${socLL(l)} (${o.label})`, amt });
   }));
   const tvaAmt = socR2(O.reduce((x, o) => x + o.tcLines.filter((l) => /TVA/i.test(l.lib)).reduce((y, l) => y + l.pat + l.sal, 0), 0));
   const debit = (a) => socR2(a.rows.filter((r) => isP(r)).reduce((x, r) => x + r.d - r.c, 0));
@@ -382,16 +591,26 @@ function socCompute(st) {
       accs.forEach((a) => used63.add(a.acc));
       const s = socR2(its.reduce((x, t) => x + t.amt, 0)), c = socR2(accs.reduce((x, a) => x + a.solde, 0));
       const comp = [accs.length > 1 ? accs.map((a) => `${a.short} : ${socF(a.solde)} €`).join(' ; ') : '', code === '6333' ? tvaTxt : ''].filter(Boolean).join(' – ');
-      cards.push({ sec: '63', key: `63-${code}`, title: code, sub: B[code] + (its.length ? ` : ${its.map((t) => t.label).join(' + ')}` : ''), comp, accs: accs.map((a) => a.acc), s, c, solde: c, kind: 'charge', auto: [], cands: tcItems.map((t) => ({ lib: t.label, amt: t.amt })) });
+      // Sans compte 63 : contribution comprise dans un 645 dont l'organisme est rapproché sans écart → motif automatique
+      const auto = [];
+      if (!accs.length) {
+        const by = new Map();
+        its.forEach((t) => {
+          const c6 = cards.find((x) => x.sec === '645' && x.sel.includes(t.org) && Math.abs(x.s - x.c) <= SOC_TOL);
+          if (c6) by.set(c6, socR2((by.get(c6) || 0) + t.amt));
+        });
+        by.forEach((amt, c6) => auto.push({ id: `in${c6.key}`, lib: `comptabilisée en ${c6.title} avec les cotisations ${c6.sub} (à reclasser en ${code})`, amt }));
+      }
+      cards.push({ sec: '63', key: `63-${code}`, title: code, name: B[code], sub: B[code] + (its.length ? ` : ${its.map((t) => t.label).join(' + ')}` : ''), comp, accs: accs.map((a) => a.acc), s, c, solde: c, kind: 'charge', auto, cands: tcItems.map((t) => ({ lib: t.label, amt: t.amt })) });
     });
     a63.filter((a) => !used63.has(a.acc)).forEach((a) => {
       const c = debit(a);
-      cards.push({ sec: '63', key: a.acc, title: a.short, sub: 'Compte 63 hors 6312, 6333 et 6335', s: 0, c, solde: c, kind: 'charge', auto: [], cands: tcItems.map((t) => ({ lib: t.label, amt: t.amt })) });
+      cards.push({ sec: '63', key: a.acc, title: a.short, name: a.lib, sub: 'Compte 63 hors 6312, 6333 et 6335', s: 0, c, solde: c, kind: 'charge', auto: [], cands: tcItems.map((t) => ({ lib: t.label, amt: t.amt })) });
     });
   }
 
   // 42 / 43 (et 442, 447)
-  const a4 = Object.values(A).filter((a) => /^4(2|3)/.test(a.acc) || /^44(2|7)/.test(a.acc));
+  const a4 = Object.values(A).filter((a) => (/^4(2|3)/.test(a.acc) || /^44(2|7)/.test(a.acc)) && !cpDebt(a));
   const o43 = O.filter((o) => !o.isPAS), oPAS = O.filter((o) => o.isPAS);
   const map43 = a4.filter((a) => /^43/.test(a.acc) && Math.abs(flows(a)) > 0.005), map44 = a4.filter((a) => /^44/.test(a.acc) && Math.abs(flows(a)) > 0.005);
   const auto43 = Object.assign(socAutoMap(map43.map((a) => ({ key: a.acc, amt: flows(a) })), o43, [(o) => o.sal + o.pat, (o) => o.sal + o.pat - o.tc]),
@@ -407,14 +626,14 @@ function socCompute(st) {
     if (lettre && Math.abs(anUnl) > 0.005) points.push(`à-nouveau non lettré de ${socFa(anUnl)} €${anUnl < 0 ? ' (débiteur)' : ''}`);
     if (solde < -0.005) points.push(`solde débiteur de ${socFa(solde)} € sur un compte de dettes`);
     const open = !lettre ? [] : Object.entries(unlM).filter(([, v]) => Math.abs(v) > 0.005).map(([k]) => k);
-    const base = { sec: '4', key: a.acc, title: a.short, solde, kind: 'tiers', points, open };
+    const base = { sec: '4', key: a.acc, title: a.short, name: a.lib, solde, kind: 'tiers', points, open };
     if (/^421/.test(a.acc)) {
       const mpj = monthPJ(a);
-      cards.push({ ...base, sub: 'Net à payer', s: socSum(R.net), c: fl, monthly: per.map((p, i) => ({ p, s: R.net[i] || 0, c: socR2(mpj[p] || 0) })),
+      cards.push({ ...base, sub: 'Net à payer', s: socSum(R.net), c: fl, line: R.pdf ? 'net' : '', monthly: per.map((p, i) => ({ p, s: R.net[i] || 0, c: socR2(mpj[p] || 0) })),
         cands: [{ lib: 'report des mois précédents', amt: -R.report }, ...per.map((p, i) => ({ lib: `net de ${p}`, amt: R.net[i] || 0 })), ...R.extras] });
     } else if (Math.abs(fl) > 0.005 && /^4(3|4)/.test(a.acc)) {
       const pool = /^44/.test(a.acc) ? oPAS : o43;
-      const keys = MAP[a.acc] || auto43[a.acc] || [];
+      const keys = keysOf(a.acc, auto43);
       const os = keys.map((k) => orgByKey[k]).filter(Boolean);
       const s = socR2(os.reduce((x, o) => x + o.sal + o.pat, 0)), tc = socR2(os.reduce((x, o) => x + o.tc, 0));
       const mpj = monthPJ(a);
@@ -422,8 +641,20 @@ function socCompute(st) {
       if (tc > 0.005 && Math.abs(s - fl - tc) < Math.abs(s - fl)) auto.push({ id: 'tc', lib: `contributions formation (${[...new Set(os.flatMap((o) => o.tcLines.map((l) => l.lib)))].join(', ')}) créditées hors de ce compte`, amt: tc });
       cards.push({ ...base, sub: os.map((o) => o.label).join(' + ') || 'Aucun organisme rattaché', s, c: fl, orgs: pool, sel: keys, auto,
         monthly: per.map((p) => ({ p, s: socR2(os.reduce((x, o) => x + (o.monthly[p] ? o.monthly[p].sal + o.monthly[p].pat : 0), 0)), c: socR2(mpj[p] || 0) })),
-        cands: [...os.flatMap((o) => Object.entries(o.monthly).map(([p, v]) => ({ lib: `${o.label} ${p}`, amt: v.sal + v.pat }))), ...os.flatMap((o) => o.lines.map((l) => ({ lib: `${l.code} ${l.lib}`, amt: l.sal + l.pat })))] });
+        cands: [...os.flatMap((o) => Object.entries(o.monthly).map(([p, v]) => ({ lib: `${o.label} ${p}`, amt: v.sal + v.pat }))), ...os.flatMap((o) => o.lines.map((l) => ({ lib: socLL(l), amt: l.sal + l.pat })))] });
     } else cards.push({ ...base, sub: "Hors paie (écritures d’OD ou de banque)", s: null, c: null });
+  });
+
+  // Congés payés : soldes de 4282 et 4382 à la clôture rapprochés de l'indemnité et des charges du solde de repos
+  const cpAccs = Object.values(A).filter(cpDebt), cpCh = Object.values(A).filter((a) => /^64[15]/.test(a.acc) && cpCharge(a));
+  [['cp', '4282', 'Congés payés à payer', /^428/, /^641/], ['cpch', '4382', 'Charges sociales sur congés payés', /^438/, /^645/]].forEach(([id, t, lab, re, reCh]) => {
+    const L = cpAccs.filter((a) => re.test(a.acc)), ch = cpCh.filter((a) => reCh.test(a.acc));
+    if (!L.length && !st.parsed.repos) return;
+    const got = socLine(st, id), solde = socR2(L.reduce((x, a) => x + a.C - a.D, 0)), one = L.length === 1 ? L[0] : null;
+    cards.push({ sec: 'cp', key: one ? one.acc : t, title: one ? one.short : t, name: lab, accs: L.map((a) => a.acc), line: id,
+      sub: lab + (got ? ` – ${socLineTxt(got.row, got.a)}` : ''),
+      comp: [L.length > 1 ? L.map((a) => `${a.short} : ${socF(a.C - a.D)} €`).join(' ; ') : '', ch.length ? `charge de l’exercice : ${ch.map((a) => `${a.short} ${socF(a.solde)} €`).join(' ; ')}` : ''].filter(Boolean).join(' – '),
+      s: st.parsed.repos ? socR2(Math.abs(got ? got.v : 0)) : null, c: solde, solde, kind: 'tiers', points: [], open: [], auto: [], cands: [] });
   });
 
   // Recherche d'un montant dans les autres comptes (journal de paie) : total de l'exercice, montant mensuel, écriture
@@ -492,7 +723,7 @@ function socCompute(st) {
   });
   cards.forEach((cd) => {
     if (cd.s == null) return;
-    const loc = Math.abs(cd.res) > SOC_TOL && cd.sec !== '641' ? locate(cd, cd.res, cd.sec === '4' ? 1 : -1) : [];
+    const loc = Math.abs(cd.res) > SOC_TOL && cd.sec !== '641' && cd.sec !== 'cp' ? locate(cd, cd.res, cd.sec === '4' ? 1 : -1) : [];
     loc.forEach((o) => { if (o.full && o.score >= 2 && !cd.moves.some((m) => m.fromShort === o.acc)) cd.moves.push({ lib: o.lib, amt: cd.res, from: o.full, fromShort: o.acc }); });
     cd.sug = [...loc.filter((o) => !(o.full && o.score >= 2)), ...socFindSug(cd.res, cd.cands || [])].slice(0, 5);
     cd.st = Math.abs(cd.e) <= SOC_TOL ? 'ok' : Math.abs(cd.res) <= SOC_TOL ? 'just' : 'anom';
@@ -504,8 +735,15 @@ function socRun() {
   const st = socState();
   st.err = '';
   st.last = null;
+  const R = st.parsed.recap;
+  if (R && R.pdf) {
+    const b = socLine(st, 'brut'), n = socLine(st, 'net');
+    R.brut = b ? [b.v] : [];
+    R.net = n ? [n.v] : [];
+  }
   if (!(st.parsed.recap && st.parsed.cot && st.parsed.gl.length)) return;
   try { st.last = socCompute(st); } catch (e) { st.err = `Analyse impossible : ${e.message}`; console.error(e); }
+  if (st.last) socSave(st);
 }
 
 // ---------- Notes ----------
@@ -513,13 +751,13 @@ const socDateFr = (st) => (st.dClo ? fmtDate(st.dClo) : '—');
 function socNote(st, cd) {
   const D = socDateFr(st), SOFT = socSoft();
   if (cd.s == null) {
-    let t = `${cd.title} – Hors paie – Solde = ${socFa(cd.solde)} € au ${D}`;
+    let t = `${cd.title} – ${cd.sec === 'cp' ? 'Solde de repos non déposé' : 'Hors paie'} – Solde = ${socFa(cd.solde)} € au ${D}`;
     if (cd.points.length) t += `\nPoint : ${cd.points.join(' ; ')}`;
     return t;
   }
   const head = `${cd.title} – SILAE : ${socF(cd.s)} € / ${SOFT} : ${socF(cd.c)} €`;
   const solde = cd.kind === 'tiers' ? cd.solde : cd.c;
-  const W = cd.kind === 'tiers' && st.last && st.last.onlyPJ ? 'Montant comptabilisé' : 'Solde';
+  const W = cd.kind === 'tiers' && cd.sec !== 'cp' && st.last && st.last.onlyPJ ? 'Montant comptabilisé' : 'Solde';
   let t;
   if (Math.abs(cd.e) <= SOC_TOL) t = `${head}\n0,00 € d’écart – ${W} = ${socF(Math.abs(solde))} € au ${D}`;
   else {
@@ -550,23 +788,37 @@ function socOdRows(st) {
 
 // ---------- Affichage ----------
 const SOC_CHIP = { ok: "0 € d’écart", just: 'Écart justifié', anom: 'À justifier' };
-const SOC_SECS = [['641', '641 salarié'], ['645', '645 salarié'], ['63', '63 liés à la paie'], ['4', '42 et 43 salarié']];
+const SOC_SECS = [['641', '641 salarié'], ['645', '645 salarié'], ['63', '63 liés à la paie'], ['4', '42 et 43 salarié'], ['cp', 'Congés payés (4282 et 4382)']];
 const SOC_ZONES = [
-  { k: 'recap', n: 1, t: 'Récap paie SILAE', accept: '.xls,.xlsx,.xlsm,.xltx', drop: 'Déposer le récap de paie', hint: 'Fichier Excel ouvert depuis SILAE',
-    steps: '<li>Sélectionner la période souhaitée</li><li>Clic droit, <b>Récapitulatif de paie par période</b></li><li><b>Ouvrir dans tableur</b> (à droite de l\'écran)</li><li>Enregistrer le tableau sous <b>Classeur Excel XLS</b> dans le dossier sur lequel vous travaillez</li>' },
-  { k: 'cot', n: 2, t: 'Détail cotisations SILAE', accept: '.xls,.xlsx,.xlsm,.xltx', drop: 'Déposer le détail des cotisations', hint: 'Fichier Excel ouvert depuis SILAE',
-    steps: '<li>Sélectionner la période souhaitée</li><li>Clic droit, <b>Détail des cotisations</b></li><li><b>Ouvrir dans tableur</b> (à droite de l\'écran)</li><li>Enregistrer le tableau sous <b>Classeur Excel XLS</b> dans le dossier sur lequel vous travaillez</li>' },
+  { k: 'recap', n: 1, t: 'Récap ou journal de paie SILAE', accept: '.xls,.xlsx,.xlsm,.xltx,.pdf', drop: 'Déposer le récap ou le journal de paie', hint: 'Excel ouvert depuis SILAE, ou PDF du journal de paie',
+    steps: '<li>Sélectionner la période souhaitée</li><li>Clic droit, <b>Récapitulatif de paie par période</b></li><li><b>Ouvrir dans tableur</b> (à droite de l\'écran)</li><li>Enregistrer le tableau sous <b>Classeur Excel XLS</b> dans le dossier sur lequel vous travaillez</li><li>Ou : <b>journal de paie</b> de l\'exercice enregistré en PDF (brut et net de l\'exercice, sans détail mensuel)</li>' },
+  { k: 'cot', n: 2, t: 'Détail cotisations SILAE', accept: '.xls,.xlsx,.xlsm,.xltx,.pdf', drop: 'Déposer le détail des cotisations', hint: 'Excel ouvert depuis SILAE, ou PDF',
+    steps: '<li>Sélectionner la période souhaitée</li><li>Clic droit, <b>Détail des cotisations</b></li><li><b>Ouvrir dans tableur</b> (à droite de l\'écran)</li><li>Enregistrer le tableau sous <b>Classeur Excel XLS</b> dans le dossier sur lequel vous travaillez</li><li>Ou : l\'édition enregistrée en PDF (organismes et leurs totaux, sans détail mensuel)</li>' },
   { k: 'gl', n: 3, t: 'FEC', accept: '.txt,.csv,.fec,.xls,.xlsx', drop: 'Déposer le FEC', hint: 'Fichier texte du FEC (un grand livre Excel est aussi accepté)',
     steps: '<li>Exporter le <b>FEC</b> de l\'exercice depuis le logiciel comptable</li><li>Le déposer tel quel, sans l\'ouvrir ni le modifier (fichier .txt)</li>',
-    note: 'Les écritures de paie sont repérées automatiquement (toute écriture qui mouvemente un 645 ou crédite le 421), quel que soit le journal.' },
+    note: 'Les écritures de paie sont repérées automatiquement (toute écriture qui mouvemente un 645 ou crédite le 421), quel que soit le journal. Ouvert depuis le cycle H de l\'analyse, le FEC analysé est déjà là.' },
+  { k: 'repos', n: 4, t: 'Solde de repos SILAE', opt: true, accept: '.pdf,.xls,.xlsx,.xlsm', drop: 'Déposer le solde de repos', hint: 'Facultatif : PDF ou Excel, à la date de clôture',
+    steps: '<li>Éditer le <b>solde de repos</b> (congés payés) à la date de clôture</li><li>L\'enregistrer en PDF, ou l\'ouvrir dans le tableur et l\'enregistrer en Excel</li><li>L\'indemnité et les charges sont rapprochées des comptes 4282 et 4382</li>' },
 ];
-const socChip = (cd) => (cd.s == null ? '<span class="soc-chip vide">Hors paie</span>' : `<span class="soc-chip ${cd.st}">${SOC_CHIP[cd.st]}</span>`);
+const socChip = (cd) => (cd.s == null ? `<span class="soc-chip vide">${cd.sec === 'cp' ? 'Solde de repos à déposer' : 'Hors paie'}</span>` : `<span class="soc-chip ${cd.st}">${SOC_CHIP[cd.st]}</span>`);
+// Ligne retenue dans une édition PDF ou un tableur (brut, net, congés payés), modifiable
+function socLineSelect(st, id) {
+  const P = st.pdf[socLineZone(id)];
+  if (!P) return '';
+  const cur = P.sel[id];
+  const list = SilaePdf.candidates(P.rows, id);
+  if (cur && !list.some((x) => x.row === cur.row && x.amount === cur.amount)) list.unshift(cur);
+  return `<label class="soc-line">Ligne de l'édition (${esc(SOC_LINE[id].toLowerCase())}) <select data-social="line" data-id="${id}">${cur ? '' : '<option value="">— Choisir la ligne —</option>'}${list.map((x) => {
+    const row = P.rows[x.row], a = row.amounts[x.amount];
+    return `<option value="${x.row}:${x.amount}"${cur && cur.row === x.row && cur.amount === x.amount ? ' selected' : ''}>${esc(`${socLineTxt(row, a)} : ${socF(a.v)}`.slice(0, 120))}</option>`;
+  }).join('')}</select></label>`;
+}
 
 function socCard(st, cd, note) {
   const SOFT = esc(socSoft());
   const k = esc(cd.key);
   let h = `<section class="card soc-card" data-key="${k}"><div class="soc-ch"><h3>${esc(cd.title)}</h3><span class="soc-nums">${cd.s != null ? `<span>SILAE <b>${socF(cd.s)}</b></span><span>${SOFT} <b>${socF(cd.c)}</b></span>` : ''}${socChip(cd)}</span></div>
-    <p class="muted small">${esc(cd.sub)}${cd.comp ? ` – ${esc(cd.comp)}` : ''}</p><div class="soc-note ${cd.s == null ? '' : cd.st}">${esc(note)}</div>`;
+    <p class="muted small">${esc(cd.sub)}${cd.comp ? ` – ${esc(cd.comp)}` : ''}</p>${cd.line ? socLineSelect(st, cd.line) : ''}<div class="soc-note ${cd.s == null ? '' : cd.st}">${esc(note)}</div>`;
   if (cd.s != null && Math.abs(cd.e) > SOC_TOL) {
     h += `<ul class="soc-mlist">${cd.mot.map((m) => (m.rec != null
       ? `<li><label class="check inline soc-mv"><input type="checkbox" checked data-social="unrec" data-i="${m.rec}"> ${esc(m.lib)} : <b>${socF(m.amt)} €</b> <span class="muted small">déplacé</span></label></li>`
@@ -588,20 +840,31 @@ function socCard(st, cd, note) {
   return `${h}<p class="soc-bar"><button class="btn small" data-action="social-copy" data-key="${k}">Copier la note</button></p></section>`;
 }
 
+// Dossier rattaché : le cadrage est enregistré dans la feuille de l'exercice (cycle H de la révision)
+function socLinkInfo(st) {
+  const c = st.link && clientById(st.link.clientId);
+  const back = st.fecOf && ui.fec === st.fecOf ? '<button class="btn small" data-action="social-back">Revenir au cycle H de l\'analyse</button>' : '';
+  if (!c && !back) return '';
+  const where = c ? `Dossier ${esc(clientLabel(c))}, exercice clos le ${esc(/^\d{4}-\d{2}-\d{2}$/.test(st.link.closing) ? fmtDate(st.link.closing) : st.link.closing)} : le cadrage est enregistré dans le dossier de révision (cycle H) et repris à la prochaine ouverture.`
+    : 'Analyse sans dossier rattaché : le cadrage est repris dans le cycle H le temps de la session.';
+  return `<div class="banner info soc-link"><span>${where}</span>${back}</div>`;
+}
+
 function viewSocial() {
   const st = socState();
   const zone = (z) => {
     const fs = st.files.filter((x) => x.zone === z.k);
     const ok = z.k === 'gl' ? st.parsed.gl.length : st.parsed[z.k];
     const bad = fs.some((x) => x.err);
-    return `<section class="card soc-zone"><div class="soc-zh"><span class="soc-n">${z.n}</span><h2>${z.t}</h2><span class="soc-chip ${ok ? 'ok' : bad ? 'anom' : 'vide'}">${ok ? 'Chargé' : bad ? 'Fichier refusé' : 'À déposer'}</span></div>
+    return `<section class="card soc-zone"><div class="soc-zh"><span class="soc-n">${z.n}</span><h2>${z.t}</h2><span class="soc-chip ${ok ? 'ok' : bad ? 'anom' : 'vide'}">${ok ? 'Chargé' : bad ? 'Fichier refusé' : z.opt ? 'Facultatif' : 'À déposer'}</span></div>
       <ol class="soc-steps">${z.steps}</ol>${z.note ? `<p class="muted small soc-hint">${z.note}</p>` : ''}
       <div class="fec-drop soc-drop" data-action="social-pick" data-zone="${z.k}" role="button" tabindex="0"><p><strong>${z.drop}</strong></p><p class="muted small">${z.hint}</p></div>
       ${fs.length ? `<ul class="soc-files">${fs.map((x) => `<li><span>${esc(x.name)}</span><em class="${x.err ? 'late' : 'muted'}">${esc(x.err || x.info || 'Chargé')}</em></li>`).join('')}</ul>` : ''}</section>`;
   };
-  let h = `<div class="page-head"><div><h1>CYCLE SOCIAL</h1><p class="muted small">Cadrage paie : 641, 645, 63, 42 et 43</p></div>
+  let h = `<div class="page-head"><div><h1>CYCLE SOCIAL</h1><p class="muted small">Cadrage paie : 641, 645, 63, 42 et 43, congés payés</p></div>
       <div class="head-actions">${st.last ? '<button class="btn" data-action="social-copy-all">Copier toutes les notes</button>' : ''}${st.files.length ? '<button class="btn" data-action="social-clear">Retirer les fichiers</button>' : ''}</div></div>
-    <p class="muted">Déposez les deux exports SILAE et le FEC dans leur case en suivant les étapes. Chaque compte est ensuite rapproché de la paie et reçoit sa note. Les fichiers sont lus sur l'appareil : rien n'est envoyé ni conservé.</p>
+    <p class="muted">Déposez les exports SILAE et le FEC dans leur case en suivant les étapes. Chaque compte est ensuite rapproché de la paie et reçoit sa note. Les fichiers sont lus sur l'appareil : rien n'est envoyé ni conservé.</p>
+    ${socLinkInfo(st)}
     <div class="soc-zones">${SOC_ZONES.map(zone).join('')}</div>
     <section class="card"><div class="lett-opts">
       <label>Date de clôture <input type="date" data-social="dClo" value="${esc(st.dClo)}"></label>
@@ -642,6 +905,12 @@ function socAction(name, el) {
     const z = SOC_ZONES.find((x) => x.k === el.dataset.zone);
     return pickFiles(z.accept).then((files) => socLoad(z.k === 'gl' ? files : files.slice(0, 1), z.k));
   }
+  if (name === 'back') {
+    if (!(st.fecOf && ui.fec === st.fecOf)) return;
+    Object.assign(ui.fec, { space: 'revision', section: 'social' });
+    location.hash = '#/fec';
+    return;
+  }
   if (name === 'clear') { ui.social = null; return refresh(); }
   if (name === 'copy-all') return st.last && socClip(st.last.cards.map((c) => socNote(st, c)).join('\n\n'), `${st.last.cards.length} notes copiées.`);
   if (name === 'copy-od') return socClip(socOdRows(st).map((o) => [o.d, o.deb, o.cre, socF(o.m), o.l].join('\t')).join('\n'), 'Écritures copiées : collez-les dans un tableur.');
@@ -671,11 +940,21 @@ function onSocialChange(t) {
   else if (k === 'soft') { data.settings.socialSoft = t.value.trim() || 'Pennylane'; persist(); }
   else if (k === 'sal') { st.SAL[t.dataset.acc] = t.checked; socRun(); }
   else if (k === 'unrec') { st.RECL.splice(+t.dataset.i, 1); socRun(); }
+  else if (k === 'line') {
+    const id = t.dataset.id, P = st.pdf[socLineZone(id)];
+    if (P && t.value) {
+      const [ri, ai] = t.value.split(':').map(Number);
+      P.sel[id] = { row: ri, amount: ai };
+      (data.settings.silaeMap = data.settings.silaeMap || {})[id] = socLineMemo(P.rows[ri], P.rows[ri].amounts[ai]);
+      persist();
+    }
+    socRun();
+  }
   else {
     const cd = socCardOf(t.dataset.key);
     if (!cd) return;
     if (k === 'move') { const m = cd.moves[+t.dataset.i]; st.RECL.push({ to: cd.key, from: m.from, fromShort: m.fromShort, amt: m.amt }); }
-    else if (k === 'org') st.MAP[cd.key] = [...t.closest('.soc-card').querySelectorAll('[data-social=org]:checked')].map((x) => x.dataset.org);
+    else if (k === 'org') st.MAP[cd.key] = [...t.closest('.soc-card').querySelectorAll('[data-social=org]:checked')].map((x) => (st.parsed.cot.find((o) => o.key === x.dataset.org) || {}).label).filter(Boolean);
     delete st.inputs[cd.key];
     socRun();
   }

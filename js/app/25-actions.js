@@ -341,6 +341,8 @@ const actions = {
   'social-rm': (el) => socAction('rm', el),
   'social-sug': (el) => socAction('sug', el),
   'social-add': (el) => socAction('add', el),
+  'social-back': (el) => socAction('back', el),
+  'social-from-fec': () => socFromFec(),
   'tns-profil': (el) => tnsProfil(el.dataset.p),
   'tns-print': () => tnsPrint(),
   'tns-clear': () => tnsClear(),
@@ -385,7 +387,6 @@ const actions = {
     refresh();
   },
   'wp-print': () => printHtml(workpaperHtml()),
-  'silae-pick': async (el) => silaeRead(el.dataset.doc, await pickFile('.pdf,application/pdf', true)),
   'tva-kind': (el) => {
     const st = tvaState();
     const ym = st.kind === 'quarter' ? tvaPeriod(st.key).months.filter((k) => ui.fec.result.cycles.tva.months[k]).pop() : st.key;
@@ -660,15 +661,6 @@ document.addEventListener('change', (e) => {
     it.lib = t.dataset.lib;
     it[t.dataset.supp] = t.value.trim();
     persist();
-  } else if (t.dataset.silae && ui.fec && ui.fec.result) {
-    // Ligne de l'édition choisie pour un compte : retenue pour les éditions suivantes
-    const c = silaeControls(ui.fec.result).find((x) => x.id === t.dataset.silae), d = c && (ui.fec.silae || {})[c.doc];
-    if (!c) return;
-    if (!t.value) delete silaeStore()[c.id];
-    else if (d) { const [ri, ai] = t.value.split(':').map(Number); silaeSet(c, d, ri, ai, true); }
-    wpSave();
-    persist();
-    refresh();
   } else if (t.dataset.wpsolde && ui.fec && ui.fec.result) {
     wpSetSolde(t.dataset.wpsolde, t.value);
     refresh();

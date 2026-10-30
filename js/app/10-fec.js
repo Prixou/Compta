@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '86';
+const ASSET_VERSION = '87';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -66,7 +66,8 @@ function startFec(file, target) {
       refresh();
     });
   }
-  ui.fec = { status: 'loading', pct: 0, fileName: file.name, space: data.settings.fecSpace || 'revision', section: null, q: '', classe: '' };
+  // Le fichier reste en mémoire le temps de l'analyse : CYCLE SOCIAL le relit pour le cadrage de la paie (cycle H)
+  ui.fec = { status: 'loading', pct: 0, fileName: file.name, file, space: data.settings.fecSpace || 'revision', section: null, q: '', classe: '' };
   refresh();
   runFecWorker(file, ui.fec, null);
 }
