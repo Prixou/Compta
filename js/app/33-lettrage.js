@@ -668,15 +668,20 @@ function viewLettrage(embedded) {
     : x.type === 'autre' ? '<span class="muted" title="Journal ni d\'achat ni de règlement : non lettré">—</span>' : `<span class="lett-open">${x.hyp ? 'hypothèse' : 'ouvert'}</span>`);
   const rowCls = (x, g) => (x.type === 'autre' ? 'muted' : g ? (g.rel ? (g.rel === x ? 'lett-rel lett-rel-r' : 'lett-rel') : '') : 'lett-o');
   const field = (k, label, extra = '') => `<label>${label} <input data-lett="${k}" value="${esc(set[k])}"${extra}></label>`;
-  return `<div class="page-head">${embedded ? '<span></span>' : '<h1>Lettrage des comptes de tiers</h1>'}
-      <div class="head-actions">${accs.some((a) => a.groups.length) ? '<button class="btn" data-action="lett-copy">Copier les lettrages (tableur)</button><button class="btn" data-action="lett-xlsx">Exporter en Excel</button>' : ''}${st.src ? '<button class="btn" data-action="lett-clear">Effacer</button>' : ''}</div></div>
-    <p class="muted">Chargez le grand livre non lettré (PDF de l'édition « Grands-livres », ou son texte) ou un FEC : l'outil propose, compte par compte, les écritures à lettrer en réglant d'abord les factures les plus anciennes. Un règlement n'est jamais rapproché d'une facture postérieure, et les factures d'un même règlement sont peu espacées. Il signale aussi les relevés saisis en plus des factures, les règlements dont la facture est sur un autre compte, les doublons et les montants du compte d'attente à affecter, et prépare le mail des factures manquantes. Rien n'est envoyé ni conservé.</p>
+  const actions = `${accs.some((a) => a.groups.length) ? '<button class="btn" data-action="lett-copy">Copier les lettrages (tableur)</button><button class="btn" data-action="lett-xlsx">Exporter en Excel</button>' : ''}${st.src ? '<button class="btn" data-action="lett-clear">Effacer</button>' : ''}`;
+  const resume = `journaux ${set.ja || '—'} · règlements ${set.jr || '—'} · écart max ${set.md || '—'} j${set.lc ? ` · attente ${set.lc}` : ''}${set.m1 ? ' · échéances M+1' : ''}${set.nc ? ' · non consécutives' : ''}`;
+  return `${toolHead(embedded ? '' : 'Lettrage des comptes de tiers', embedded ? 'Le FEC ouvert est repris : compte par compte, les factures soldées par chaque règlement et le mail des factures manquantes. Un grand livre PDF peut aussi être déposé.' : 'Compte par compte, les factures soldées par chaque règlement, et le mail des factures manquantes : à partir du grand livre non lettré (PDF ou texte) ou d\'un FEC.', actions,
+    '<p>L\'outil propose les écritures à lettrer en réglant d\'abord les factures les plus anciennes. Un règlement n\'est jamais rapproché d\'une facture postérieure, et les factures d\'un même règlement sont peu espacées. Il signale aussi les relevés saisis en plus des factures, les règlements dont la facture est sur un autre compte, les doublons et les montants du compte d\'attente à affecter, et prépare le mail des factures manquantes. Rien n\'est envoyé ni conservé.</p>', 'lett')}
     <div class="fec-drop card" data-action="lett-pick" role="button" tabindex="0">
       ${icon('file', 'fec-drop-ico')}
       <p><strong>${st.fileName ? esc(st.fileName) : 'Sélectionnez ou déposez ici le grand livre (PDF, texte) ou un FEC'}</strong></p>
       <p class="muted small">${st.status === 'running' ? esc(st.msg) : 'Grand livre de l\'édition « Grands-livres » (ACD…) non lettré, ou FEC (.txt, .csv, .zip) : seules ses écritures non lettrées sont reprises.'}</p>
     </div>
-    <section class="card">
+    ${openFec && !(st.src === 'fec' && st.fec && st.fec.name === openFec) || st.src === 'fec' ? `<div class="tool-bar">
+      ${st.src === 'fec' ? `<label>Comptes <select data-lett="tiers">${options({ frs: 'Fournisseurs (401, 404)', cli: 'Clients (411)' }, st.tiers)}</select></label>` : ''}
+      ${openFec && !(st.src === 'fec' && st.fec && st.fec.name === openFec) ? `<button class="btn" data-action="lett-fec">Utiliser le FEC ouvert (${esc(openFec)})</button>` : ''}</div>` : ''}
+    ${st.msg && st.status !== 'running' ? `<p class="${st.status === 'error' || !accs.length ? 'late' : 'muted'} small" role="status">${esc(st.msg)}</p>` : ''}
+    <details class="card tool-set" data-keep="lett-set"${openIf('lett-set', false)}><summary><strong>Réglages</strong><span class="muted small">${esc(resume)}</span></summary>
       <div class="lett-opts">
         ${field('ja', 'Journaux d\'achat (ou de vente)')}
         ${field('jr', 'Journaux de règlement')}
@@ -686,15 +691,12 @@ function viewLettrage(embedded) {
         ${field('lc', 'Compte d\'attente à affecter (code ou nom)')}
         ${field('ex', 'Comptes exclus du mail (codes)')}
         ${field('ign', 'Comptes ignorés (code ou nom contenant)')}
-        ${st.src === 'fec' ? `<label>Comptes <select data-lett="tiers">${options({ frs: 'Fournisseurs (401, 404)', cli: 'Clients (411)' }, st.tiers)}</select></label>` : ''}
-        ${openFec && !(st.src === 'fec' && st.fec && st.fec.name === openFec) ? `<button class="btn" data-action="lett-fec">Utiliser le FEC ouvert (${esc(openFec)})</button>` : ''}
       </div>
       <p class="muted small">${st.src === 'fec' ? 'FEC : une écriture de banque ou de caisse est un règlement, une écriture de charges, de produits ou d\'immobilisation une facture ; les journaux indiqués priment.' : 'Grand livre : seules les écritures des journaux indiqués sont lettrées ; les autres restent affichées (« — »).'} Les réglages sont retenus pour la prochaine fois.</p>
-      <details class="lett-paste"><summary>Ou coller le texte du grand livre</summary>
-        <textarea id="lett-tx" rows="5" placeholder="Compte FDEMO FOURNISSEUR DEMO&#10;10/08/2026 B000000001 AC FOURNISSEUR DEMO F-101 1 250,00 -1 250,00">${st.src === 'gl' && st.fileName === 'texte collé' ? esc(st.text) : ''}</textarea>
-        <button class="btn" data-action="lett-text">Analyser le texte</button></details>
-      ${st.msg && st.status !== 'running' ? `<p class="${st.status === 'error' || !accs.length ? 'late' : 'muted'} small" role="status">${esc(st.msg)}</p>` : ''}
-    </section>
+    </details>
+    <details class="lett-paste" data-keep="lett-paste"${openIf('lett-paste', false)}><summary>Ou coller le texte du grand livre</summary>
+      <textarea id="lett-tx" rows="5" placeholder="Compte FDEMO FOURNISSEUR DEMO&#10;10/08/2026 B000000001 AC FOURNISSEUR DEMO F-101 1 250,00 -1 250,00">${st.src === 'gl' && st.fileName === 'texte collé' ? esc(st.text) : ''}</textarea>
+      <button class="btn" data-action="lett-text">Analyser le texte</button></details>
     ${accs.length ? `<div class="kpis fec-kpis">
       ${kpiTile('Lettrages proposés', T.ng)}${kpiTile('Écritures à lettrer', T.nl)}${kpiTile('Montant lettrable', `${lettFmt(T.mt)} €`)}${kpiTile('Écritures restant ouvertes', T.nr, T.nr ? 'kpi-wait' : '')}
     </div>

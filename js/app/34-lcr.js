@@ -411,8 +411,8 @@ function viewLcr() {
   }
   const s4 = step(4, 'Écritures et import ACD', 'Contrôlez les écritures, puis téléchargez le fichier à importer dans ACD.', done4, s4body);
 
-  return `<div class="page-head"><h1>Écritures LCR pour ACD</h1></div>
-    <p class="muted">Déposez le listing fournisseurs du dossier et les relevés LCR en PDF. L'outil passe chaque effet au débit du fournisseur, le total du relevé au crédit du compte de contrepartie, une écriture par relevé, et prépare le fichier d'import ACD. Relevés lus : Crédit Agricole (relevé d'effets à payer) et CIC (relevé de lettres de change). Les effets rejetés ne sont pas repris.</p>
+  return `${toolHead('Écritures LCR pour ACD', 'Relevés LCR en PDF et listing fournisseurs du dossier : une écriture par relevé, prête à importer dans ACD.', '',
+    '<p>L\'outil passe chaque effet au débit du fournisseur, le total du relevé au crédit du compte de contrepartie, une écriture par relevé, et prépare le fichier d\'import ACD. Relevés lus : Crédit Agricole (relevé d\'effets à payer) et CIC (relevé de lettres de change). Les effets rejetés ne sont pas repris.</p>', 'lcr')}
     <div class="lcr">${s1}${s2}${s3}${s4}</div>`;
 }
 

@@ -597,6 +597,8 @@ document.addEventListener('keydown', (e) => {
 // Mémorise les contrôles dépliés de la feuille de travail pour les garder ouverts après une mise à jour.
 document.addEventListener('toggle', (e) => {
   const d = e.target;
+  // Volets « Comment ça marche » et « Réglages » des outils : ouverts ou fermés comme l'utilisateur les a laissés
+  if (d.dataset && d.dataset.keep) keepOpen.set(d.dataset.keep, d.open);
   if (!d.dataset || !d.dataset.wpk || !ui.fec) return;
   ui.fec.wpOpen = ui.fec.wpOpen || new Set();
   d.open ? ui.fec.wpOpen.add(d.dataset.wpk) : ui.fec.wpOpen.delete(d.dataset.wpk);

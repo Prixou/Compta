@@ -177,6 +177,15 @@ function renderShell() {
     </div>`;
 }
 
+// Volets repliables des pages d'outils (data-keep) : état ouvert ou fermé gardé d'un affichage à l'autre, le temps de la session.
+const keepOpen = new Map();
+const openIf = (key, dflt) => ((keepOpen.has(key) ? keepOpen.get(key) : dflt) ? ' open' : '');
+// En-tête commun des pages d'outils : titre, une phrase, actions ; « Comment ça marche » replié dessous.
+function toolHead(title, sentence, actions, how, key) {
+  return `<div class="page-head tool-head"><div>${title ? `<h1>${title}</h1>` : ''}<p class="muted">${sentence}</p></div><div class="head-actions">${actions || ''}</div></div>
+    ${how ? `<details class="tool-how" data-keep="${key}-how"${openIf(`${key}-how`, false)}><summary>Comment ça marche</summary><div class="tool-how-body">${how}</div></details>` : ''}`;
+}
+
 const ui = {
   qDossiers: '',
   showArchived: false,

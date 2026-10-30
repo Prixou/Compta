@@ -46,7 +46,7 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
     expect(JSON.stringify(s.hyp) === JSON.stringify(EXP.hyp) && JSON.stringify(s.dups) === JSON.stringify(EXP.dups) && JSON.stringify(s.lcr) === JSON.stringify(EXP.lcr) && JSON.stringify(s.mail) === JSON.stringify(EXP.mail),
       `${what} : hypothèse entre deux comptes du même fournisseur, doublons de niveaux 1 et 2, compte d'attente (proposition unique, avoir déduit, montant sans fournisseur), règlements sans facture`, JSON.stringify([s.hyp, s.dups, s.lcr, s.mail]));
   };
-  const setOpt = async (k, v) => { await pg.fill(`input[data-lett=${k}]`, v); await pg.dispatchEvent(`input[data-lett=${k}]`, 'change'); await pg.waitForTimeout(150); };
+  const setOpt = async (k, v) => { await pg.$eval('details.tool-set', (d) => { d.open = true; }); await pg.fill(`input[data-lett=${k}]`, v); await pg.dispatchEvent(`input[data-lett=${k}]`, 'change'); await pg.waitForTimeout(150); };
   const mailLines = () => pg.$eval('#lett-mail', (x) => x.value.split('\n').filter((l) => l.includes('facture manquante ('))).catch(() => []);
 
   // 1. Grand livre PDF

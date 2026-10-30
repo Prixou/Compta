@@ -351,6 +351,8 @@ async function socLoad(list, zone) {
         info = `${gl.length} lignes lues – comptes : ${[...new Set(gl.map((x) => socShort(x.acc)))].sort().join(', ') || 'aucun'}`;
       }
       st.files.push({ name: file.name, zone, info });
+      // Après un premier dépôt réussi, les étapes d'export SILAE sont repliées
+      if (!data.settings.socSeen) { data.settings.socSeen = true; persist(); }
     } catch (e) {
       st.files.push({ name: file.name, zone, err: e.message || String(e) });
     }
@@ -874,14 +876,14 @@ function viewSocial(embedded) {
     const ok = z.k === 'gl' ? st.parsed.gl.length : st.parsed[z.k];
     const bad = fs.some((x) => x.err);
     return `<section class="card soc-zone"><div class="soc-zh"><span class="soc-n">${i + 1}</span><h2>${z.t}</h2><span class="soc-chip ${ok ? 'ok' : bad ? 'anom' : 'vide'}">${ok ? 'Chargé' : bad ? 'Fichier refusé' : z.opt ? 'Facultatif' : 'À déposer'}</span></div>
-      <ol class="soc-steps">${z.steps}</ol>${z.note ? `<p class="muted small soc-hint">${z.note}</p>` : ''}
+      ${data.settings.socSeen ? `<details class="soc-proc" data-keep="soc-${z.k}"${openIf(`soc-${z.k}`, false)}><summary>${z.k === 'gl' ? 'Étapes' : 'Étapes dans SILAE'}</summary><ol class="soc-steps">${z.steps}</ol></details>` : `<ol class="soc-steps">${z.steps}</ol>`}${z.note ? `<p class="muted small soc-hint">${z.note}</p>` : ''}
       <div class="fec-drop soc-drop" data-action="social-pick" data-zone="${z.k}" role="button" tabindex="0"><p><strong>${z.drop}</strong></p><p class="muted small">${z.hint}</p></div>
       ${fs.length ? `<ul class="soc-files">${fs.map((x) => `<li><span>${esc(x.name)}</span><em class="${x.err ? 'late' : 'muted'}">${esc(x.err || x.info || 'Chargé')}</em></li>`).join('')}</ul>` : ''}</section>`;
   };
   const actions = `<div class="head-actions">${st.last ? '<button class="btn" data-action="social-copy-all">Copier toutes les notes</button>' : ''}${st.files.some((x) => x.zone !== 'gl' || !inFec) ? '<button class="btn" data-action="social-clear">Retirer les fichiers</button>' : ''}</div>`;
   let h = embedded
     ? `<div class="page-head"><p class="muted">Cadrage de la paie (641, 645, 63, 42 et 43, congés payés) avec les éditions SILAE : déposez-les dans leur case, le FEC ouvert est repris. Chaque compte est rapproché de la paie et reçoit sa note ; le cadrage est enregistré dans le dossier et repris par le cycle H.</p>${actions}</div>`
-    : `<div class="page-head"><div><h1>CYCLE SOCIAL</h1><p class="muted small">Cadrage paie : 641, 645, 63, 42 et 43, congés payés</p></div>${actions}</div>
+    : `<div class="page-head"><div><h1>Cycle social</h1><p class="muted small">Cadrage paie : 641, 645, 63, 42 et 43, congés payés</p></div>${actions}</div>
     <p class="muted">Déposez les exports SILAE et le FEC dans leur case en suivant les étapes. Chaque compte est ensuite rapproché de la paie et reçoit sa note. Les fichiers sont lus sur l'appareil : rien n'est envoyé ni conservé.</p>
     ${socLinkInfo(st)}`;
   h += `

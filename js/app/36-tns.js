@@ -221,9 +221,9 @@ function viewTns(clientId) {
     </div></section>`;
   const multi = r.res.length > 1;
   const ent = tnsEntries(S, r);
-  return `<div class="page-head"><div><h1>Cotisations TNS</h1><p class="muted small">Régularisation des cotisations sociales des travailleurs non salariés à la clôture</p></div>
-      <div class="head-actions"><button class="btn" data-action="tns-print">${icon('file')}Rapport (imprimer ou PDF)</button><button class="btn" data-action="tns-clear">Vider</button></div></div>
-    <p class="muted">Reprenez l'avis de l'Urssaf (définitives ${N - 1}, provisionnelles ${N}, calendrier) et la date de clôture. L'outil contrôle les montants avec les taux en vigueur et calcule ce qui reste dû au bilan, année par année.</p>
+  return `${toolHead('Cotisations TNS', 'Régularisation des cotisations sociales des travailleurs non salariés à la clôture : reste dû ou trop-versé, écritures et rapport.',
+    `<button class="btn" data-action="tns-print">${icon('file')}Rapport (imprimer ou PDF)</button><button class="btn" data-action="tns-clear">Vider</button>`,
+    `<p>Choisissez le profil, puis reprenez l'avis de l'Urssaf (définitives ${N - 1}, provisionnelles ${N}, calendrier) et la date de clôture. L'outil contrôle les montants avec les taux en vigueur et calcule ce qui reste dû au bilan, année par année. Rattachée à un dossier, la saisie y est conservée.</p>`, 'tns')}
     <div class="tns-profiles" role="group" aria-label="Profil">${Object.entries(TNS_PROFILES).map(([k, x]) => `<button type="button" data-action="tns-profil" data-p="${k}" aria-pressed="${S.profil === k}">${esc(x.nom)}<small>${esc(x.sub)}</small></button>`).join('')}</div>
     <section class="card"><h2>Clôture et revenus</h2>
       <div class="tns-grid">

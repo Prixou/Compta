@@ -84,7 +84,7 @@ function viewReleves() {
     </div>`;
   const about = `<section class="card"><h2>${icon('shield')} Confidentialité</h2>
       <p>Les relevés sont lus <strong>sur cet appareil uniquement</strong> : ils ne sont ni envoyés ni conservés. Les opérations restent en mémoire jusqu'au téléchargement du fichier Excel, à « Effacer » ou au verrouillage.</p>
-      <p class="muted small">Pour comparer un relevé au journal de banque du mois et trouver les écarts : <a href="#/rapprochement">Rapprocher un relevé</a>.</p>
+      <p class="muted small">Pour comparer un relevé au journal de banque et trouver les écarts : Espace FEC, onglet <a href="#/fec">Rapprochement bancaire</a>.</p>
     </section>`;
   if (!has) return head + drop + about;
   const done = st.files.filter((f) => f.status === 'done');

@@ -549,6 +549,18 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
 .fec-groups button:hover { color: var(--primary); }
 .fec-groups button.on { color: var(--primary); border-bottom-color: var(--primary); font-weight: 700; }
 .brap-one { grid-template-columns: minmax(0, 1fr); }
+/* Pages d'outils : en-tête commun, « Comment ça marche » et « Réglages » repliés */
+.tool-head p.muted { margin: .3rem 0 0; max-width: 78ch; }
+.tool-how { margin: -.6rem 0 1rem; }
+.tool-how > summary { color: var(--primary); font-weight: 600; font-size: .9rem; width: max-content; }
+.tool-how-body { margin-top: .5rem; padding: .7rem .9rem; background: var(--surface-2); border-radius: 8px; color: var(--muted); font-size: .9rem; max-width: 100ch; }
+.tool-how-body p, .tool-how-body ul { margin: 0 0 .4rem; }
+.tool-set > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .8rem; }
+.tool-set > summary strong::before { content: "▸ "; color: var(--muted); }
+.tool-set[open] > summary strong::before { content: "▾ "; }
+.tool-set[open] > summary { margin-bottom: .8rem; }
+.tool-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; margin: 0 0 1rem; }
+.tool-bar label { margin: 0; }
 .fec-tabs { margin-bottom: 1rem; flex-wrap: wrap; }
 .fec-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .fec-kpis .kpi strong { font-size: 1.4rem; }
@@ -1131,6 +1143,7 @@ tr.tns-sec td { font-weight: 700; background: var(--primary-soft); }
 .soc-n { display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem; border-radius: 50%; background: var(--text); color: var(--surface); font-weight: 700; flex: none; }
 .soc-steps { margin: 0; padding-left: 1.2rem; font-size: .88rem; color: var(--muted); display: grid; gap: .2rem; flex: 1; }
 .soc-steps b { color: var(--text); font-weight: 600; }
+.soc-proc { flex: 1; }
 .soc-proc summary { cursor: pointer; color: var(--primary); text-decoration: underline; font-size: .85rem; font-weight: 600; width: max-content; }
 .soc-proc ol { margin: .35rem 0 0; padding: .5rem .6rem .5rem 1.6rem; background: var(--bg); border-radius: 6px; }
 .soc-drop { padding: .9rem; margin: 0; }
