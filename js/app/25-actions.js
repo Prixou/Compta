@@ -251,7 +251,7 @@ const actions = {
   'batch-pick': async () => batchRun(await pickFiles('.txt,.csv,.tsv,.zip,text/plain,application/zip')),
   'anon-pick': async () => anonStart(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true)),
   'rel-pick': async () => relAdd(await pickFiles('.pdf,application/pdf')),
-  'brap-pick-rel': async () => brapAddStatements(await pickFiles('.pdf,.csv,.xlsx,.ofx,.qfx,.xml,.cfonb,.dat,.120,.txt')),
+  'brap-pick-rel': async () => brapAddStatements(await pickFiles('.pdf,.csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ofx,.qfx,.qif,.xml,.sta,.mt940,.940,.cfonb,.dat,.120')),
   'brap-pick-fec': async () => brapSetFec(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true)),
   'brap-clear': () => { ui.brap = null; refresh(); },
   'brap-export': (el) => brapExport(el.dataset.kind),

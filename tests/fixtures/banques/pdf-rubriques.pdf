@@ -1,0 +1,85 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 2881 >>
+stream
+BT /F2 9 Tf 1 0 0 1 40.00 802.00 Tm (BANQUE DEMO) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 788.00 Tm (Relevé de compte du 01/10/2026 au 31/10/2026) Tj ET
+BT /F2 8 Tf 1 0 0 1 40.00 762.00 Tm (Date) Tj ET
+BT /F2 8 Tf 1 0 0 1 90.00 762.00 Tm (Libellé) Tj ET
+BT /F2 8 Tf 1 0 0 1 496.40 762.00 Tm (Montant) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 748.00 Tm (SOLDE AU 30/09/2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 498.86 748.00 Tm (2 500,00) Tj ET
+BT /F2 9 Tf 1 0 0 1 90.00 730.00 Tm (Virements reçus) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 717.00 Tm (15/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 717.00 Tm (VIR SEPA RECU CLIENT ALPHA) Tj ET
+BT /F1 8 Tf 1 0 0 1 498.86 717.00 Tm (3 482,14) Tj ET
+BT /F2 9 Tf 1 0 0 1 90.00 699.00 Tm (Opérations de dépôt) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 686.00 Tm (21/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 686.00 Tm (REMISE CHEQUES 0004521) Tj ET
+BT /F1 8 Tf 1 0 0 1 498.86 686.00 Tm (2 607,67) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 674.00 Tm (26/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 674.00 Tm (VERSEMENT ESPECES) Tj ET
+BT /F1 8 Tf 1 0 0 1 498.86 674.00 Tm (1 612,36) Tj ET
+BT /F2 9 Tf 1 0 0 1 90.00 656.00 Tm (Paiements carte bancaire) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 643.00 Tm (06/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 643.00 Tm (CB FOURNITURES BUREAU) Tj ET
+BT /F1 8 Tf 1 0 0 1 505.54 643.00 Tm (224,97) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 631.00 Tm (17/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 631.00 Tm (CB STATION SERVICE) Tj ET
+BT /F1 8 Tf 1 0 0 1 498.86 631.00 Tm (1 648,00) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 619.00 Tm (19/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 619.00 Tm (CB RESTAURANT LE PORT) Tj ET
+BT /F1 8 Tf 1 0 0 1 498.86 619.00 Tm (1 234,56) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 607.00 Tm (20/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 607.00 Tm (CB RESTAURANT LE PORT) Tj ET
+BT /F1 8 Tf 1 0 0 1 505.54 607.00 Tm (967,36) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 595.00 Tm (23/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 595.00 Tm (CB STATION SERVICE) Tj ET
+BT /F1 8 Tf 1 0 0 1 498.86 595.00 Tm (2 332,90) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 583.00 Tm (27/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 583.00 Tm (CB STATION SERVICE) Tj ET
+BT /F1 8 Tf 1 0 0 1 505.54 583.00 Tm (741,33) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 571.00 Tm (29/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 571.00 Tm (CB RESTAURANT LE PORT) Tj ET
+BT /F1 8 Tf 1 0 0 1 505.54 571.00 Tm (413,67) Tj ET
+BT /F2 9 Tf 1 0 0 1 90.00 553.00 Tm (Paiements chèques) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 540.00 Tm (22/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 540.00 Tm (CHEQUE 0001234) Tj ET
+BT /F1 8 Tf 1 0 0 1 498.86 540.00 Tm (1 223,90) Tj ET
+BT /F2 9 Tf 1 0 0 1 90.00 522.00 Tm (Frais bancaires et cotisations) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 509.00 Tm (25/10) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 509.00 Tm (VIR SEPA LOYER BUREAU) Tj ET
+BT /F1 8 Tf 1 0 0 1 498.86 509.00 Tm (2 243,37) Tj ET
+BT /F1 8 Tf 1 0 0 1 90.00 491.00 Tm (SOLDE AU 31/10/2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 502.87 491.00 Tm (-827,89) Tj ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000212 00000 n 
+0000000314 00000 n 
+0000000450 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+3383
+%%EOF

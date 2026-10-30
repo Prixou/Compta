@@ -460,7 +460,7 @@ function rapproState() {
 }
 
 async function importStatement() {
-  const file = await pickFile('.txt,.csv,.xlsx,.ofx,.qfx,.xml,.cfonb,.dat,.120,.pdf', true);
+  const file = await pickFile('.pdf,.csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ofx,.qfx,.qif,.xml,.sta,.mt940,.940,.cfonb,.dat,.120', true);
   if (!file) return;
   const st = rapproState();
   try {
@@ -495,7 +495,7 @@ function viewRappro() {
   const head = `
     <section class="card">
       <h2>Rapprochement bancaire</h2>
-      <p class="muted small">Importez le relevé de la banque (CFONB 120 / EBICS, OFX, CAMT.053, ou export CSV / Excel de la banque en ligne). Chaque opération est recherchée dans le compte de banque du FEC ; plusieurs relevés peuvent être ajoutés à la suite.</p>
+      <p class="muted small">Importez le relevé de la banque, quelle qu'elle soit : PDF (texte sélectionnable), export CSV / Excel de la banque en ligne, OFX, QIF, MT940, CAMT.053 ou CFONB 120 (EBICS). Chaque opération est recherchée dans le compte de banque du FEC ; plusieurs relevés peuvent être ajoutés à la suite.</p>
       ${accounts.length ? `<div class="filters">
         <select data-rappro="compte" aria-label="Compte de banque">${options(Object.fromEntries(accounts.map((a) => [a, `${a} — ${libOf(a)}`])), st.compte)}</select>
         <label class="inline-label">Tolérance <input type="number" min="0" max="31" data-rappro="tol" value="${st.tol}"> jours</label>

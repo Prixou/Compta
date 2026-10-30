@@ -200,9 +200,10 @@
 
   function readCsv(text) {
     text = text.replace(/^﻿/, '');
-    const firstLine = text.split(/\r?\n/, 1)[0];
+    // Séparateur : le plus fréquent sur les premières lignes (certaines banques font précéder l'en-tête de lignes
+    // d'informations sur le compte)
     const counts = { ';': 0, ',': 0, '\t': 0 };
-    for (const ch of firstLine) if (ch in counts) counts[ch]++;
+    for (const line of text.split(/\r?\n/, 10)) for (const ch of line.replace(/"[^"]*"/g, '')) if (ch in counts) counts[ch]++;
     const sep = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
     const rows = [];
     let row = [];

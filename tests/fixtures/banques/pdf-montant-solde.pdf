@@ -1,0 +1,89 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 3170 >>
+stream
+BT /F2 9 Tf 1 0 0 1 40.00 802.00 Tm (BANQUE DEMO) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 788.00 Tm (Relevé de compte - octobre 2026) Tj ET
+BT /F2 8 Tf 1 0 0 1 40.00 762.00 Tm (Date) Tj ET
+BT /F2 8 Tf 1 0 0 1 110.00 762.00 Tm (Libellé) Tj ET
+BT /F2 8 Tf 1 0 0 1 436.40 762.00 Tm (Montant) Tj ET
+BT /F2 8 Tf 1 0 0 1 521.00 762.00 Tm (Solde) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 748.00 Tm (5 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 748.00 Tm (CB FOURNITURES BUREAU) Tj ET
+BT /F1 8 Tf 1 0 0 1 429.53 748.00 Tm (-1 402,39 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 511.20 748.00 Tm (-762,39 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 735.00 Tm (6 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 735.00 Tm (VIR SEPA RECU CLIENT ALPHA) Tj ET
+BT /F1 8 Tf 1 0 0 1 434.19 735.00 Tm (+588,71 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 511.20 735.00 Tm (-173,68 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 722.00 Tm (7 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 722.00 Tm (CB RESTAURANT LE PORT) Tj ET
+BT /F1 8 Tf 1 0 0 1 440.65 722.00 Tm (-25,57 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 511.20 722.00 Tm (-199,25 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 709.00 Tm (8 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 709.00 Tm (PRLV URSSAF DEMO) Tj ET
+BT /F1 8 Tf 1 0 0 1 429.53 709.00 Tm (-1 234,56 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 504.53 709.00 Tm (-1 433,81 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 696.00 Tm (9 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 696.00 Tm (VIR SEPA LOYER BUREAU) Tj ET
+BT /F1 8 Tf 1 0 0 1 436.20 696.00 Tm (-644,79 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 504.53 696.00 Tm (-2 078,60 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 683.00 Tm (10 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 683.00 Tm (VIR SEPA RECU CLIENT ALPHA) Tj ET
+BT /F1 8 Tf 1 0 0 1 427.52 683.00 Tm (+3 081,58 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 507.19 683.00 Tm (1 002,98 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 670.00 Tm (13 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 670.00 Tm (CB LIBRAIRIE DU CENTRE) Tj ET
+BT /F1 8 Tf 1 0 0 1 429.53 670.00 Tm (-2 156,82 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 504.53 670.00 Tm (-1 153,84 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 657.00 Tm (14 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 657.00 Tm (CB FOURNITURES BUREAU) Tj ET
+BT /F1 8 Tf 1 0 0 1 429.53 657.00 Tm (-1 098,19 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 504.53 657.00 Tm (-2 252,03 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 644.00 Tm (15 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 644.00 Tm (COMMISSIONS COTISATION) Tj ET
+BT /F1 8 Tf 1 0 0 1 429.53 644.00 Tm (-2 176,44 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 504.53 644.00 Tm (-4 428,47 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 631.00 Tm (24 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 631.00 Tm (REMISE CHEQUES 0004521) Tj ET
+BT /F1 8 Tf 1 0 0 1 427.52 631.00 Tm (+3 150,63 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 504.53 631.00 Tm (-1 277,84 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 618.00 Tm (25 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 618.00 Tm (PRLV URSSAF DEMO) Tj ET
+BT /F1 8 Tf 1 0 0 1 436.20 618.00 Tm (-952,92 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 504.53 618.00 Tm (-2 230,76 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 40.00 605.00 Tm (27 oct. 2026) Tj ET
+BT /F1 8 Tf 1 0 0 1 110.00 605.00 Tm (CB STATION SERVICE) Tj ET
+BT /F1 8 Tf 1 0 0 1 436.20 605.00 Tm (-501,14 €) Tj ET
+BT /F1 8 Tf 1 0 0 1 504.53 605.00 Tm (-2 731,90 €) Tj ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000212 00000 n 
+0000000314 00000 n 
+0000000450 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+3672
+%%EOF

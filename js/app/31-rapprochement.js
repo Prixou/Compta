@@ -269,7 +269,7 @@ function viewBrap() {
       ${hasRel ? `<strong>${st.files.map((f) => esc(f.name)).join(', ')}</strong>
         <span class="muted small">${st.ops.length} opération(s) du ${fmtDate(st.ops[0].date)} au ${fmtDate(st.ops[st.ops.length - 1].date)}${st.files.some((f) => f.dup) ? ' · opérations en double ignorées' : ''}</span>
         <span class="muted small">Cliquer pour ajouter un autre relevé</span>`
-      : `${icon('file', 'fec-drop-ico')}<span><strong>Déposez le relevé</strong> (PDF, CSV, Excel, OFX, CAMT.053, CFONB) ou cliquez pour le choisir</span>`}
+      : `${icon('file', 'fec-drop-ico')}<span><strong>Déposez le relevé</strong> de n'importe quelle banque (PDF, CSV, Excel, OFX, QIF, MT940, CAMT, CFONB) ou cliquez pour le choisir</span>`}
     </div>`;
   const fecSlot = `<div class="card fec-drop cmp-slot${st.fec ? ' on' : ''}" data-action="brap-pick-fec" data-side="fec" role="button" tabindex="0">
       <span class="cmp-role">FEC du journal de banque</span>

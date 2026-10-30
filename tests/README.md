@@ -35,6 +35,9 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
   compte BNC ignoré, fournisseur à échéance M+1, règlement de douze factures, factures non consécutives (combinaison unique,
   ambiguë ou trop espacée), deux factures pour deux règlements, avoirs dans les lots et au compte d'attente) et les résultats attendus, pour la page « Lettrage »
   (`suites/lettrage-test.js`).
+  `genbanques.py` produit des relevés inventés aux mises en page des principales banques (`fixtures/banques/` : dix PDF
+  lus par les en-têtes ou par les colonnes déduites, CSV de banques en ligne, QIF, MT940, CAMT.052) et les résultats
+  attendus, pour `suites/banques-test.js`.
   `genlcr.py` produit des relevés LCR en PDF (relevés d'effets à payer au format Crédit Agricole, relevé de lettres de
   change au format CIC) et deux listings fournisseurs (`fixtures/lcr/`) pour la page « Écritures LCR » (`suites/lcr-test.js`).
 - `suites/` : une suite par fonction (analyse FEC, cycles, TVA, pièces, portefeuille, suivi mensuel, sécurité…) ; `suites/lib.js` regroupe les aides de navigation (onglets et espaces Mois / Révision / Consultation de l'analyse FEC, choix du mois).

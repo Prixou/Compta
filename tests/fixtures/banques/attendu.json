@@ -1,0 +1,166 @@
+{
+ "pdf": {
+  "pdf-nature-operations.pdf": {
+   "ops": 12,
+   "sumD": 9525.01,
+   "sumC": 5170.47,
+   "soldeInitial": 7550.97,
+   "soldeFinal": 3196.43,
+   "mode": "en-têtes",
+   "du": "2026-10-01",
+   "au": "2026-10-31"
+  },
+  "pdf-solde-precedent.pdf": {
+   "ops": 12,
+   "sumD": 9407.35,
+   "sumC": 7192.72,
+   "soldeInitial": 2489.12,
+   "soldeFinal": 274.49,
+   "mode": "en-têtes",
+   "du": "2026-10-01",
+   "au": "2026-10-31"
+  },
+  "pdf-date-libelle.pdf": {
+   "ops": 12,
+   "sumD": 11028.86,
+   "sumC": 5575.88,
+   "soldeInitial": 512.34,
+   "soldeFinal": -4940.64,
+   "mode": "en-têtes",
+   "du": "2026-10-01",
+   "au": "2026-10-31"
+  },
+  "pdf-debit-euros.pdf": {
+   "ops": 12,
+   "sumD": 12564.28,
+   "sumC": 6487.87,
+   "soldeInitial": 12900.0,
+   "soldeFinal": 6823.59,
+   "mode": "en-têtes",
+   "du": "2026-10-01",
+   "au": "2026-10-31"
+  },
+  "pdf-ancien-solde.pdf": {
+   "ops": 12,
+   "sumD": 8052.33,
+   "sumC": 6875.62,
+   "soldeInitial": 876.54,
+   "soldeFinal": -300.17,
+   "mode": "en-têtes",
+   "du": null,
+   "au": null
+  },
+  "pdf-date-ope.pdf": {
+   "ops": 12,
+   "sumD": 9410.21,
+   "sumC": 5215.28,
+   "soldeInitial": 3120.45,
+   "soldeFinal": -1074.48,
+   "mode": "en-têtes",
+   "du": "2026-10-01",
+   "au": "2026-10-31"
+  },
+  "pdf-montant-solde.pdf": {
+   "ops": 12,
+   "sumD": 10192.82,
+   "sumC": 6820.92,
+   "soldeInitial": 640.0,
+   "soldeFinal": -2731.9,
+   "mode": "en-têtes",
+   "du": null,
+   "au": null
+  },
+  "pdf-money-out.pdf": {
+   "ops": 12,
+   "sumD": 11123.79,
+   "sumC": 22762.41,
+   "soldeInitial": 10000.0,
+   "soldeFinal": 21638.62,
+   "mode": "en-têtes",
+   "du": null,
+   "au": null
+  },
+  "pdf-mouvements.pdf": {
+   "ops": 12,
+   "sumD": 9216.3,
+   "sumC": 5227.18,
+   "soldeInitial": 1000.0,
+   "soldeFinal": -2989.12,
+   "mode": "colonnes déduites (debit, credit)",
+   "du": "2026-10-01",
+   "au": "2026-10-31"
+  },
+  "pdf-rubriques.pdf": {
+   "ops": 12,
+   "sumD": 11030.06,
+   "sumC": 7702.17,
+   "soldeInitial": 2500.0,
+   "soldeFinal": -827.89,
+   "mode": "colonnes déduites (rubrique)",
+   "du": "2026-10-01",
+   "au": "2026-10-31"
+  }
+ },
+ "files": {
+  "csv-type-boursorama.csv": {
+   "ops": 12,
+   "sumD": 12872.14,
+   "sumC": 10896.89,
+   "format": "CSV / Excel"
+  },
+  "csv-type-n26.csv": {
+   "ops": 12,
+   "sumD": 10465.67,
+   "sumC": 7029.58,
+   "format": "CSV / Excel"
+  },
+  "csv-type-fortuneo.csv": {
+   "ops": 12,
+   "sumD": 9673.13,
+   "sumC": 7366.93,
+   "format": "CSV / Excel"
+  },
+  "csv-type-revolut.csv": {
+   "ops": 12,
+   "sumD": 8055.59,
+   "sumC": 6513.54,
+   "opening": 500.0,
+   "closing": -1042.05,
+   "format": "CSV / Excel"
+  },
+  "csv-sans-entete.csv": {
+   "ops": 12,
+   "sumD": 14803.87,
+   "sumC": 3872.16,
+   "format": "CSV / Excel (sans en-tête)"
+  },
+  "csv-sens.csv": {
+   "ops": 12,
+   "sumD": 9483.48,
+   "sumC": 6418.47,
+   "format": "CSV / Excel"
+  },
+  "releve.qif": {
+   "ops": 12,
+   "sumD": 12284.62,
+   "sumC": 7768.09,
+   "format": "QIF"
+  },
+  "releve.sta": {
+   "ops": 12,
+   "sumD": 13530.19,
+   "sumC": 5130.85,
+   "format": "MT940",
+   "opening": 3456.0,
+   "closing": -4943.34
+  },
+  "releve-camt052.xml": {
+   "ops": 12,
+   "sumD": 10045.88,
+   "sumC": 3718.79,
+   "format": "CAMT.052",
+   "opening": 1000.0,
+   "closing": -5327.09
+  }
+ }
+}
