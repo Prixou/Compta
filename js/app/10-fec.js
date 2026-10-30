@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '92';
+const ASSET_VERSION = '93';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -333,7 +333,8 @@ function viewFec() {
         <p class="muted small">Fichier .txt ou .csv au format de l'article A47 A-1 du LPF (tabulation ou « | », UTF-8 ou ISO-8859-15), y compris BNC / BA, ou archive <strong>.zip « FEC + justificatifs »</strong> (export Pennylane). Le dossier est retrouvé par le SIREN ; une pharmacie est reconnue (ou indiquée dans la fiche du dossier) et analysée comme une officine.</p>
       </div>
       <section class="card fec-intro"><h2>Tout ce qui s'appuie sur le FEC, au même endroit</h2>
-        <p class="muted">Une fois le FEC lu, ses onglets regroupent : synthèse, révision par cycles A à K, gestion du mois, rapprochement bancaire, lettrage, paie (éditions Silae), immobilisations (état du module immo), TVA et consultation (SIG, balance, journaux, conformité). Chaque outil reprend le FEC ouvert : rien à redéposer.</p>
+        <p class="muted">Une fois le FEC lu, ses onglets regroupent : synthèse, révision par cycles A à K, gestion du mois, rapprochement bancaire, lettrage et écritures LCR, paie (éditions Silae), immobilisations (état du module immo), TVA et consultation (SIG, balance, journaux, conformité). Chaque outil reprend le FEC ouvert : rien à redéposer.</p>
+        <p class="muted small fec-nofec">Pas de FEC sous la main ? <a href="#/lettrage">Lettrer un grand livre</a> (PDF ou texte de l'édition « Grands-livres ») ou <a href="#/lcr">préparer les écritures LCR</a> avec le listing fournisseurs Excel.</p>
       </section>
       <section class="card"><h2>${icon('shield')} Confidentialité</h2>
         <p>Le FEC est analysé <strong>sur cet appareil uniquement</strong>, dans un processus isolé : il n'est ni envoyé, ni conservé. Seule la synthèse (chiffres clés et nombre d'anomalies) peut être enregistrée, chiffrée, dans le dossier si vous le demandez.</p>

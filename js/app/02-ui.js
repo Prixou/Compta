@@ -151,9 +151,7 @@ function renderShell() {
           <span class="nav-group">Outils sans FEC</span>
           <a href="#/calcul" data-nav="calcul">${icon('calc')}<span>Calcul TVA</span></a>
           <a href="#/tns" data-nav="tns">${icon('calc')}<span>Cotisations TNS</span></a>
-          <a href="#/lcr" data-nav="lcr">${icon('bank')}<span>Écritures LCR</span></a>
           <a href="#/releves" data-nav="releves">${icon('file')}<span>Relevés PDF → Excel</span></a>
-          <a href="#/lettrage" data-nav="lettrage">${icon('link')}<span>Lettrage (grand livre)</span></a>
           <a href="#/ratios" data-nav="ratios">${icon('chart')}<span>Ratios sectoriels</span></a>
         </nav>
         <div class="side-actions">
@@ -211,7 +209,7 @@ function route() {
   const main = $('#main');
   // Anciennes adresses : analyseur pharmacie (le profil vient désormais du dossier) et portefeuille.
   if (view === 'fec' && parts[1] === 'lot') { location.replace('#/portefeuille'); return; }
-  const navOf = { dossier: 'dossiers', portefeuille: 'fec', anonymiser: 'fec', comparer: 'fec', rapprochement: 'fec', social: 'fec' };
+  const navOf = { dossier: 'dossiers', portefeuille: 'fec', anonymiser: 'fec', comparer: 'fec', rapprochement: 'fec', social: 'fec', lettrage: 'fec', lcr: 'fec' };
   $$('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === (navOf[view] || view)));
   switch (view) {
     case 'dossiers': main.innerHTML = viewDossiers(); renderDossierList(); break;

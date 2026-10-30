@@ -18,7 +18,7 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   pg.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message)); pg.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await pg.goto('http://localhost:8765/');
   await pg.fill('input[name=p1]', 'Cabinet-Test-2026!'); await pg.fill('input[name=p2]', 'Cabinet-Test-2026!'); await pg.check('input[name=ack]'); await pg.click('button[type=submit]'); await pg.waitForSelector('.layout');
-  await pg.click('a[data-nav=lettrage]'); await pg.waitForSelector('.fec-drop');
+  await pg.click('a[data-nav=fec]'); await pg.click('.fec-nofec a[href="#/lettrage"]'); await pg.waitForSelector('.fec-drop');
   const S = () => pg.evaluate(() => {
     const st = ui.lett;
     const tot = { accounts: st.accs.length, lines: st.accs.reduce((t, a) => t + a.lines.length, 0), groups: 0, lettered: 0, amount: 0, open: 0 };
@@ -187,7 +187,7 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   await pg.goto('http://localhost:8765/#/fec'); await pg.waitForSelector('.fec-drop');
   const [ch3] = await Promise.all([pg.waitForEvent('filechooser'), pg.click('.fec-drop')]);
   await ch3.setFiles(D + '600000006FEC20261231.txt'); await pg.waitForSelector('.fec-meta');
-  await pg.click('a[data-nav=lettrage]'); await pg.waitForSelector('[data-action=lett-fec]');
+  await pg.goto('http://localhost:8765/#/lettrage'); await pg.waitForSelector('[data-action=lett-fec]');
   await pg.click('[data-action=lett-fec]'); await pg.waitForTimeout(200);
   s = await S();
   expect(s.src === 'fec' && s.tot.groups === 3, 'bouton « Utiliser le FEC ouvert »', JSON.stringify(s.tot));
@@ -197,7 +197,7 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   await pg.click('.fec-groups button[data-group=lettrage]'); await pg.waitForTimeout(200);
   s = await S();
   expect(s.src === 'fec' && s.tot.groups === 3 && !(await pg.$('main h1:has-text("Lettrage")')) && (await pg.textContent('.fec-groups button.on')) === 'Lettrage et LCR', 'onglet Lettrage de l’Espace FEC : FEC ouvert repris', JSON.stringify(s.tot));
-  await pg.click('a[data-nav=lettrage]'); await pg.waitForSelector('.fec-drop');
+  await pg.goto('http://localhost:8765/#/lettrage'); await pg.waitForSelector('.fec-drop');
 
   // 9. Téléphone et verrouillage
   await pg.setViewportSize({ width: 390, height: 844 }); await pg.waitForTimeout(300);

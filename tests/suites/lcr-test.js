@@ -17,7 +17,9 @@ const expect = (cond, label, info) => { if (cond) console.log(`OK ${label}`); el
   pg.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message)); pg.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await pg.goto('http://localhost:8765/');
   await pg.fill('input[name=p1]', 'Cabinet-Test-2026!'); await pg.fill('input[name=p2]', 'Cabinet-Test-2026!'); await pg.check('input[name=ack]'); await pg.click('button[type=submit]'); await pg.waitForSelector('.layout');
-  await pg.click('a[data-nav=lcr]'); await pg.waitForSelector('.lcr');
+  // Hors du menu (doublon de l'onglet de l'Espace FEC) : lien « préparer les écritures LCR » de l'Espace FEC sans FEC
+  await pg.click('a[data-nav=fec]'); await pg.click('.fec-nofec a[href="#/lcr"]'); await pg.waitForSelector('.lcr');
+  expect(!(await pg.$('a[data-nav=lcr]')), 'page Écritures LCR ouverte depuis l\'Espace FEC, hors du menu');
   const pick = async (sel, files) => { const [ch] = await Promise.all([pg.waitForEvent('filechooser'), pg.click(sel)]); await ch.setFiles(files); };
   const R = (n) => D + `lcr/releve-${n}.pdf`;
   const rowOf = (nom) => pg.$eval(`.lcr-acc tr:has(input[data-nom="${nom}"])`, (tr) => tr.textContent).catch(() => '');
