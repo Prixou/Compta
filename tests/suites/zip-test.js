@@ -19,7 +19,7 @@ const { fecTab, fecMonth } = require('./lib');
     await ch.setFiles(D + f); await p.waitForSelector('.fec-meta, .banner.warn', { timeout: 30000 });
   };
   await load('export-pennylane.zip');
-  console.log('méta :', (await p.textContent('.fec-meta-grid')).replace(/\s+/g, ' ').trim());
+  console.log('méta :', (await p.textContent('.fec-bar-main p')).replace(/\s+/g, ' ').trim());
   console.log('carte :', (await p.textContent('section:has(h2:text("Justificatifs de l\'archive"))')).replace(/\s+/g, ' ').trim().slice(0, 600));
   await fecTab(p, 'pieces', 0); await p.waitForTimeout(200);
   console.log('pièces (bilan) :', await p.$$eval('.piece span', (l) => l.map((x) => x.textContent).filter((t) => /n° |Justificatif « /.test(t))));

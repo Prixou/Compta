@@ -2,7 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
-const { fecTab, fecMonth } = require('./lib');
+const { fecTab, fecMonth, fecMore } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', acceptDownloads: true });
@@ -38,9 +38,9 @@ const { fecTab, fecMonth } = require('./lib');
   await fecTab(p, 'pieces', 0); await p.waitForTimeout(150);
   console.log('\npièces :', await p.$$eval('.pieces-group', (g) => g.map((x) => x.querySelector('h3').textContent.replace(/\s+/g, ' ') + ' : ' + Array.from(x.querySelectorAll('.piece span')).map((s) => s.textContent).filter((t) => /espèces|professionnel|contravention|DAS2|charges constatées|Notes de frais|Factures de vente n°/.test(t)).join(' || ')).join('\n')));
   // Mission + export
-  await p.click('button[data-action=fec-mission]');
+  await fecMore(p, 'fec-mission', 0);
   console.log('\ntoast :', await p.textContent('#toast'));
-  await p.click('button[data-action=fec-export]');
+  await fecMore(p, 'fec-export', 0);
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#ask button[type=submit]')]);
   await dl.saveAs(O + 'analyse-cycles.xlsx');
   // Mobile

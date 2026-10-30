@@ -1,15 +1,28 @@
-// Aides communes aux suites : navigation dans l'analyse FEC (espaces Mois / Révision / Consultation).
+// Aides communes aux suites : navigation dans l'Espace FEC (onglets Synthèse, Révision A–K, Mois, Rapprochement bancaire,
+// Lettrage, Paie, Immobilisations, TVA, Consultation, et leurs sous-onglets).
 'use strict';
-const SPACE_OF = { 'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', tva: 'mois', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
+const GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', pieces: 'revision', revue: 'revision',
+  'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', rappro: 'banque', brap: 'banque', lettrage: 'lettrage', paie: 'paie', 'immo-etat': 'immos',
+  tvarev: 'tva', tva: 'tva', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
 
-// Cycles du dossier de révision : sous l'onglet « Cycles A à K » de l'espace Révision.
+// Cycles du dossier de révision : sous-onglet « Cycles A à K » de l'onglet Révision A–K.
 const CYCLE_TABS = ['regul', 'treso', 'achats', 'charges', 'clients', 'stocks', 'immo', 'social', 'etat', 'capitaux', 'autres'];
 
-// Ouvre un onglet de l'analyse, en passant d'abord dans son espace s'il n'est pas affiché (et dans « Cycles A à K » pour un cycle).
+// Ouvre un sous-onglet de l'Espace FEC, en passant d'abord par son onglet (et par « Cycles A à K » pour un cycle).
 async function fecTab(p, tab, wait = 150) {
-  if (!(await p.$(`.fec-tabs button[data-tab="${tab}"]`))) await p.click(`.fec-spaces button[data-space=${SPACE_OF[tab] || 'revision'}]`);
-  if (CYCLE_TABS.includes(tab) && !(await p.$(`.fec-tabs button[data-tab="${tab}"]`))) await p.click('.fec-tabs button[data-tab="cycles"]');
-  await p.click(`.fec-tabs button[data-tab="${tab}"]`);
+  const sub = `.fec-tabs button[data-tab="${tab}"]`;
+  if (!(await p.$(sub))) {
+    await p.click(`.fec-groups button[data-group="${CYCLE_TABS.includes(tab) ? 'revision' : GROUP_OF[tab] || 'synthese'}"]`);
+    if (CYCLE_TABS.includes(tab) && !(await p.$(sub))) await p.click('.fec-tabs button[data-tab="cycles"]');
+  }
+  if (await p.$(sub)) await p.click(sub);
+  if (wait) await p.waitForTimeout(wait);
+}
+
+// Menu « Plus » du bandeau de l'Espace FEC (exporter, enregistrer la synthèse, mission de revue…)
+async function fecMore(p, action, wait = 150) {
+  if (!(await p.$('.fec-more[open]'))) await p.click('.fec-more summary');
+  await p.click(`.fec-more-menu [data-action="${action}"]`);
   if (wait) await p.waitForTimeout(wait);
 }
 
@@ -21,4 +34,4 @@ async function fecMonth(p, ym, wait = 200) {
   if (wait) await p.waitForTimeout(wait);
 }
 
-module.exports = { fecTab, fecMonth, SPACE_OF };
+module.exports = { fecTab, fecMonth, fecMore, GROUP_OF };

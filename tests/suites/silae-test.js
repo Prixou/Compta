@@ -27,10 +27,11 @@ const { fecTab } = require('./lib');
   const checks = () => p.$$eval('.fec-checks .fec-check', (l) => l.map((x) => x.querySelector('.lvl').textContent + ' ' + x.querySelector('strong').textContent));
   ko((await checks()).some((x) => /Information Cadrage de la paie à faire/.test(x)), 'cycle H : cadrage de la paie à faire');
 
-  // 1. Ouverture depuis le cycle H : le FEC de l'analyse est repris, le dossier rattaché
+  // 1. Depuis le cycle H : onglet Paie de l'Espace FEC, le FEC de l'analyse est repris (pas de case FEC), le dossier rattaché
   await p.click('[data-action=social-from-fec]'); await p.waitForSelector('.soc-zones'); await p.waitForTimeout(200);
-  const z3 = await p.textContent('.soc-zone:nth-child(3) .soc-files');
-  ko(/FEC de l'analyse : \d+ lignes retenues/.test(z3) && /SARL PAIE FICTIVE, exercice clos le 31\/12\/2025/.test(await p.textContent('.soc-link')), `FEC de l'analyse repris, dossier rattaché : ${z3.trim()}`);
+  const z3 = await p.evaluate(() => ui.social.files.map((x) => x.info).join(' '));
+  ko(/FEC de l'analyse : \d+ lignes retenues/.test(z3) && (await p.textContent('.fec-groups button.on')) === 'Paie' && !(await p.$('.soc-drop[data-zone=gl]'))
+    && await p.evaluate(() => ui.social.link.clientId === clientBySiren('456456456').id && ui.social.link.closing === '2025-12-31'), `onglet Paie, FEC de l'analyse repris, dossier rattaché : ${z3.trim()}`);
   const drop = async (zone, file) => {
     [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click(`.soc-drop[data-zone=${zone}]`)]);
     await ch.setFiles(D + 'silae/' + file); await p.waitForTimeout(300);
@@ -75,7 +76,7 @@ const { fecTab } = require('./lib');
   await p.click('.soc-card[data-key="645500"] [data-social=org]:checked'); await p.waitForTimeout(150);
   const saved = await p.evaluate(() => JSON.stringify(clientBySiren('456456456').revision['2025-12-31'].social.MAP));
   ko(saved === '{"645500":[]}', `rattachement enregistré dans le dossier ${saved}`);
-  await p.click('[data-action=social-back]'); await p.waitForTimeout(300);
+  await fecTab(p, 'social', 300);
   await p.evaluate(() => { ui.social = null; });
   await p.click('[data-action=social-from-fec]'); await p.waitForSelector('.soc-zones'); await p.waitForTimeout(200);
   await drop('recap', 'silae-journal-de-paie.pdf');
@@ -87,13 +88,13 @@ const { fecTab } = require('./lib');
   await drop('repos', 'silae-solde-de-repos.pdf');
 
   // 5. Retour au cycle H : synthèse, contrôles, pièces, colonne « Selon pièce » des congés payés
-  await p.click('[data-action=social-back]'); await p.waitForTimeout(300);
+  await fecTab(p, 'social', 300);
   const c2 = await checks();
   console.log('contrôles :\n  ' + c2.join('\n  '));
   ko(c2.some((x) => /À vérifier 6455 Mutuelle Harmonie : écart avec la paie Silae/.test(x)) && c2.some((x) => /À vérifier 4373 Harmonie mutuelle : écart avec la paie Silae/.test(x))
     && c2.some((x) => /Conforme Paie Silae : 15 comptes sans écart/.test(x)) && c2.some((x) => /Conforme 6312 Taxe d’apprentissage : écart justifié avec la paie Silae/.test(x)) && !c2.some((x) => /à faire/.test(x)), 'contrôles du cycle H repris du cadrage');
   const sum = (await p.textContent('.card:has([data-action=social-from-fec])')).replace(/\s+/g, ' ');
-  ko(/éditions lues : journal de paie, détail des cotisations, solde de repos\) : 2 compte\(s\) à justifier sur 19/.test(sum) && /Ouvrir le cadrage de la paie/.test(sum), 'cadre « Cadrage de la paie » du cycle H');
+  ko(/éditions lues : journal de paie, détail des cotisations, solde de repos\) : 2 compte\(s\) à justifier sur 19/.test(sum) && /Ouvrir l’onglet Paie/.test(sum), 'cadre « Cadrage de la paie » du cycle H');
   const docs = await p.$$eval('.cyc-docs li', (l) => l.map((x) => x.querySelector('select').selectedOptions[0].textContent));
   ko(docs.length === 3 && docs.every((t) => t === 'Édition lue'), `pièces du cycle : ${docs.join(', ')}`);
   ko(await p.evaluate(() => JSON.stringify(wpSoldeStore()) === '{"428200":2150,"438200":903}'), 'congés payés : montant du solde de repos dans la colonne « Selon pièce »');
@@ -116,7 +117,7 @@ const { fecTab } = require('./lib');
   await p.setViewportSize({ width: 1366, height: 950 });
 
   // 8. Ancien rapprochement (montants relevés avant la fusion) : repris dans les contrôles tant que le cadrage n'est pas refait
-  await p.click('[data-action=social-back]'); await p.waitForTimeout(200);
+  await fecTab(p, 'social', 200);
   await p.evaluate(() => { const ws = wpStore(); delete ws.social; ws.silae = { brut: { v: 30000, lab: 'Total', group: '', col: 'Salaire brut', file: 'ancien.pdf' } }; ui.social = null; refresh(); });
   await p.waitForTimeout(200);
   const c3 = await checks();

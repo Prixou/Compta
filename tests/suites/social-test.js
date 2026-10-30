@@ -19,8 +19,9 @@ const EXPF = JSON.parse(fs.readFileSync(D + 'attendu-fec.json', 'utf8'));
   pg.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message)); pg.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await pg.goto('http://localhost:8765/');
   await pg.fill('input[name=p1]', 'Cabinet-Test-2026!'); await pg.fill('input[name=p2]', 'Cabinet-Test-2026!'); await pg.check('input[name=ack]'); await pg.click('button[type=submit]'); await pg.waitForSelector('.layout');
-  await pg.click('a[data-nav=social]'); await pg.waitForSelector('.soc-zones');
-  expect((await pg.textContent('h1')) === 'CYCLE SOCIAL' && (await pg.textContent('a[data-nav=social]')).includes('CYCLE SOCIAL'), 'page et menu « CYCLE SOCIAL »');
+  // Page autonome (sans FEC ouvert) : l'adresse #/social reste disponible ; le menu mène à l'onglet Paie de l'Espace FEC
+  await pg.goto('http://localhost:8765/#/social'); await pg.waitForSelector('.soc-zones');
+  expect((await pg.textContent('h1')) === 'CYCLE SOCIAL' && !(await pg.$('a[data-nav=social]')), 'page « CYCLE SOCIAL » (hors menu)');
   const drop = async (zone, file) => {
     const [ch] = await Promise.all([pg.waitForEvent('filechooser'), pg.click(`.soc-drop[data-zone=${zone}]`)]);
     await ch.setFiles(D + file);

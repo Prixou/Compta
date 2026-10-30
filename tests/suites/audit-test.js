@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
-const { fecTab, fecMonth } = require('./lib');
+const { fecTab, fecMonth, fecMore } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' });
@@ -64,7 +64,7 @@ const { fecTab, fecMonth } = require('./lib');
 
   // D. Mission de revue synchronisée avec la feuille de travail
   await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-meta');
-  await p.click('button[data-action=fec-mission]'); await p.waitForTimeout(150);
+  await fecMore(p, 'fec-mission', 0); await p.waitForTimeout(150);
   await fecTab(p, 'achats', 0); await p.waitForTimeout(150);
   const first = p.locator('.wp > li:has(select[data-wp=st])').first();
   const label = (await first.locator('strong').first().textContent()).trim();

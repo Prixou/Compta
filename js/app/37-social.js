@@ -360,7 +360,7 @@ async function socLoad(list, zone) {
     if (p) { const [m, y] = p.split('/').map(Number); st.dClo = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); }
   }
   socRun();
-  if (location.hash.startsWith('#/social')) refresh();
+  if (/^#\/(social|fec)/.test(location.hash)) refresh();
 }
 function socDrop(files, zone) {
   if (zone) socLoad(files, zone);
@@ -411,13 +411,14 @@ function socSave(st) {
   cards.filter((cd) => cd.sec === 'cp' && cd.s != null && (cd.accs || []).length === 1).forEach((cd) => { (ws.soldes = ws.soldes || {})[cd.accs[0]] = cd.s; });
   if (st.link && clientById(st.link.clientId)) persist();
 }
-// Depuis le cycle H de l'analyse : le FEC analysé est repris (pas de nouveau dépôt), le cadrage rattaché à son exercice.
-async function socFromFec() {
+// Onglet « Paie » de l'Espace FEC : le FEC analysé est repris (pas de nouveau dépôt), le cadrage rattaché à son exercice.
+async function socBindFec() {
   const f = ui.fec, r = f && f.result;
-  if (!r) return;
+  if (!r || f.socBinding) return;
   const closing = r.meta.closing || r.meta.fileName;
   let st = ui.social;
   if (!(st && st.fecOf === f)) {
+    f.socBinding = true;
     ui.social = null;
     st = socState();
     st.fecOf = f;
@@ -434,9 +435,23 @@ async function socFromFec() {
         st.files.push({ name: f.fileName || r.meta.fileName, zone: 'gl', err: e.message || String(e) });
       }
     }
+    f.socBinding = false;
     socRun();
   }
-  location.hash = '#/social';
+}
+// Bouton du cycle H : ouvre l'onglet Paie
+async function socFromFec() {
+  if (!ui.fec || !ui.fec.result) return;
+  Object.assign(ui.fec, { space: 'paie', section: 'paie' });
+  if (location.hash.startsWith('#/fec')) refresh(); else location.hash = '#/fec';
+}
+function socInFec() {
+  const f = ui.fec, st = ui.social;
+  if (!(st && st.fecOf === f) || f.socBinding) {
+    if (!f.socBinding) socBindFec().then(() => { if (ui.fec === f && location.hash.startsWith('#/fec')) refresh(); });
+    return '<section class="card"><p class="muted" role="status">Lecture du FEC pour le cadrage de la paie…</p></section>';
+  }
+  return viewSocial(true);
 }
 
 // ---------- Calcul ----------
@@ -850,22 +865,27 @@ function socLinkInfo(st) {
   return `<div class="banner info soc-link"><span>${where}</span>${back}</div>`;
 }
 
-function viewSocial() {
+// embedded : onglet « Paie » de l'Espace FEC (le FEC de l'analyse remplit la case FEC, qui n'est pas affichée)
+function viewSocial(embedded) {
   const st = socState();
-  const zone = (z) => {
+  const inFec = embedded && st.glFec && st.fecOf === ui.fec;
+  const zone = (z, i) => {
     const fs = st.files.filter((x) => x.zone === z.k);
     const ok = z.k === 'gl' ? st.parsed.gl.length : st.parsed[z.k];
     const bad = fs.some((x) => x.err);
-    return `<section class="card soc-zone"><div class="soc-zh"><span class="soc-n">${z.n}</span><h2>${z.t}</h2><span class="soc-chip ${ok ? 'ok' : bad ? 'anom' : 'vide'}">${ok ? 'Chargé' : bad ? 'Fichier refusé' : z.opt ? 'Facultatif' : 'À déposer'}</span></div>
+    return `<section class="card soc-zone"><div class="soc-zh"><span class="soc-n">${i + 1}</span><h2>${z.t}</h2><span class="soc-chip ${ok ? 'ok' : bad ? 'anom' : 'vide'}">${ok ? 'Chargé' : bad ? 'Fichier refusé' : z.opt ? 'Facultatif' : 'À déposer'}</span></div>
       <ol class="soc-steps">${z.steps}</ol>${z.note ? `<p class="muted small soc-hint">${z.note}</p>` : ''}
       <div class="fec-drop soc-drop" data-action="social-pick" data-zone="${z.k}" role="button" tabindex="0"><p><strong>${z.drop}</strong></p><p class="muted small">${z.hint}</p></div>
       ${fs.length ? `<ul class="soc-files">${fs.map((x) => `<li><span>${esc(x.name)}</span><em class="${x.err ? 'late' : 'muted'}">${esc(x.err || x.info || 'Chargé')}</em></li>`).join('')}</ul>` : ''}</section>`;
   };
-  let h = `<div class="page-head"><div><h1>CYCLE SOCIAL</h1><p class="muted small">Cadrage paie : 641, 645, 63, 42 et 43, congés payés</p></div>
-      <div class="head-actions">${st.last ? '<button class="btn" data-action="social-copy-all">Copier toutes les notes</button>' : ''}${st.files.length ? '<button class="btn" data-action="social-clear">Retirer les fichiers</button>' : ''}</div></div>
+  const actions = `<div class="head-actions">${st.last ? '<button class="btn" data-action="social-copy-all">Copier toutes les notes</button>' : ''}${st.files.some((x) => x.zone !== 'gl' || !inFec) ? '<button class="btn" data-action="social-clear">Retirer les fichiers</button>' : ''}</div>`;
+  let h = embedded
+    ? `<div class="page-head"><p class="muted">Cadrage de la paie (641, 645, 63, 42 et 43, congés payés) avec les éditions SILAE : déposez-les dans leur case, le FEC ouvert est repris. Chaque compte est rapproché de la paie et reçoit sa note ; le cadrage est enregistré dans le dossier et repris par le cycle H.</p>${actions}</div>`
+    : `<div class="page-head"><div><h1>CYCLE SOCIAL</h1><p class="muted small">Cadrage paie : 641, 645, 63, 42 et 43, congés payés</p></div>${actions}</div>
     <p class="muted">Déposez les exports SILAE et le FEC dans leur case en suivant les étapes. Chaque compte est ensuite rapproché de la paie et reçoit sa note. Les fichiers sont lus sur l'appareil : rien n'est envoyé ni conservé.</p>
-    ${socLinkInfo(st)}
-    <div class="soc-zones">${SOC_ZONES.map(zone).join('')}</div>
+    ${socLinkInfo(st)}`;
+  h += `
+    <div class="soc-zones">${SOC_ZONES.filter((z) => !(inFec && z.k === 'gl')).map(zone).join('')}</div>
     <section class="card"><div class="lett-opts">
       <label>Date de clôture <input type="date" data-social="dClo" value="${esc(st.dClo)}"></label>
       <label>Nom du logiciel comptable <input data-social="soft" value="${esc(socSoft())}"></label>

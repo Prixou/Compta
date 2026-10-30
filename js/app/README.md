@@ -10,7 +10,7 @@ de sécurité (CSP) n'autorise que les scripts du site.
 | `01-core.js` | Référentiels (statuts, modèles), utilitaires, données, index, portefeuilles, étapes cochées automatiquement |
 | `02-ui.js` | Fragments d'interface, écrans de verrouillage, structure, navigation (`route`, `refresh`) |
 | `03-tableau.js` … `09-import.js` | Tableau de bord, dossiers, missions, suivi mensuel, messages, calendrier fiscal, import Excel |
-| `10-fec.js` | Analyse FEC : lancement du moteur (`fec-worker.js`), profil (classique ou officine), espaces Mois / Révision / Consultation, graphiques, écran principal |
+| `10-fec.js` | Espace FEC : lancement du moteur (`fec-worker.js`), profil (classique ou officine), bandeau du dossier, onglets (Synthèse, Révision A–K, Mois, Rapprochement bancaire, Lettrage, Paie, Immobilisations, TVA, Consultation) et sous-onglets, graphiques, écran principal |
 | `11-fec-pieces.js` | Pièces à demander (client, mois, fournisseurs) |
 | `12-fec-revue.js` | Revue N / N-1, note de synthèse, rapprochement bancaire |
 | `13-fec-pharmacie.js` | Officine : tiers payant, CA et TVA par taux |

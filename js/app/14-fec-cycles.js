@@ -1107,7 +1107,7 @@ function viewCycle(key) {
   const r = ui.fec.result;
   ui.fec.lastCycle = key;
   if (CYCLE_VIEWS[key] && !(key === 'clients' && ui.fecProfile === 'pharmacie')) return CYCLE_VIEWS[key]();
-  return `${cycleKpis(r, key)}${cycleBanner(r, key)}${key === 'social' ? paieCard(r) : ''}${key === 'immo' ? immoEtatCard(r) : ''}${cycleHead(key, CYCLE_INTRO[key])}`;
+  return `${cycleKpis(r, key)}${cycleBanner(r, key)}${key === 'social' ? paieCard(r) : ''}${key === 'immo' ? immoEtatLink() : ''}${cycleHead(key, CYCLE_INTRO[key])}`;
 }
 
 // ---------- Cycle H : cadrage de la paie (CYCLE SOCIAL) ----------
@@ -1151,7 +1151,7 @@ function silaeChecks(r, out) {
   const ctl = silaeControls(r);
   const read = ctl.filter((c) => sil[c.id]);
   if (!read.length) {
-    if (ctl.some((c) => c.doc === 'journal')) out.add('info', 'Cadrage de la paie à faire', 'Ouvrez le cadrage de la paie (bouton « Faire le cadrage de la paie » de ce cycle) : le FEC est repris, déposez les éditions Silae (journal ou récapitulatif de paie, détail des cotisations, solde de repos) et chaque compte est rapproché de la paie.');
+    if (ctl.some((c) => c.doc === 'journal')) out.add('info', 'Cadrage de la paie à faire', 'Onglet « Paie » de l’Espace FEC : le FEC est repris, déposez les éditions Silae (journal ou récapitulatif de paie, détail des cotisations, solde de repos) et chaque compte est rapproché de la paie.');
     return;
   }
   read.forEach((c) => {
@@ -1173,7 +1173,7 @@ const silaeLu = (r, doc) => {
 
 function paieCard(r) {
   const sv = socSummary();
-  const btn = `<button class="btn primary" data-action="social-from-fec">${sv ? 'Ouvrir le cadrage de la paie' : 'Faire le cadrage de la paie'}</button>`;
+  const btn = `<button class="btn primary" data-action="social-from-fec">${sv ? 'Ouvrir l’onglet Paie' : 'Faire le cadrage de la paie (onglet Paie)'}</button>`;
   const intro = 'Rapprochement des comptes de paie avec les éditions Silae : 641 (hors congés payés) au brut, chaque 645 à la part patronale de ses organismes, 63 aux contributions formation et apprentissage, 421 au net, 43x et 442 aux cotisations, 4282 et 4382 au solde de repos. Le FEC de cette analyse est repris : déposez seulement les éditions (Excel ou PDF).';
   if (!sv) {
     const old = Object.keys(silaeStore()).length ? '<p class="muted small">Le rapprochement fait avec l\'ancienne version reste repris dans les contrôles jusqu\'à ce que le cadrage soit fait.</p>' : '';

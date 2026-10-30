@@ -29,13 +29,13 @@ const CYCLES = ['regul', 'treso', 'achats', 'charges', 'clients', 'stocks', 'imm
   ko(map === '471000:A 580000:A 512000:B 627000:B 164000:B 455000:B 401000:C 607000:C 765000:C 606100:D 613200:D 651000:D 654000:E 655000:K 411000:E 491000:E 681700:E 706000:E 370000:F 603700:F 218200:G 681100:G 775000:G 421000:H 645000:H 445710:I 635110:I 671200:I 695000:I 101000:J 120000:J 151000:J 681500:J 741000:J 467000:K 486000:K 671800:K 758000:K 890000:-', 'rangement des comptes A à K');
 
   // Onglets, tuiles de la synthèse et barre des cycles
-  const tabs = await p.$$eval('.fec-tabs button', (x) => x.map((y) => y.textContent).join(' · '));
+  const tabs = await p.$$eval('.fec-groups button', (x) => x.map((y) => y.textContent).join(' · '));
   console.log('onglets :', tabs);
-  ko(/Cycles A à K/.test(tabs) && !/Achats|Trésorerie/.test(tabs), 'un seul onglet pour les cycles');
+  ko(/Révision A–K/.test(tabs) && !/Achats|Trésorerie/.test(tabs), 'un seul onglet pour les cycles');
   const tiles = await p.$$eval('.cycle-tile', (k) => k.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   console.log('tuiles :\n  ' + tiles.join('\n  '));
   ko(tiles.length === 11 && /^\d+A · Régularité/.test(tiles[0]) && /K · Autres comptes/.test(tiles[10]), '11 tuiles A à K');
-  await p.click('.fec-tabs button[data-tab="cycles"]'); await p.waitForTimeout(150);
+  await p.click('.fec-groups button[data-group="revision"]'); await p.waitForTimeout(150);
   const bar = await p.$$eval('.fec-cycles button', (x) => x.map((y) => y.textContent.trim()));
   console.log('barre :', bar.join(' | '));
   ko(bar.length === 11, 'barre des cycles');

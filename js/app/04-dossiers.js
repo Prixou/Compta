@@ -112,7 +112,7 @@ function viewDossier(id) {
         ${open.length ? `<button class="btn" data-action="open-msg" data-client="${c.id}">${icon('mail')}Écrire au client</button>` : ''}
         <button class="btn" data-action="open-cal" data-client="${c.id}">${icon('calendar')}Échéances de l'année</button>
         <a class="btn" href="#/ratios/${c.id}">${icon('chart')}Ratios sectoriels</a>
-        <a class="btn" href="#/tns/${c.id}">${icon('calc')}TNS-COTISATION</a>
+        <a class="btn" href="#/tns/${c.id}">${icon('calc')}Cotisations TNS</a>
         <button class="btn primary" data-action="new-mission" data-client="${c.id}">${icon('plus')}Mission</button>
       </div>
     </div>

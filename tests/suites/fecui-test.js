@@ -2,7 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
-const { fecTab, fecMonth } = require('./lib');
+const { fecTab, fecMonth, fecMore } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', acceptDownloads: true });
@@ -26,7 +26,7 @@ const { fecTab, fecMonth } = require('./lib');
   const [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('.fec-drop')]);
   await ch.setFiles(D + '123456789FEC20251231.txt');
   await p.waitForSelector('.fec-meta', { timeout: 30000 });
-  console.log('meta :', (await p.textContent('.fec-meta-grid')).replace(/\s+/g, ' ').trim());
+  console.log('meta :', (await p.textContent('.fec-bar-main p')).replace(/\s+/g, ' ').trim());
   console.log('dossier rattaché :', await p.$eval('select[data-fec=client]', (s) => s.selectedOptions[0].textContent));
   console.log('KPI :', await p.$$eval('.fec-kpis .kpi', (k) => k.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).join(' | ')));
   console.log('points de révision :', await p.$$eval('section.card:has(h2:text-matches("Points de révision")) .fec-check', (l) => l.map((x) => x.querySelector('.lvl').textContent + ' ' + x.querySelector('strong').textContent).join(' | ')));
@@ -44,13 +44,13 @@ const { fecTab, fecMonth } = require('./lib');
   console.log('balance filtrée 512 :', await p.$$eval('.balance tbody tr', (t) => t.map((r) => r.textContent.replace(/\s+/g, ' ').trim())));
   console.log('focus conservé dans la recherche :', await p.evaluate(() => document.activeElement && document.activeElement.dataset.fec));
   // Export Excel
-  await p.click('button[data-action=fec-export]');
+  await fecMore(p, 'fec-export', 0);
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#ask button[type=submit]')]);
   await dl.saveAs(O + 'analyse-fec.xlsx');
   // Enregistrer + mission
-  await p.click('button[data-action=fec-save]');
+  await fecMore(p, 'fec-save', 0);
   console.log('toast :', await p.textContent('#toast'));
-  await p.click('button[data-action=fec-mission]');
+  await fecMore(p, 'fec-mission', 0);
   console.log('toast :', await p.textContent('#toast'));
   await p.click('a[data-nav=dossiers]'); await p.click('#dossier-list a, #dossier-list tbody tr');
   await p.waitForSelector('.fec-hist');

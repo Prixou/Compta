@@ -2,7 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
-const { fecTab, fecMonth } = require('./lib');
+const { fecTab, fecMonth, fecMore } = require('./lib');
 const PW = 'Cabinet-Test-2026!';
 const R = [];
 const ok = (name, cond, info) => { R.push([cond ? 'OK ' : 'KO ', name, info || '']); };
@@ -67,7 +67,7 @@ const ok = (name, cond, info) => { R.push([cond ? 'OK ' : 'KO ', name, info || '
 
   // 4. Sauvegarde puis restauration complète
   await go('fec', 'main h1'); await pick(await p.$('.fec-drop') ? '.fec-drop' : 'button[data-action=fec-pick]', '111111111FEC20251231.txt'); await p.waitForSelector('.fec-meta');
-  await p.click('button[data-action=fec-save]');
+  await fecMore(p, 'fec-save', 0);
   await go('dossiers');
   const before = { dossiers: await p.$$eval('#dossier-list .dcard, #dossier-list tbody tr', (x) => x.length) };
   await go('missions'); await p.selectOption('select[data-filter="mf.statut"]', 'toutes'); before.missions = await p.$$eval('#mission-list .mrow', (x) => x.length);

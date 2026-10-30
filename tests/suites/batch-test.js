@@ -33,7 +33,7 @@ const O = path.join(__dirname, '../out/');
   // Ouverture directe sur la demande de pièces du mois
   await p.goto('http://localhost:8765/#/portefeuille'); await p.waitForSelector('.dtable.batch');
   await p.click('.dtable.batch tr:has-text("SARL CYCLES") button[data-action=batch-open][data-mois]'); await p.waitForSelector('.fec-meta');
-  console.log('pièces du mois :', await p.textContent('.fec-spaces button.on strong'), '|', await p.textContent('.fec-tabs button.on'), '|', await p.$eval('input[data-fec=month]', (i) => i.value));
+  console.log('pièces du mois :', await p.textContent('.fec-groups button.on'), '|', await p.textContent('.fec-tabs button.on'), '|', await p.$eval('input[data-fec=month]', (i) => i.value));
   await p.goto('http://localhost:8765/#/portefeuille'); await p.waitForSelector('.dtable.batch');
   console.log('lot conservé :', (await p.$$('.dtable.batch tbody tr')).length, 'lignes');
   // Mobile

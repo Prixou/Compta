@@ -2,7 +2,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const D = path.join(__dirname, '../fixtures/');
 const O = path.join(__dirname, '../out/');
-const { fecTab, fecMonth } = require('./lib');
+const { fecTab, fecMonth, fecMore } = require('./lib');
 (async () => {
   const b = await chromium.launch();
   const p = await (await b.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' })).newPage();
@@ -75,7 +75,7 @@ const { fecTab, fecMonth } = require('./lib');
   console.log('fiche du dossier :', (await p.textContent('.field:has(dt:text("Activité (analyse FEC)")) dd')).trim());
   await p.goto('http://localhost:8765/#/fec'); await p.waitForSelector('.fec-meta');
   // 5. Export Excel
-  await p.click('button[data-action=fec-export]');
+  await fecMore(p, 'fec-export', 0);
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#ask button[type=submit]')]);
   await dl.saveAs(O + 'analyse-pharma.xlsx');
   console.log('erreurs', errors);

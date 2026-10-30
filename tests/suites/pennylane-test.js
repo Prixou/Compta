@@ -21,7 +21,7 @@ const A = require(D + '900000009-attendu.json').sept;
   const sp = (s) => s.replace(/[\s  ]+/g, ' ').trim();
   const fr = (x) => sp(x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const main = async () => sp(await p.textContent('main'));
-  const openAll = () => p.$$eval('details', (l) => l.forEach((d) => { d.open = true; }));
+  const openAll = () => p.$$eval('details:not(.fec-more)', (l) => l.forEach((d) => { d.open = true; }));
 
   // 1. Conformité : la date de validation vide d'un export en cours d'exercice n'est pas une anomalie
   await fecTab(p, 'conformite', 150);

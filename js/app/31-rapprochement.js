@@ -13,7 +13,7 @@
 // Tout reste en mémoire : rien n'est enregistré, et le verrouillage efface l'écran.
 
 const brapState = () => (ui.brap = ui.brap || { files: [], errors: [], ops: [], opening: null, closing: null, fec: null, r: null, status: 'idle', tol: 5, compte: '', soldeReleve: '', soldeCompta: '', runId: 0 });
-const brapRefresh = () => { if (location.hash.startsWith('#/rapprochement')) refresh(); };
+const brapRefresh = () => { if (/^#\/(rapprochement|fec)/.test(location.hash)) refresh(); };
 const BRAP_STOP = new Set(['prlv', 'prelevement', 'sepa', 'carte', 'vir', 'virement', 'recu', 'emis', 'des', 'les', 'ref', 'fact', 'facture', 'paiement',
   'remise', 'cheque', 'chq', 'sas', 'sarl', 'eur', 'euros', 'pour', 'avec', 'echeance']);
 const brapTokens = (s) => new Set(norm(s).replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !BRAP_STOP.has(w)));
@@ -259,11 +259,23 @@ async function brapExport(kind) {
 }
 
 // ---------- Écran ----------
-function viewBrap() {
-  const st = ui.brap || { files: [], errors: [], ops: [] };
+// embedded : onglet « Rapprochement bancaire » de l'Espace FEC, le FEC est celui de l'analyse ouverte
+function viewBrap(embedded) {
+  let st = ui.brap || { files: [], errors: [], ops: [] };
+  if (embedded) {
+    const r = ui.fec.result;
+    st = brapState();
+    if (st.r !== r) {
+      const ok = Object.keys(r.bankLines || {}).length;
+      Object.assign(st, { r: ok ? r : null, fec: { name: r.meta.fileName }, fecName: r.meta.fileName, status: ok ? 'done' : 'error', compte: '', soldeCompta: '',
+        message: ok ? '' : 'Aucune écriture sur un compte de banque (512 et suivants) dans ce FEC.' });
+    }
+  }
   const hasRel = st.ops && st.ops.length;
-  const head = `<div class="page-head"><h1>Rapprocher un relevé</h1><div class="head-actions">
-      ${st.files.length || st.fec ? '<button class="btn" data-action="brap-clear">Effacer</button>' : ''}</div></div>`;
+  const clear = st.files.length || (!embedded && st.fec) ? '<button class="btn" data-action="brap-clear">Effacer</button>' : '';
+  const head = embedded
+    ? `<div class="page-head"><p class="muted">Relevé du mois rapproché du journal de banque du FEC ouvert : opérations non comptabilisées, écritures absentes du relevé, montants différents, sens inversés, doublons, état de rapprochement et écritures à passer.</p><div class="head-actions">${clear}</div></div>`
+    : `<div class="page-head"><h1>Rapprocher un relevé</h1><div class="head-actions">${clear}</div></div>`;
   const relSlot = `<div class="card fec-drop cmp-slot${hasRel ? ' on' : ''}" data-action="brap-pick-rel" data-side="rel" role="button" tabindex="0">
       <span class="cmp-role">Relevé bancaire</span>
       ${hasRel ? `<strong>${st.files.map((f) => esc(f.name)).join(', ')}</strong>
@@ -278,7 +290,7 @@ function viewBrap() {
     </div>`;
   const errs = (st.errors || []).map((e) => `<div class="banner warn"><span>${esc(e)}</span></div>`).join('')
     + (st.status === 'error' ? `<div class="banner warn"><span>${esc(st.message)}</span></div>` : '');
-  const slots = `<div class="cmp-slots brap-slots">${relSlot}<span></span>${fecSlot}</div>${errs}`;
+  const slots = embedded ? `<div class="cmp-slots brap-slots brap-one">${relSlot}</div>${errs}` : `<div class="cmp-slots brap-slots">${relSlot}<span></span>${fecSlot}</div>${errs}`;
   if (!hasRel || !st.r) {
     return `${head}${slots}
       <section class="card"><h2>${icon('help')} Principe</h2><ul>

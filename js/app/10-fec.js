@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '88';
+const ASSET_VERSION = '89';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -67,7 +67,7 @@ function startFec(file, target) {
     });
   }
   // Le fichier reste en mémoire le temps de l'analyse : CYCLE SOCIAL le relit pour le cadrage de la paie (cycle H)
-  ui.fec = { status: 'loading', pct: 0, fileName: file.name, file, space: data.settings.fecSpace || 'revision', section: null, q: '', classe: '' };
+  ui.fec = { status: 'loading', pct: 0, fileName: file.name, file, space: fecArrival(), section: null, q: '', classe: '' };
   refresh();
   runFecWorker(file, ui.fec, null);
 }
@@ -121,14 +121,15 @@ function setFecProfile(p) {
   refresh();
 }
 
-// Trois espaces de travail sur un même FEC, selon la question du moment.
-const FEC_SPACES = {
-  mois: { label: 'Mois', hint: 'Gestion courante : pièces manquantes, factures de vente, contrôles de saisie, TVA' },
-  revision: { label: 'Révision', hint: 'Situation et bilan : cycles, écritures, pièces, revue N-1, rapprochement' },
-  consult: { label: 'Consultation', hint: 'Chiffres : SIG, bilan, balance, journaux et tiers, conformité du fichier' },
-};
-const SPACE_OF = { 'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', tva: 'mois', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
-const spaceOf = (tab) => SPACE_OF[tab] || 'revision';
+// Espace FEC : tout ce qui s'appuie sur le FEC, en onglets (f.space) et sous-onglets (f.section). Les cycles A à K sont
+// des sous-onglets de « Révision A–K » (barre des cycles sous les sous-onglets).
+const FEC_GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', pieces: 'revision', revue: 'revision',
+  'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', rappro: 'banque', brap: 'banque', lettrage: 'lettrage', paie: 'paie', 'immo-etat': 'immos',
+  tvarev: 'tva', tva: 'tva', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
+const groupOf = (tab) => (CYCLE_DEF[tab] ? 'revision' : FEC_GROUP_OF[tab] || 'synthese');
+// Onglet à l'arrivée du FEC : le dernier choisi parmi Synthèse, Mois, Révision A–K et Consultation
+const FEC_ARRIVE = ['synthese', 'mois', 'revision', 'consult'];
+const fecArrival = () => (FEC_ARRIVE.includes(data.settings.fecGroup) ? data.settings.fecGroup : 'synthese');
 
 // Mois de l'espace « Mois » (AAAA-MM) : par défaut le dernier mois complet saisi.
 function fecMonth() {
@@ -304,8 +305,8 @@ function checkList(items, showOk) {
 function viewFec() {
   const f = ui.fec;
   const pharma = ui.fecProfile === 'pharmacie';
-  const head = `<div class="page-head"><h1>Analyse FEC</h1>
-    <div class="head-actions">${f && f.status === 'done' ? `<button class="btn" data-action="fec-export">Exporter en Excel</button>` : ''}
+  const head = `<div class="page-head"><h1>Espace FEC</h1>
+    <div class="head-actions">
       <a class="btn" href="#/portefeuille">${icon('grid')}Plusieurs dossiers</a>
       <a class="btn" href="#/comparer">${icon('compare')}Comparer deux FEC</a>
       <a class="btn" href="#/anonymiser">${icon('eyeOff')}Anonymiser un FEC</a>
@@ -317,9 +318,9 @@ function viewFec() {
         <p><strong>Déposez le FEC d'un dossier ici</strong> ou cliquez pour le choisir</p>
         <p class="muted small">Fichier .txt ou .csv au format de l'article A47 A-1 du LPF (tabulation ou « | », UTF-8 ou ISO-8859-15), y compris BNC / BA, ou archive <strong>.zip « FEC + justificatifs »</strong> (export Pennylane). Le dossier est retrouvé par le SIREN ; une pharmacie est reconnue (ou indiquée dans la fiche du dossier) et analysée comme une officine.</p>
       </div>
-      <div class="grid3 space-cards">
-        ${Object.entries(FEC_SPACES).map(([k, x]) => `<button class="card space-card${k === (data.settings.fecSpace || 'revision') ? ' on' : ''}" data-action="fec-pick" data-space="${k}" title="Choisir un FEC et l'ouvrir dans l'espace ${esc(x.label)}"><strong>${esc(x.label)}</strong><span class="muted small">${esc(x.hint)}.</span>${k === (data.settings.fecSpace || 'revision') ? '<em>Ouvert à l\'arrivée du FEC</em>' : ''}</button>`).join('')}
-      </div>
+      <section class="card fec-intro"><h2>Tout ce qui s'appuie sur le FEC, au même endroit</h2>
+        <p class="muted">Une fois le FEC lu, ses onglets regroupent : synthèse, révision par cycles A à K, gestion du mois, rapprochement bancaire, lettrage, paie (éditions Silae), immobilisations (état du module immo), TVA et consultation (SIG, balance, journaux, conformité). Chaque outil reprend le FEC ouvert : rien à redéposer.</p>
+      </section>
       <section class="card"><h2>${icon('shield')} Confidentialité</h2>
         <p>Le FEC est analysé <strong>sur cet appareil uniquement</strong>, dans un processus isolé : il n'est ni envoyé, ni conservé. Seule la synthèse (chiffres clés et nombre d'anomalies) peut être enregistrée, chiffrée, dans le dossier si vous le demandez.</p>
         <p>Pour transmettre un FEC (support, mise au point de l'application), passez d'abord par <a href="#/anonymiser">Anonymiser un FEC</a> : noms des tiers, IBAN et SIREN remplacés, structure conservée.</p>
@@ -339,34 +340,47 @@ function viewFec() {
   const { errors, warnings } = fecCounts(r);
   const dmy = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
   const clients = data.clients.filter((c) => !c.archive).sort((a, b) => clientLabel(a).localeCompare(clientLabel(b), 'fr'));
-  if (f.section && spaceOf(f.section) !== f.space) f.space = spaceOf(f.section);
-  const space = FEC_SPACES[f.space] ? f.space : (f.space = 'revision');
   const cnt = (label, n) => `${label}${n ? ` (${n})` : ''}`;
-  // Onglets de l'espace affiché (les compteurs des autres espaces ne sont pas calculés)
-  let tabs, tva = null;
-  if (space === 'mois') {
-    const ym = fecMonth();
-    tva = r.cycles && r.cycles.tva && Object.keys(r.cycles.tva.months).length ? tvaData(r) : null;
-    tabs = { 'mois-pieces': cnt('Pièces manquantes', piecesCount(r, 'mois', endOfMonth(`${ym}-01`))), 'mois-ventes': cnt('Factures de vente', ventesLeft(r, ym)), 'mois-saisie': cnt('Contrôles de saisie', saisieLeft(r, ym)) };
-    if (tva) tabs.tva = cnt('TVA · bêta', wpProgress(tva.cycle, tva.checks).left);
-  } else if (space === 'consult') {
-    tabs = { sig: 'SIG et bilan', balance: 'Balance', details: 'Journaux et tiers', conformite: cnt('Conformité du fichier', errors) };
-  } else {
-    const nbPieces = r.pieces ? piecesCount(r, piecesState().mode, piecesState().arrete) : 0;
-    const cc = cycleChecks(r);
-    // Un seul onglet pour les cycles A à K (barre des cycles en dessous) : dernier cycle ouvert, sinon le premier à traiter.
-    if (cc && f.section === 'cycles') f.section = f.lastCycle || Object.keys(CYCLE_DEF).find((k) => wpProgress(k, cc[k]).left) || 'regul';
-    tabs = Object.assign({ synthese: 'Synthèse' }, pharma ? { tp: 'Tiers payant', catva: 'CA & TVA' } : {},
-      cc ? { cycles: cnt('Cycles A à K', Object.keys(CYCLE_DEF).reduce((t, k) => t + wpProgress(k, cc[k]).left, 0)) } : {},
-      r.cycles ? { ecritures: cnt('Écritures', ecrProposals(r).filter((p) => p.on).length) } : {},
-      { pieces: cnt('Pièces à demander', nbPieces), revue: 'Revue N / N-1', rappro: 'Rapprochement' },
-      r.cycles && r.cycles.tva && Object.keys(r.cycles.tva.months).length ? { tvarev: 'Contrôle TVA' } : {});
-  }
+  const cc = cycleChecks(r);
+  const hasTva = !!(r.cycles && r.cycles.tva && Object.keys(r.cycles.tva.months).length);
+  const paieSv = (() => { try { return socSummary(); } catch (e) { return null; } })(), immoSv = (() => { try { return immoEtatSummary(); } catch (e) { return null; } })();
+  let tva = null;
+  // Onglets : [clé, libellé, sous-onglets (a : onglet affiché, seuls ses compteurs sont calculés)]
+  const groups = [
+    ['synthese', 'Synthèse', () => [['synthese', 'Synthèse']]],
+    ...(pharma ? [['officine', 'Officine', () => [['tp', 'Tiers payant'], ['catva', 'CA & TVA']]]] : []),
+    ['revision', cnt('Révision A–K', cc ? Object.keys(CYCLE_DEF).reduce((t, k) => t + wpProgress(k, cc[k]).left, 0) : 0), (a) => [
+      ...(cc ? [['cycles', 'Cycles A à K']] : []),
+      ...(r.cycles ? [['ecritures', cnt('Écritures', a ? ecrProposals(r).filter((p) => p.on).length : 0)]] : []),
+      ['pieces', cnt('Pièces à demander', a && r.pieces ? piecesCount(r, piecesState().mode, piecesState().arrete) : 0)], ['revue', 'Revue N / N-1']]],
+    ['mois', 'Mois', (a) => {
+      const ym = a ? fecMonth() : '';
+      return [['mois-pieces', cnt('Pièces manquantes', a ? piecesCount(r, 'mois', endOfMonth(`${ym}-01`)) : 0)], ['mois-ventes', cnt('Factures de vente', a ? ventesLeft(r, ym) : 0)],
+        ['mois-saisie', cnt('Contrôles de saisie', a ? saisieLeft(r, ym) : 0)]];
+    }],
+    ['banque', 'Rapprochement bancaire', () => [['rappro', 'Rapprochement de l’exercice'], ['brap', 'Relevé du mois détaillé']]],
+    ['lettrage', 'Lettrage', () => [['lettrage', 'Lettrage']]],
+    ['paie', cnt('Paie', paieSv ? paieSv.sum.filter((x) => x.st === 'anom').length : 0), () => [['paie', 'Paie']]],
+    ['immos', cnt('Immobilisations', immoSv ? immoSv.missing.length + immoSv.rows.filter((x) => x.status === 'open' || x.status === 'absent').length : 0), () => [['immo-etat', 'Immobilisations']]],
+    ...(hasTva ? [['tva', 'TVA', (a) => {
+      if (a) tva = tvaData(r);
+      return [['tvarev', 'Contrôle TVA'], ['tva', cnt('TVA du mois · bêta', a ? wpProgress(tva.cycle, tva.checks).left : 0)]];
+    }]] : []),
+    ['consult', cnt('Consultation', errors), () => [['sig', 'SIG et bilan'], ['balance', 'Balance'], ['details', 'Journaux et tiers'], ['conformite', cnt('Conformité du fichier', errors)]]],
+  ];
+  let space = f.section ? groupOf(f.section) : f.space;
+  if (!groups.some((g) => g[0] === space)) space = 'synthese';
+  f.space = space;
+  const tabList = groups.find((g) => g[0] === space)[2](true);
+  const tabs = Object.fromEntries(tabList);
   const isTab = (k) => !!(tabs[k] || (tabs.cycles && CYCLE_DEF[k]));
   f.lastTab = f.lastTab || {};
-  if (!isTab(f.section)) f.section = isTab(f.lastTab[space]) ? f.lastTab[space] : Object.keys(tabs)[0];
+  if (!isTab(f.section)) f.section = isTab(f.lastTab[space]) ? f.lastTab[space] : tabList[0][0];
+  // Un seul sous-onglet pour les cycles A à K (barre des cycles en dessous) : dernier cycle ouvert, sinon le premier à traiter.
+  if (cc && f.section === 'cycles') f.section = f.lastCycle || Object.keys(CYCLE_DEF).find((k) => wpProgress(k, cc[k]).left) || 'regul';
   f.lastTab[space] = f.section;
   const inCycle = !!(tabs.cycles && CYCLE_DEF[f.section]);
+  if ((space === 'mois' || f.section === 'tva') && hasTva && !tva) tva = tvaData(r);
   // Profil fixé par le dossier mais contenu du FEC différent : on le signale.
   const isPh = looksLikePharmacy(r);
   const suggest = !f.profileAuto && isPh !== pharma
@@ -426,6 +440,14 @@ function viewFec() {
     body = viewCaTva();
   } else if (f.section === 'rappro') {
     body = viewRappro();
+  } else if (f.section === 'brap') {
+    body = viewBrap(true);
+  } else if (f.section === 'lettrage') {
+    body = viewLettrage(true);
+  } else if (f.section === 'paie') {
+    body = socInFec();
+  } else if (f.section === 'immo-etat') {
+    body = immoEtatCard(r);
   } else if (f.section === 'tvarev') {
     body = viewTvaRevue();
   } else if (f.section === 'revue') {
@@ -478,26 +500,34 @@ function viewFec() {
       </section>`;
   }
 
-  return `${head}
-    <section class="card fec-meta">
-      <div class="fec-meta-grid">
-        <div><div class="muted small">Fichier</div><strong class="fec-file">${esc(m.fileName)}</strong></div>
-        <div><div class="muted small">SIREN · clôture</div>${esc(m.siren || '—')} · ${dmy(m.closing)}</div>
-        <div><div class="muted small">Période des écritures</div>${dmy(m.minDate)} → ${dmy(m.maxDate)}</div>
-        <div><div class="muted small">Volume</div>${m.lines.toLocaleString('fr-FR')} lignes · ${m.entries.toLocaleString('fr-FR')} écritures · ${m.accounts.toLocaleString('fr-FR')} comptes</div>
-        ${r.cycles && r.cycles.justif ? `<div><div class="muted small">Justificatifs${m.archive ? ` (${esc(m.archive)})` : ''}</div>${r.cycles.justif.docs.toLocaleString('fr-FR')} fichier(s) · ${r.cycles.justif.judged ? `${Math.round((r.cycles.justif.ok / r.cycles.justif.judged) * 100)} % des pièces retrouvées` : 'rapprochement impossible'}</div>` : ''}
+  const client = clientById(f.clientId);
+  return `<section class="card fec-meta fec-bar">
+      <div class="fec-bar-main">
+        <span class="fec-eyebrow">Espace FEC</span>
+        <h1>${client ? esc(clientLabel(client)) : 'Dossier non rattaché'}</h1>
+        <p class="muted small">SIREN ${esc(m.siren || '—')} · exercice clos le ${dmy(m.closing)} · <span class="fec-file">${esc(m.fileName)}</span> · écritures du ${dmy(m.minDate)} au ${dmy(m.maxDate)} · ${m.lines.toLocaleString('fr-FR')} lignes, ${m.entries.toLocaleString('fr-FR')} écritures, ${m.accounts.toLocaleString('fr-FR')} comptes${r.cycles && r.cycles.justif ? ` · justificatifs${m.archive ? ` (${esc(m.archive)})` : ''} : ${r.cycles.justif.docs.toLocaleString('fr-FR')} fichier(s), ${r.cycles.justif.judged ? `${Math.round((r.cycles.justif.ok / r.cycles.justif.judged) * 100)} % des pièces retrouvées` : 'rapprochement impossible'}` : ''}</p>
+        <div class="fec-link">
+          <label>Dossier<select data-fec="client">${options(Object.fromEntries(clients.map((c) => [c.id, `${c.code ? c.code + ' — ' : ''}${clientLabel(c)}`])), f.clientId, '— Rattacher à un dossier —')}</select></label>
+          <label>Profil<select data-fec="profile">${options({ classique: `Structure classique${f.profileAuto && !pharma ? ' (détecté)' : ''}`, pharmacie: `Officine (pharmacie)${f.profileAuto && pharma ? ' (détectée)' : ''}` }, ui.fecProfile)}</select></label>
+        </div>
       </div>
-      <div class="fec-link">
-        <label>Dossier<select data-fec="client">${options(Object.fromEntries(clients.map((c) => [c.id, `${c.code ? c.code + ' — ' : ''}${clientLabel(c)}`])), f.clientId, '— Rattacher à un dossier —')}</select></label>
-        <label>Profil<select data-fec="profile">${options({ classique: `Structure classique${f.profileAuto && !pharma ? ' (détecté)' : ''}`, pharmacie: `Officine (pharmacie)${f.profileAuto && pharma ? ' (détectée)' : ''}` }, ui.fecProfile)}</select></label>
-        <button class="btn" data-action="fec-save"${f.clientId ? '' : ' disabled'}>Enregistrer la synthèse</button>
-        <button class="btn" data-action="fec-mission"${f.clientId && (errors || warnings) ? '' : ' disabled'}>Créer une mission de revue</button>
+      <div class="fec-bar-actions">
+        <button class="btn" data-action="fec-pick">Changer de FEC</button>
+        <details class="fec-more"><summary class="btn">Plus</summary>
+          <div class="fec-more-menu" role="menu">
+            <button role="menuitem" data-action="fec-export">Exporter en Excel</button>
+            <button role="menuitem" data-action="fec-save"${f.clientId ? '' : ' disabled'}>Enregistrer la synthèse</button>
+            <button role="menuitem" data-action="fec-mission"${f.clientId && (errors || warnings) ? '' : ' disabled'}>Créer une mission de revue</button>
+            <a role="menuitem" href="#/comparer">Comparer deux FEC</a>
+            <a role="menuitem" href="#/portefeuille">Plusieurs dossiers</a>
+            <a role="menuitem" href="#/anonymiser">Anonymiser un FEC</a>
+          </div></details>
       </div>
     </section>
     ${suggest}
-    <div class="seg fec-spaces" role="tablist" aria-label="Espace de travail">${Object.entries(FEC_SPACES).map(([k, x]) => `<button role="tab" aria-selected="${k === space}" class="${k === space ? 'on' : ''}" data-action="fec-space" data-space="${k}" title="${esc(x.hint)}"><strong>${esc(x.label)}</strong><span>${esc(x.hint)}</span></button>`).join('')}</div>
-    ${space === 'mois' ? moisHeader(r, tva) : ''}
-    <div class="seg fec-tabs" role="tablist" aria-label="${esc(FEC_SPACES[space].label)}">${Object.entries(tabs).map(([k, l]) => { const on = k === f.section || (k === 'cycles' && inCycle); return `<button role="tab" aria-selected="${on}" class="${on ? 'on' : ''}" data-action="fec-tab" data-tab="${k}">${esc(l)}</button>`; }).join('')}</div>
+    <div class="fec-groups" role="tablist" aria-label="Espace FEC">${groups.map(([k, l]) => `<button role="tab" aria-selected="${k === space}" class="${k === space ? 'on' : ''}" data-action="fec-group" data-group="${k}">${esc(l)}</button>`).join('')}</div>
+    ${space === 'mois' || f.section === 'tva' ? moisHeader(r, tva) : ''}
+    ${tabList.length > 1 ? `<div class="seg fec-tabs" role="tablist" aria-label="${esc(groups.find((g) => g[0] === space)[1])}">${tabList.map(([k, l]) => { const on = k === f.section || (k === 'cycles' && inCycle); return `<button role="tab" aria-selected="${on}" class="${on ? 'on' : ''}" data-action="fec-tab" data-tab="${k}">${esc(l)}</button>`; }).join('')}</div>` : ''}
     ${inCycle ? cycleBar(r, f.section) : ''}
     ${body}`;
 }

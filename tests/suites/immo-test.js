@@ -29,7 +29,10 @@ const { fecTab } = require('./lib');
   const checks = () => p.$$eval('.fec-checks .fec-check', (l) => l.map((x) => x.querySelector('.lvl').textContent + ' ' + x.querySelector('strong').textContent));
   ko((await checks()).some((x) => /Information Rapprochement avec l’état des immobilisations à faire/.test(x)), 'cycle G : rapprochement à faire');
 
-  // 1. État en PDF : le FEC de l'analyse est relu
+  ko(/Rapprochement avec l’état des immobilisations du module immo à faire/.test(await p.textContent('main')), 'cycle G : renvoi vers l’onglet Immobilisations');
+
+  // 1. Onglet Immobilisations de l'Espace FEC, état en PDF : le FEC de l'analyse est relu
+  await fecTab(p, 'immo-etat');
   [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('[data-action=immo-etat-pick]')]);
   await ch.setFiles(D + 'etat-immobilisations.pdf');
   await p.waitForSelector('.ie-verdict'); await p.waitForTimeout(150);
@@ -57,6 +60,7 @@ const { fecTab } = require('./lib');
   ko(clip.split('\n').length === 3 && clip.includes('20/05/2026\tAC\t6\tOF-520\tOUTILLAGE IMAGINAIRE\tOUTILLAGE IMAGINAIRE - FRAISEUSE\t215400\t3400,00\t680,00\t4080,00'), 'écritures sans fiche copiées pour un tableur');
 
   // 3. Synthèse enregistrée : contrôles du cycle G, pièce établie, colonne « Selon pièce »
+  await fecTab(p, 'immo');
   const c1 = await checks();
   console.log('contrôles :\n  ' + c1.join('\n  '));
   ko(c1.some((x) => /À vérifier 2 acquisitions sans fiche dans le module immo/.test(x)) && c1.some((x) => /À vérifier 2050000000 LOGICIELS : écart avec l’état des immobilisations/.test(x))
@@ -68,6 +72,7 @@ const { fecTab } = require('./lib');
   ko(await p.evaluate(() => clientBySiren('700000007').revision['2026-12-31'].immoEtat.missing.length === 2), 'synthèse enregistrée dans le dossier');
 
   // 4. Nouvelle session sur l'analyse (détail effacé) : synthèse affichée ; puis texte collé, même résultat
+  await fecTab(p, 'immo-etat');
   await p.evaluate(() => { ui.fec.immoEtat = null; refresh(); });
   ko(/Rapprochement fait le .* avec etat-immobilisations\.pdf : 2 écriture\(s\) sans fiche \(5 250,00 € HT\), 2 compte\(s\) en écart/.test((await p.textContent('.ie')).replace(/[  ]/g, ' ')), 'synthèse enregistrée affichée');
   await p.click('.ie-paste summary');

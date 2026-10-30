@@ -17,7 +17,7 @@ const sorted = (a) => a.slice().sort((x, y) => x - y).join();
   p.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message)); p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await p.goto('http://localhost:8765/');
   await p.fill('input[name=p1]', 'Cabinet-Test-2026!'); await p.fill('input[name=p2]', 'Cabinet-Test-2026!'); await p.check('input[name=ack]'); await p.click('button[type=submit]'); await p.waitForSelector('.layout');
-  await p.click('a[data-nav=rapprochement]'); await p.waitForSelector('.cmp-slots');
+  await p.goto((process.env.BASE || 'http://localhost:8765/') + '#/rapprochement'); await p.waitForSelector('.cmp-slots');
   let [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('[data-action=brap-pick-rel]')]); await ch.setFiles(F + 'releve-octobre-2025.ofx');
   await p.waitForFunction(() => ui.brap && ui.brap.ops.length > 0);
   [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('[data-action=brap-pick-fec]')]); await ch.setFiles(F + 'journal-banque-900000011FEC20251031.txt');

@@ -74,7 +74,7 @@ function ieSave(st) {
 function immoEtatChecks(r, out) {
   const sv = immoEtatSummary();
   if (!sv) {
-    if (balOf(r, ['20', '21', '22', '23']).some((b) => Math.abs(b.s) >= 1 || b.dm >= 1)) out.add('info', 'Rapprochement avec l’état des immobilisations à faire', 'Déposez l’état des immobilisations édité depuis le module immo (PDF) dans le cadre « État des immobilisations » de ce cycle : les acquisitions sans fiche et les écarts de solde sont listés.');
+    if (balOf(r, ['20', '21', '22', '23']).some((b) => Math.abs(b.s) >= 1 || b.dm >= 1)) out.add('info', 'Rapprochement avec l’état des immobilisations à faire', 'Déposez l’état des immobilisations édité depuis le module immo (PDF) dans l’onglet « Immobilisations » de l’Espace FEC : les acquisitions sans fiche et les écarts de solde sont listés.');
     return;
   }
   const n = sv.missing.length;
@@ -162,6 +162,15 @@ function immoEtatCard() {
       <p class="muted small">Les lignes « Compte n° … », puis une ligne par fiche avec ses quatre montants en fin de ligne (début, acquisitions, sorties, fin), les sous-totaux « immobilisation » et « comptabilité ».</p>
       <textarea data-ie-text rows="6" spellcheck="false" aria-label="Texte de l’état des immobilisations"></textarea>
       <p><button class="btn small" data-action="immo-etat-text">Lire ce texte</button></p></details></section>`;
+}
+
+// Cycle G : renvoi vers l'onglet « Immobilisations » de l'Espace FEC
+function immoEtatLink() {
+  const sv = immoEtatSummary();
+  const n = sv ? sv.missing.length : 0, open = sv ? sv.rows.filter((x) => x.status === 'open' || x.status === 'absent').length : 0;
+  const txt = !sv ? 'Rapprochement avec l’état des immobilisations du module immo à faire.'
+    : `État des immobilisations rapproché le ${fmtDateTime(sv.at)} : ${n} écriture(s) sans fiche, ${open} compte(s) en écart.`;
+  return `<div class="banner info"><span>${txt}</span><button class="btn small" data-action="fec-tab" data-tab="immo-etat">Ouvrir l’onglet Immobilisations</button></div>`;
 }
 
 // Copie pour un tableur (montants au format français)

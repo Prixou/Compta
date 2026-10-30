@@ -15,7 +15,7 @@ const near = (a, b) => Math.abs(a - b) < 0.01;
   await pg.goto('http://localhost:8765/');
   await pg.fill('input[name=p1]', 'Cabinet-Test-2026!'); await pg.fill('input[name=p2]', 'Cabinet-Test-2026!'); await pg.check('input[name=ack]'); await pg.click('button[type=submit]'); await pg.waitForSelector('.layout');
   await pg.click('a[data-nav=tns]'); await pg.waitForSelector('.tns-profiles');
-  expect((await pg.textContent('h1')) === 'TNS-COTISATION' && (await pg.textContent('a[data-nav=tns]')).includes('TNS-COTISATION'), 'page et menu « TNS-COTISATION »');
+  expect((await pg.textContent('h1')) === 'Cotisations TNS' && (await pg.textContent('a[data-nav=tns]')).includes('Cotisations TNS'), 'page et menu « Cotisations TNS »');
   const set = async (k, v) => { await pg.fill(`[data-tns=${k}]`, v); await pg.dispatchEvent(`[data-tns=${k}]`, 'change'); await pg.waitForTimeout(60); };
   const res = () => pg.evaluate(() => tnsCompute(ui.tns.S).res.map((o) => [o.nom, o.calcN1, o.calcN, o.total]));
 

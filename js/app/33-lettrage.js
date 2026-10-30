@@ -537,7 +537,7 @@ function lettCompute() {
   if (st.src === 'gl') st.msg = st.accs.length ? `${st.accs.length} compte(s) lu(s)${extra}, ${nl} écriture(s).` : 'Aucun compte reconnu : le texte doit contenir les lignes « Compte … » et les écritures datées.';
   else if (st.src === 'fec') st.msg = `${st.accs.length} compte(s) ${st.tiers === 'cli' ? 'clients' : 'fournisseurs'} avec des écritures non lettrées${extra}, ${nl} écriture(s)${st.fec.open.truncated ? ' (FEC très volumineux : liste tronquée)' : ''}.`;
 }
-const lettRefresh = () => { if (location.hash.startsWith('#/lettrage')) refresh(); };
+const lettRefresh = () => { if (/^#\/(lettrage|fec)/.test(location.hash)) refresh(); };
 
 async function lettFile(file) {
   if (!file) return;
@@ -582,14 +582,16 @@ function lettFecResult(file) {
     w.postMessage({ buffer, fileName: name }, [buffer]);
   }));
 }
-function lettUseOpenFec() {
-  const st = lettState();
+function lettBindFec(st) {
   const r = ui.fec && ui.fec.result;
-  if (!r || !r.lettOpen) return;
+  if (!r || !r.lettOpen) return false;
   st.runId++;
   Object.assign(st, { src: 'fec', fec: { open: r.lettOpen, name: r.meta.fileName, siren: r.meta.siren, start: r.meta.start }, text: '', fileName: r.meta.fileName, status: 'done' });
   lettCompute();
-  lettRefresh();
+  return true;
+}
+function lettUseOpenFec() {
+  if (lettBindFec(lettState())) lettRefresh();
 }
 function lettText(text) {
   const st = lettState();
@@ -651,8 +653,10 @@ function lettPanels(st) {
   return h;
 }
 
-function viewLettrage() {
+// embedded : onglet « Lettrage » de l'Espace FEC, le FEC ouvert est repris d'office (un grand livre reste possible)
+function viewLettrage(embedded) {
   const st = lettState();
+  if (embedded && !st.src) lettBindFec(st);
   const set = lettSettings();
   const accs = st.accs;
   const T = lettTotals(accs);
@@ -664,7 +668,7 @@ function viewLettrage() {
     : x.type === 'autre' ? '<span class="muted" title="Journal ni d\'achat ni de règlement : non lettré">—</span>' : `<span class="lett-open">${x.hyp ? 'hypothèse' : 'ouvert'}</span>`);
   const rowCls = (x, g) => (x.type === 'autre' ? 'muted' : g ? (g.rel ? (g.rel === x ? 'lett-rel lett-rel-r' : 'lett-rel') : '') : 'lett-o');
   const field = (k, label, extra = '') => `<label>${label} <input data-lett="${k}" value="${esc(set[k])}"${extra}></label>`;
-  return `<div class="page-head"><h1>Lettrage des comptes de tiers</h1>
+  return `<div class="page-head">${embedded ? '<span></span>' : '<h1>Lettrage des comptes de tiers</h1>'}
       <div class="head-actions">${accs.some((a) => a.groups.length) ? '<button class="btn" data-action="lett-copy">Copier les lettrages (tableur)</button><button class="btn" data-action="lett-xlsx">Exporter en Excel</button>' : ''}${st.src ? '<button class="btn" data-action="lett-clear">Effacer</button>' : ''}</div></div>
     <p class="muted">Chargez le grand livre non lettré (PDF de l'édition « Grands-livres », ou son texte) ou un FEC : l'outil propose, compte par compte, les écritures à lettrer en réglant d'abord les factures les plus anciennes. Un règlement n'est jamais rapproché d'une facture postérieure, et les factures d'un même règlement sont peu espacées. Il signale aussi les relevés saisis en plus des factures, les règlements dont la facture est sur un autre compte, les doublons et les montants du compte d'attente à affecter, et prépare le mail des factures manquantes. Rien n'est envoyé ni conservé.</p>
     <div class="fec-drop card" data-action="lett-pick" role="button" tabindex="0">

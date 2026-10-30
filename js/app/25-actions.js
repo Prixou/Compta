@@ -301,7 +301,7 @@ const actions = {
     const it = ui.batch && ui.batch.items[Number(el.dataset.i)];
     if (!it || !it.st) return;
     if (el.dataset.mois) Object.assign(it.st, { space: 'mois', section: 'mois-pieces', month: ymOf(it.sum.moisArrete) });
-    if (el.dataset.tab) Object.assign(it.st, { space: 'revision', section: el.dataset.tab });
+    if (el.dataset.tab) Object.assign(it.st, { space: groupOf(el.dataset.tab), section: el.dataset.tab });
     ui.fecState = it.st;
     location.hash = '#/fec';
   },
@@ -350,21 +350,17 @@ const actions = {
   'tns-print': () => tnsPrint(),
   'tns-clear': () => tnsClear(),
   'ratios-clear': () => { const st = ratState(); st.vals = { tva: 20 }; st.src = ''; ratSave(); refresh(); },
-  'fec-pick': async (el) => {
-    // Depuis l'accueil de l'analyse : l'espace choisi s'ouvrira à l'arrivée du FEC.
-    if (el.dataset.space && FEC_SPACES[el.dataset.space] && data.settings.fecSpace !== el.dataset.space) { data.settings.fecSpace = el.dataset.space; persist(); }
-    startFec(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true));
-  },
+  'fec-pick': async () => startFec(await pickFile('.txt,.csv,.tsv,.zip,text/plain,application/zip', true)),
   'fec-tab': (el) => {
     ui.fec.section = el.dataset.tab;
     refresh();
   },
-  'fec-space': (el) => {
+  'fec-group': (el) => {
     const f = ui.fec;
-    if (!f || !FEC_SPACES[el.dataset.space]) return;
-    Object.assign(f, { space: el.dataset.space, section: null });
-    // L'espace choisi est repris à l'ouverture du FEC suivant.
-    if (data.settings.fecSpace !== f.space) { data.settings.fecSpace = f.space; persist(); }
+    if (!f) return;
+    Object.assign(f, { space: el.dataset.group, section: null });
+    // Synthèse, Mois, Révision A–K ou Consultation : repris à l'ouverture du FEC suivant.
+    if (FEC_ARRIVE.includes(f.space) && data.settings.fecGroup !== f.space) { data.settings.fecGroup = f.space; persist(); }
     refresh();
   },
   'fec-month': (el) => {
