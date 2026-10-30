@@ -196,7 +196,7 @@ const EXP = JSON.parse(fs.readFileSync(D + 'lettrage/attendu.json', 'utf8'));
   await pg.goto('http://localhost:8765/#/fec'); await pg.waitForSelector('.fec-groups');
   await pg.click('.fec-groups button[data-group=lettrage]'); await pg.waitForTimeout(200);
   s = await S();
-  expect(s.src === 'fec' && s.tot.groups === 3 && !(await pg.$('main h1:has-text("Lettrage")')) && (await pg.textContent('.fec-groups button.on')) === 'Lettrage', 'onglet Lettrage de l’Espace FEC : FEC ouvert repris', JSON.stringify(s.tot));
+  expect(s.src === 'fec' && s.tot.groups === 3 && !(await pg.$('main h1:has-text("Lettrage")')) && (await pg.textContent('.fec-groups button.on')) === 'Lettrage et LCR', 'onglet Lettrage de l’Espace FEC : FEC ouvert repris', JSON.stringify(s.tot));
   await pg.click('a[data-nav=lettrage]'); await pg.waitForSelector('.fec-drop');
 
   // 9. Téléphone et verrouillage

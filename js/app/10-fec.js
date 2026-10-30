@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '91';
+const ASSET_VERSION = '92';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -72,6 +72,20 @@ function startFec(file, target) {
   runFecWorker(file, ui.fec, null);
 }
 
+// Fichiers déposés sur un onglet outil de l'Espace FEC (lettrage, LCR, paie, relevé du mois, immobilisations) : ils vont
+// à l'outil de l'onglet, pas à une nouvelle analyse (« Changer de FEC » pour cela).
+function fecDropTool(files, target) {
+  const f = ui.fec, s = f && f.result ? f.section : '';
+  if (!files.length) return false;
+  if (s === 'lettrage') lettFile(files[0]);
+  else if (s === 'lcr') lcrDrop(files);
+  else if (s === 'paie') { const z = target.closest && target.closest('.soc-drop'); socDrop(files, z ? z.dataset.zone : ''); }
+  else if (s === 'brap') brapAddStatements(files);
+  else if (s === 'immo-etat') immoEtatLoad(files[0]);
+  else return false;
+  return true;
+}
+
 // Situation intermédiaire : dernière écriture à plus de 20 jours de la clôture.
 const isSituation = (r) => !!(r && r.meta.closing && r.pieces && r.pieces.maxOp && r.pieces.maxOp < addDays(r.meta.closing, -20));
 
@@ -124,7 +138,7 @@ function setFecProfile(p) {
 // Espace FEC : tout ce qui s'appuie sur le FEC, en onglets (f.space) et sous-onglets (f.section). Les cycles A à K sont
 // des sous-onglets de « Révision A–K » (barre des cycles sous les sous-onglets).
 const FEC_GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', pieces: 'revision', revue: 'revision',
-  'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', rappro: 'banque', brap: 'banque', lettrage: 'lettrage', paie: 'paie', 'immo-etat': 'immos',
+  'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', rappro: 'banque', brap: 'banque', lettrage: 'lettrage', lcr: 'lettrage', paie: 'paie', 'immo-etat': 'immos',
   tvarev: 'tva', tva: 'tva', graphes: 'consult', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
 const groupOf = (tab) => (CYCLE_DEF[tab] ? 'revision' : FEC_GROUP_OF[tab] || 'synthese');
 // Onglet à l'arrivée du FEC : le dernier choisi parmi Synthèse, Mois, Révision A–K et Consultation
@@ -359,7 +373,7 @@ function viewFec() {
         ['mois-saisie', cnt('Contrôles de saisie', a ? saisieLeft(r, ym) : 0)]];
     }],
     ['banque', 'Rapprochement bancaire', () => [['rappro', 'Rapprochement de l’exercice'], ['brap', 'Relevé du mois détaillé']]],
-    ['lettrage', 'Lettrage', () => [['lettrage', 'Lettrage']]],
+    ['lettrage', 'Lettrage et LCR', () => [['lettrage', 'Lettrage'], ['lcr', 'Écritures LCR']]],
     ['paie', cnt('Paie', paieSv ? paieSv.sum.filter((x) => x.st === 'anom').length : 0), () => [['paie', 'Paie']]],
     ['immos', cnt('Immobilisations', immoSv ? immoSv.missing.length + immoSv.rows.filter((x) => x.status === 'open' || x.status === 'absent').length : 0), () => [['immo-etat', 'Immobilisations']]],
     ...(hasTva ? [['tva', 'TVA', (a) => {
@@ -448,6 +462,8 @@ function viewFec() {
     body = viewBrap(true);
   } else if (f.section === 'lettrage') {
     body = viewLettrage(true);
+  } else if (f.section === 'lcr') {
+    body = viewLcr(true);
   } else if (f.section === 'paie') {
     body = socInFec();
   } else if (f.section === 'immo-etat') {

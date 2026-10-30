@@ -42,6 +42,8 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
   641200 / 645200, mutuelle volontairement en écart de 20 €) et ses éditions PDF (journal de paie, détail des cotisations,
   solde de repos), pour le cadrage de la paie ouvert depuis le cycle H (`suites/silae-test.js`) ; `gensocial.py` produit les
   exports Excel SILAE et le FEC du CYCLE SOCIAL (`fixtures/social/`, `suites/social-test.js`).
+  `genlcr_fec.py` produit le FEC d'un dossier fictif (909090909) dont les comptes fournisseurs 401 reprennent les comptes
+  auxiliaires et intitulés du listing de test (`fixtures/lcr/`), pour les écritures LCR à partir d'un FEC (`suites/lcr-test.js`).
   `genimmo.py` produit le FEC d'un dossier fictif (700000007) et l'état de ses immobilisations (`fixtures/immo/` : PDF sur
   deux pages, zéros en blanc sur la seconde, et le même état en texte), avec une facture ventilée sur deux fiches, deux
   factures sur une fiche, des acquisitions sans fiche, une fiche sur un autre compte, une cession, un avoir et une sortie

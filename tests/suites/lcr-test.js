@@ -127,7 +127,25 @@ const expect = (cond, label, info) => { if (cond) console.log(`OK ${label}`); el
   await pg.waitForFunction(() => ui.lcr.rel.length === 2, null, { timeout: 15000 });
   expect((await pg.textContent('.lcr')).includes('Ces relevés viennent de plusieurs comptes'), 'relevés de deux dossiers signalés');
 
-  // 8. Téléphone et verrouillage
+  // 8. FEC du dossier à la place du listing (tests/gen/genlcr_fec.py : mêmes comptes auxiliaires que le listing)
+  const listingRows = JSON.stringify(fs.readFileSync(D + 'lcr/listing-fournisseurs.csv', 'utf8').trim().split(/\r?\n/).slice(1).map((l) => l.split(';')).sort((a, b) => a[0].localeCompare(b[0])));
+  await pg.click('[data-action=lcr-clear]'); await pg.waitForTimeout(100);
+  await pick('[data-action=lcr-plan]', D + 'lcr/909090909FEC20261231.txt');
+  await pg.waitForFunction(() => data.settings.lcrAcd.plan.name === '909090909FEC20261231.txt', null, { timeout: 10000 });
+  expect(await pg.evaluate(() => JSON.stringify(data.settings.lcrAcd.plan.rows)) === listingRows && (await pg.textContent('.lcr-loaded')).includes('9 comptes'),
+    'FEC déposé comme listing : comptes 401 par compte auxiliaire et intitulé');
+  // Onglet « Écritures LCR » de l'Espace FEC : le FEC ouvert sert de listing, rien à déposer
+  await pg.goto('http://localhost:8765/#/fec'); await pg.waitForSelector('.fec-drop');
+  await pick('.fec-drop', D + 'lcr/909090909FEC20261231.txt'); await pg.waitForSelector('.fec-meta');
+  await pg.click('.fec-groups button[data-group=lettrage]'); await pg.click('.fec-tabs button[data-tab=lcr]');
+  await pg.waitForFunction(() => ui.lcr.fecPlan && ui.lcr.fecPlan.rows.length === 9, null, { timeout: 10000 });
+  await pick('[data-action=lcr-pdf]', R(1001));
+  await pg.waitForFunction(() => ui.lcr.rel.length === 1, null, { timeout: 15000 });
+  const tab = await pg.evaluate(() => ({ plan: JSON.stringify(lcrPlan().rows), beta: lcrResolve('BETA DISTRIBUTION').code, h1: !!document.querySelector('main h1:not(.fec-bar h1)') }));
+  expect(tab.plan === listingRows && tab.beta === 'FBETA' && !tab.h1 && (await pg.textContent('.lcr-step')).includes('Repris du FEC ouvert'),
+    'onglet Écritures LCR de l\'Espace FEC : comptes du FEC ouvert, tireurs rapprochés', JSON.stringify(tab));
+
+  // 9. Téléphone et verrouillage
   await pg.setViewportSize({ width: 390, height: 844 }); await pg.waitForTimeout(300);
   const over = await pg.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(over <= 1, 'téléphone : pas de débordement horizontal', String(over));

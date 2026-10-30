@@ -6,7 +6,9 @@
 'use strict';
 
 // ---------- Écritures LCR ----------
-// 1. Listing fournisseurs du dossier (Excel ou CSV : colonne A le compte, colonne B l'intitulé), retenu.
+// 1. Listing fournisseurs du dossier (Excel ou CSV : colonne A le compte, colonne B l'intitulé), ou FEC du dossier
+//    (comptes 401 et 404 : compte auxiliaire et son intitulé), retenu. Dans l'onglet « Écritures LCR » de l'Espace FEC,
+//    le FEC ouvert sert de listing (rien à déposer).
 // 2. Relevés en PDF, autant qu'on veut : relevé d'effets à payer du Crédit Agricole (n° du relevé, date de règlement,
 //    date d'édition « AU », contrat, effets avec avis P = payé, R ou S = rejeté) ou relevé de lettres de change du CIC
 //    (n° de relevé, date de règlement, date « LE : », compte et total, effets ; un montant refusé = rejeté) ; nombre et
@@ -49,6 +51,8 @@ function lcrToks(s) {
 // Listing du dossier des relevés chargés (associé au premier export), sinon le dernier chargé ; et son index (mots de
 // l'intitulé, plus le code sans son F initial)
 function lcrPlanRaw() {
+  const st = lcrState();
+  if (st.useFec) return st.fecPlan && st.fecPlan.of === ui.fec ? st.fecPlan : null;
   const d = lcrData(), c = lcrContrat();
   const own = c !== 'sans-contrat' && (d.plans || {})[c];
   return own ? Object.assign({}, own, { for: c }) : d.plan;
@@ -78,11 +82,54 @@ function lcrLink() {
   lcrSave((s) => { s.plans[c] = { name: p.name, at: p.at, rows: p.rows }; });
   lcrState().linked = c;
 }
+// FEC : comptes fournisseurs (401, 404), codés par leur compte auxiliaire (à défaut le compte), avec leur intitulé
+const lcrDecode = (u8) => { try { return new TextDecoder('utf-8', { fatal: true }).decode(u8); } catch (e) { return new TextDecoder('windows-1252').decode(u8); } };
+function lcrPlanFromFec(text, name) {
+  const lines = String(text).replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
+  const h0 = lines[0] || '';
+  const sep = h0.includes('\t') ? '\t' : h0.includes('|') ? '|' : ';';
+  const clean = (x) => (x || '').trim().replace(/^"|"$/g, '');
+  const H = h0.split(sep).map((x) => clean(x).toLowerCase());
+  const iC = H.indexOf('comptenum'), iCL = H.indexOf('comptelib'), iA = H.indexOf('compauxnum'), iAL = H.indexOf('compauxlib');
+  if (iC < 0) throw new Error('colonne CompteNum introuvable : ce fichier ne ressemble pas à un FEC');
+  const seen = new Map();
+  for (let k = 1; k < lines.length; k++) {
+    const c = lines[k].split(sep).map(clean);
+    if (!/^40[14]/.test(c[iC] || '')) continue;
+    const aux = iA >= 0 ? c[iA] : '';
+    const code = aux || c[iC], lib = (aux ? iAL >= 0 && c[iAL] : '') || (iCL >= 0 ? c[iCL] : '');
+    if (code && lib && !seen.has(code)) seen.set(code, lib);
+  }
+  if (!seen.size) throw new Error('aucun compte fournisseur (401, 404) dans ce FEC');
+  return { name, at: new Date().toISOString(), rows: [...seen].sort((a, b) => a[0].localeCompare(b[0])), fec: true };
+}
+const lcrIsFec = async (file) => /\.zip$/i.test(file.name) || /journalcode/i.test(await file.slice(0, 400).text().catch(() => ''));
+// Onglet de l'Espace FEC : les comptes fournisseurs du FEC ouvert, lus une fois par analyse
+function lcrBindFec() {
+  const st = lcrState(), f = ui.fec;
+  if (!f || !f.result || (st.fecPlan && st.fecPlan.of === f) || st.fecBusy === f) return;
+  if (!f.file) { st.planErr = 'Le FEC de cette analyse n\'est plus en mémoire : relancez l\'analyse du FEC.'; return; }
+  st.fecBusy = f;
+  st.planErr = '';
+  fecSource(f.file).then((src) => { st.fecPlan = Object.assign(lcrPlanFromFec(lcrDecode(new Uint8Array(src.buffer)), src.name), { of: f }); st.idx = null; })
+    .catch((e) => { st.planErr = `Comptes fournisseurs du FEC illisibles (${e.message || e}).`; })
+    .finally(() => { st.fecBusy = null; lcrRefresh(); });
+}
 async function lcrPlanFile(file) {
   if (!file) return;
   const st = lcrState();
   st.planErr = '';
   try {
+    if (await lcrIsFec(file)) {
+      const src = await fecSource(file);
+      const plan = lcrPlanFromFec(lcrDecode(new Uint8Array(src.buffer)), file.name);
+      delete plan.fec;
+      const c = st.rel.length ? lcrContrat() : 'sans-contrat';
+      lcrSave((s) => { s.plan = plan; if (c !== 'sans-contrat') s.plans[c] = plan; });
+      if (c !== 'sans-contrat') st.linked = c;
+      toast(`Comptes fournisseurs du FEC chargés : ${lcrPl(plan.rows.length, 'compte', 'comptes')}.`);
+      return lcrRefresh();
+    }
     const book = await SheetReader.read(file);
     const txt = (c) => (c && c.text !== undefined ? String(c.text) : '').trim();
     let best = null;
@@ -274,12 +321,12 @@ async function lcrAddPdfs(files) {
 // Fichiers déposés : PDF = relevés, Excel ou CSV = listing
 function lcrDrop(files) {
   const list = Array.from(files || []);
-  const plan = list.find((f) => /\.(xlsx|xls|csv|txt)$/i.test(f.name));
+  const plan = list.find((f) => /\.(xlsx|xls|csv|txt|zip)$/i.test(f.name));
   if (plan) lcrPlanFile(plan);
   const pdfs = list.filter((f) => f !== plan);
   if (pdfs.length) lcrAddPdfs(pdfs);
 }
-const lcrRefresh = () => { if (location.hash.startsWith('#/lcr')) refresh(); };
+const lcrRefresh = () => { if (/^#\/(lcr|fec)/.test(location.hash)) refresh(); };
 
 // ---------- Écritures ----------
 function lcrEntries() {
@@ -327,8 +374,11 @@ function lcrPeriod() {
 const lcrFileTag = () => { const c = lcrContrat(); return `${c !== 'sans-contrat' ? c + '_' : ''}${lcrPeriod()}`; };
 
 // ---------- Écran ----------
-function viewLcr() {
+// embedded : onglet « Écritures LCR » de l'Espace FEC, le FEC ouvert sert de listing fournisseurs
+function viewLcr(embedded) {
   const st = lcrState();
+  st.useFec = !!embedded;
+  if (embedded) lcrBindFec();
   const plan = lcrPlan();
   const o = lcrOpts();
   const dossier = lcrContrat();
@@ -337,11 +387,14 @@ function viewLcr() {
   const step = (n, title, sub, done, body, side = '') => `<section class="card lcr-step${done ? ' done' : ''}"><div class="lcr-head"><span class="lcr-n">${n}</span><div><h2>${title}</h2><p class="muted small">${sub}</p></div>${side ? `<div class="lcr-side">${side}</div>` : ''}</div>${body}</section>`;
 
   // 1. Listing
-  const s1 = step(1, 'Listing fournisseurs', 'Fichier Excel ou CSV du dossier : colonne A le compte, colonne B l\'intitulé. Il est retenu (données chiffrées).', !!plan,
+  const s1 = embedded ? step(1, 'Comptes fournisseurs', 'Repris du FEC ouvert : comptes 401 et 404, avec leur compte auxiliaire et son intitulé.', !!plan,
+    `${plan ? `<div class="lcr-loaded"><span><strong>${esc(plan.name)}</strong> · ${lcrPl(plan.rows.length, 'compte', 'comptes')}</span></div>` : st.planErr ? '' : '<p class="muted small" role="status">Lecture des comptes fournisseurs du FEC…</p>'}
+    ${st.planErr ? `<p class="late small" role="alert">${esc(st.planErr)}</p>` : ''}`)
+    : step(1, 'Listing fournisseurs', 'Fichier Excel ou CSV du dossier (colonne A le compte, colonne B l\'intitulé), ou le FEC du dossier (comptes 401 et 404). Il est retenu (données chiffrées).', !!plan,
     `${plan ? `<div class="lcr-loaded"><span><strong>${esc(plan.name)}</strong> · ${lcrPl(plan.rows.length, 'compte', 'comptes')}${plan.at ? ` · chargé le ${esc(fmtDate(plan.at.slice(0, 10)))}` : ''}</span><button class="btn small" data-action="lcr-plan">Remplacer le listing</button></div>
       ${st.rel.length && dossier !== 'sans-contrat' ? (plan.for === dossier ? `<p class="lcr-alert good">${st.linked !== dossier ? 'Listing de ce dossier repris automatiquement. ' : ''}Ce listing est associé au compte ${esc(dossier)}.</p>`
     : `<p class="lcr-alert warn"><strong>Vérifiez que ce listing est bien celui du dossier</strong> des relevés chargés (compte ${esc(dossier)}). Il sera associé à ce compte au premier export, puis repris automatiquement.</p>`) : ''}`
-      : `<div class="fec-drop lcr-drop" data-action="lcr-plan" role="button" tabindex="0">${icon('file', 'fec-drop-ico')}<p><strong>Sélectionnez ou déposez ici le listing fournisseurs</strong></p><p class="muted small">Excel (.xlsx) ou CSV</p></div>`}
+      : `<div class="fec-drop lcr-drop" data-action="lcr-plan" role="button" tabindex="0">${icon('file', 'fec-drop-ico')}<p><strong>Sélectionnez ou déposez ici le listing fournisseurs</strong></p><p class="muted small">Excel (.xlsx), CSV, ou FEC (.txt, .zip)</p></div>`}
     ${st.planErr ? `<p class="late small" role="alert">${esc(st.planErr)}</p>` : ''}`);
 
   // 2. Relevés
@@ -411,7 +464,7 @@ function viewLcr() {
   }
   const s4 = step(4, 'Écritures et import ACD', 'Contrôlez les écritures, puis téléchargez le fichier à importer dans ACD.', done4, s4body);
 
-  return `${toolHead('Écritures LCR pour ACD', 'Relevés LCR en PDF et listing fournisseurs du dossier : une écriture par relevé, prête à importer dans ACD.', '',
+  return `${toolHead(embedded ? '' : 'Écritures LCR pour ACD', embedded ? 'Relevés LCR en PDF : les comptes fournisseurs viennent du FEC ouvert ; une écriture par relevé, prête à importer dans ACD.' : 'Relevés LCR en PDF et listing fournisseurs (ou FEC) du dossier : une écriture par relevé, prête à importer dans ACD.', '',
     '<p>L\'outil passe chaque effet au débit du fournisseur, le total du relevé au crédit du compte de contrepartie, une écriture par relevé, et prépare le fichier d\'import ACD. Relevés lus : Crédit Agricole (relevé d\'effets à payer) et CIC (relevé de lettres de change). Les effets rejetés ne sont pas repris.</p>', 'lcr')}
     <div class="lcr">${s1}${s2}${s3}${s4}</div>`;
 }

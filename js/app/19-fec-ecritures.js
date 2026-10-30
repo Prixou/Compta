@@ -538,6 +538,7 @@ document.addEventListener('drop', (e) => {
     else if (location.hash.startsWith('#/social')) { const z = e.target.closest && e.target.closest('.soc-drop'); socDrop(files, z ? z.dataset.zone : ''); }
     else if (location.hash.startsWith('#/rapprochement')) { const slot = e.target.closest && e.target.closest('.cmp-slot'); brapDrop(files, slot ? slot.dataset.side : ''); }
     else if (location.hash.startsWith('#/comparer')) { const slot = e.target.closest && e.target.closest('.cmp-slot'); cmpDrop(files, slot ? slot.dataset.side : ''); }
+    else if (location.hash.startsWith('#/fec') && fecDropTool(files, e.target)) return;
     else if (files[0]) startFec(files[0]);
   }
 });

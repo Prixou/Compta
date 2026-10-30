@@ -267,7 +267,7 @@ const actions = {
   'lett-go': (el) => lettGo(el.dataset.code),
   'lett-close': (el) => lettClose(el.dataset.code, true),
   'lett-reopen': (el) => lettClose(el.dataset.code, false),
-  'lcr-plan': () => pickFiles('.xlsx,.csv,.txt').then((f) => lcrPlanFile(f[0])),
+  'lcr-plan': () => pickFiles('.xlsx,.csv,.txt,.zip').then((f) => lcrPlanFile(f[0])),
   'lcr-pdf': () => pickFiles('.pdf,application/pdf').then((f) => lcrAddPdfs(f)),
   'lcr-del': (el) => { lcrState().rel.splice(+el.dataset.i, 1); refresh(); },
   'lcr-clear': () => { Object.assign(lcrState(), { rel: [], errors: [] }); refresh(); },

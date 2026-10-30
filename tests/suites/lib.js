@@ -2,7 +2,7 @@
 // Lettrage, Paie, Immobilisations, TVA, Consultation, et leurs sous-onglets).
 'use strict';
 const GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', pieces: 'revision', revue: 'revision',
-  'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', rappro: 'banque', brap: 'banque', lettrage: 'lettrage', paie: 'paie', 'immo-etat': 'immos',
+  'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', rappro: 'banque', brap: 'banque', lettrage: 'lettrage', lcr: 'lettrage', paie: 'paie', 'immo-etat': 'immos',
   tvarev: 'tva', tva: 'tva', graphes: 'consult', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
 
 // Cycles du dossier de révision : sous-onglet « Cycles A à K » de l'onglet Révision A–K.

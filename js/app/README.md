@@ -10,7 +10,7 @@ de sécurité (CSP) n'autorise que les scripts du site.
 | `01-core.js` | Référentiels (statuts, modèles), utilitaires, données, index, portefeuilles, étapes cochées automatiquement |
 | `02-ui.js` | Fragments d'interface, écrans de verrouillage, structure, navigation (`route`, `refresh`) |
 | `03-tableau.js` … `09-import.js` | Tableau de bord, dossiers, missions, suivi mensuel, messages, calendrier fiscal, import Excel |
-| `10-fec.js` | Espace FEC : lancement du moteur (`fec-worker.js`), profil (classique ou officine), bandeau du dossier, onglets (Synthèse, Révision A–K, Mois, Rapprochement bancaire, Lettrage, Paie, Immobilisations, TVA, Consultation) et sous-onglets, graphiques, écran principal |
+| `10-fec.js` | Espace FEC : lancement du moteur (`fec-worker.js`), profil (classique ou officine), bandeau du dossier, onglets (Synthèse, Révision A–K, Mois, Rapprochement bancaire, Lettrage et LCR, Paie, Immobilisations, TVA, Consultation) et sous-onglets, graphiques, écran principal |
 | `11-fec-pieces.js` | Pièces à demander (client, mois, fournisseurs) |
 | `12-fec-revue.js` | Revue N / N-1, note de synthèse, rapprochement bancaire |
 | `13-fec-pharmacie.js` | Officine : tiers payant, CA et TVA par taux |
@@ -30,7 +30,7 @@ de sécurité (CSP) n'autorise que les scripts du site.
 | `31-rapprochement.js` | Rapprocher un relevé bancaire et le FEC du journal de banque (appariement de `12-fec-revue.js`) : écarts, état de rapprochement, écritures à passer |
 | `32-tva-revue.js` | Contrôle de la TVA de l'exercice (onglet « Contrôle TVA » de l'espace Révision) : récapitulatif des déclarations, TVA collectée, TVA déductible, soldes après OD, export Excel |
 | `33-lettrage.js` | Lettrage proposé des comptes de tiers d'après le grand livre non lettré (PDF, texte) ou un FEC : factures consécutives et peu espacées, relevés, avoirs, règlements en plusieurs fois ; hypothèses, doublons, compte d'attente, mail des factures manquantes, comptes fermés ; copie et export Excel |
-| `34-lcr.js` | Écritures LCR pour ACD : relevés LCR en PDF (Crédit Agricole, CIC) rapprochés du listing fournisseurs (correspondances, listing et réglages retenus par dossier), une OD par relevé, fichier d'import ACD et tableau de contrôle |
+| `34-lcr.js` | Écritures LCR pour ACD (page autonome, et onglet de l'Espace FEC où le FEC ouvert sert de listing) : relevés LCR en PDF (Crédit Agricole, CIC) rapprochés du listing fournisseurs ou des comptes 401 / 404 d'un FEC (correspondances, listing et réglages retenus par dossier), une OD par relevé, fichier d'import ACD et tableau de contrôle |
 | `35-ratios.js` | Ratios sectoriels INSEE (Ésane 2023) par code NAF, comparés aux chiffres du dossier saisis ou repris de l'analyse FEC (données : `js/ratios-insee.js`, chargé à la demande) |
 | `36-tns.js` | TNS-COTISATION : régularisation des cotisations sociales des travailleurs non salariés à la clôture (contrôle de l'avis Urssaf et de la caisse, reste dû, écritures, rapport imprimable) |
 | `37-social.js` | CYCLE SOCIAL : cadrage de la paie (641, 645, 63, 42 et 43, congés payés 4282 et 4382) entre les éditions SILAE (récapitulatif Excel ou journal de paie PDF, détail des cotisations Excel ou PDF, solde de repos) et le FEC (celui de l'analyse depuis le cycle H, déposé, ou un grand livre du journal de paie) ; notes par compte, motifs d'écart, reclassements ; synthèse enregistrée dans la feuille de l'exercice et reprise par le cycle H (`paieCard`, `silaeChecks` de 14-fec-cycles.js) |
