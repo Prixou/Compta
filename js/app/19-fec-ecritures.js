@@ -515,11 +515,12 @@ document.addEventListener('focusin', (e) => { if (e.target.dataset && e.target.d
 document.addEventListener('focusout', (e) => { if (e.target.dataset && e.target.dataset.tip) hideTip(e.target); });
 
 // Glisser-déposer d'un FEC sur la page d'analyse (un FEC), du portefeuille (plusieurs) ou d'anonymisation.
-const dropPage = () => /^#\/(fec|portefeuille|anonymiser|releves|comparer|rapprochement|lettrage|lcr)\b/.test(location.hash);
+const dropPage = () => /^#\/(fec|portefeuille|anonymiser|releves|comparer|rapprochement|lettrage|lcr|social)\b/.test(location.hash);
 document.addEventListener('dragover', (e) => {
   if (data && dropPage()) {
     e.preventDefault();
-    const zone = (/^#\/(comparer|rapprochement)/.test(location.hash) && e.target.closest && e.target.closest('.cmp-slot')) || $('.fec-drop');
+    const zone = /^#\/social/.test(location.hash) ? e.target.closest && e.target.closest('.soc-drop')
+      : (/^#\/(comparer|rapprochement)/.test(location.hash) && e.target.closest && e.target.closest('.cmp-slot')) || $('.fec-drop');
     $$('.fec-drop.over').forEach((z) => { if (z !== zone) z.classList.remove('over'); });
     if (zone) zone.classList.add('over');
   }
@@ -534,6 +535,7 @@ document.addEventListener('drop', (e) => {
     else if (location.hash.startsWith('#/releves')) relAdd(files);
     else if (location.hash.startsWith('#/lettrage')) { if (files[0]) lettFile(files[0]); }
     else if (location.hash.startsWith('#/lcr')) lcrDrop(files);
+    else if (location.hash.startsWith('#/social')) { const z = e.target.closest && e.target.closest('.soc-drop'); socDrop(files, z ? z.dataset.zone : ''); }
     else if (location.hash.startsWith('#/rapprochement')) { const slot = e.target.closest && e.target.closest('.cmp-slot'); brapDrop(files, slot ? slot.dataset.side : ''); }
     else if (location.hash.startsWith('#/comparer')) { const slot = e.target.closest && e.target.closest('.cmp-slot'); cmpDrop(files, slot ? slot.dataset.side : ''); }
     else if (files[0]) startFec(files[0]);

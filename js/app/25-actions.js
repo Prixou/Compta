@@ -333,6 +333,14 @@ const actions = {
   'ratios-fec': () => ratTakeFec(),
   'ratios-copy': () => ratiosCopy(),
   'ratios-naf': () => ratiosSetNaf(),
+  'social-pick': (el) => socAction('pick', el),
+  'social-clear': (el) => socAction('clear', el),
+  'social-copy-all': (el) => socAction('copy-all', el),
+  'social-copy-od': (el) => socAction('copy-od', el),
+  'social-copy': (el) => socAction('copy', el),
+  'social-rm': (el) => socAction('rm', el),
+  'social-sug': (el) => socAction('sug', el),
+  'social-add': (el) => socAction('add', el),
   'tns-profil': (el) => tnsProfil(el.dataset.p),
   'tns-print': () => tnsPrint(),
   'tns-clear': () => tnsClear(),
@@ -603,6 +611,8 @@ document.addEventListener('change', (e) => {
     ratiosChange(t);
   } else if (t.dataset.tns) {
     onTnsChange(t);
+  } else if (t.dataset.social) {
+    onSocialChange(t);
   } else if (t.dataset.cab && ui.cab) {
     onCabChange(t);
   } else if (t.dataset.cal && ui.cal) {
