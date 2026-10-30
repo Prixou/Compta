@@ -42,6 +42,10 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
   641200 / 645200, mutuelle volontairement en écart de 20 €) et ses éditions PDF (journal de paie, détail des cotisations,
   solde de repos), pour le cadrage de la paie ouvert depuis le cycle H (`suites/silae-test.js`) ; `gensocial.py` produit les
   exports Excel SILAE et le FEC du CYCLE SOCIAL (`fixtures/social/`, `suites/social-test.js`).
+  `genimmo.py` produit le FEC d'un dossier fictif (700000007) et l'état de ses immobilisations (`fixtures/immo/` : PDF sur
+  deux pages, zéros en blanc sur la seconde, et le même état en texte), avec une facture ventilée sur deux fiches, deux
+  factures sur une fiche, des acquisitions sans fiche, une fiche sur un autre compte, une cession, un avoir et une sortie
+  sans écriture, pour le rapprochement du cycle G (`suites/immo-test.js`).
   `genlcr.py` produit des relevés LCR en PDF (relevés d'effets à payer au format Crédit Agricole, relevé de lettres de
   change au format CIC) et deux listings fournisseurs (`fixtures/lcr/`) pour la page « Écritures LCR » (`suites/lcr-test.js`).
 - `suites/` : une suite par fonction (analyse FEC, cycles, TVA, pièces, portefeuille, suivi mensuel, sécurité…) ; `suites/lib.js` regroupe les aides de navigation (onglets et espaces Mois / Révision / Consultation de l'analyse FEC, choix du mois).

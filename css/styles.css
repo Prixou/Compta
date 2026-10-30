@@ -1103,6 +1103,18 @@ tr.tns-sec td { font-weight: 700; background: var(--primary-soft); }
 .soc-line { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; font-size: .85rem; color: var(--muted); margin: .4rem 0; }
 .soc-line select { flex: 1 1 260px; min-width: 0; max-width: 100%; min-height: 34px; padding: .25rem .5rem; font-size: .85rem; margin: 0; }
 .soc-link { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; }
+.ie h3 { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .7rem; margin: 1.2rem 0 .3rem; font-size: 1rem; }
+.ie-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; padding: .7rem .9rem; margin: .6rem 0; background: var(--bg); border-radius: 8px; }
+.ie-verdict > div { flex: 1 1 260px; min-width: 0; }
+.ie-verdict p { margin: .2rem 0 0; }
+.ie-fig { font-size: 2rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.ie-fig.ok { color: var(--ok); }
+.ie-t td:not(.ie-lib) { white-space: nowrap; }
+.ie-t td.ie-lib { min-width: 11rem; white-space: normal; }
+.ie-t th.n, .ie-t td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.ie-hint { display: block; margin-top: .2rem; color: var(--warn); font-size: .78rem; font-weight: 600; }
+.ie-paste summary { cursor: pointer; color: var(--muted); font-size: .88rem; }
+.ie-paste textarea { width: 100%; min-height: 7rem; font: .8rem/1.4 ui-monospace, Menlo, Consolas, monospace; }
 .soc-chip { display: inline-block; font-size: .75rem; font-weight: 600; padding: .1rem .55rem; border-radius: 20px; white-space: nowrap; background: var(--bg); color: var(--muted); }
 .soc-chip.ok { background: var(--ok-soft); color: var(--ok); }
 .soc-chip.just { background: var(--warn-soft); color: var(--warn); }

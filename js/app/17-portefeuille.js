@@ -76,7 +76,7 @@ async function batchRun(files) {
       const r = res.result;
       const siren = r.meta.siren;
       const c = clientBySiren(siren);
-      it.st = { status: 'done', result: r, clientId: c ? c.id : '', section: 'synthese', q: '', classe: '', fileName: file.name, pct: 100 };
+      it.st = { status: 'done', result: r, clientId: c ? c.id : '', section: 'synthese', q: '', classe: '', fileName: file.name, file, pct: 100 };
       it.profile = applyProfile(it.st);
       it.sum = batchSummary(it);
     }

@@ -320,7 +320,7 @@ function cycleChecks(r) {
   const ref = pharmaRef(r);
   const prev = fecPrev();
   const terme = fecTerme();
-  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', ui.fec.prev ? ui.fec.prev.meta.fileName : '', terme, ui.fec.seuil || '', r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore()), JSON.stringify(wpSoldeStore()), JSON.stringify(silaeStore()), (socSummary() || {}).at || ''].join('|');
+  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', ui.fec.prev ? ui.fec.prev.meta.fileName : '', terme, ui.fec.seuil || '', r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore()), JSON.stringify(wpSoldeStore()), JSON.stringify(silaeStore()), (socSummary() || {}).at || '', (immoEtatSummary() || {}).at || ''].join('|');
   if (r._cc && r._cc.key === key) return r._cc.val;
   const coh = coherenceChecks(r, prev, clientById(ui.fec.clientId));
   const val = {
@@ -695,6 +695,7 @@ function chkImmo(r, coh) {
   if (cb >= 1) out.add('info', `Redevances de crédit-bail : ${eur(cb, 0)} €`, "Engagements de crédit-bail (redevances restant à payer, valeur résiduelle) à mentionner en annexe ; part non déductible pour un véhicule de tourisme.");
   const acq = balOf(r, ['20', '21', '22', '23', '26', '27']).reduce((s, b) => s + b.dm, 0) - balOf(r, ['23']).reduce((s, b) => s + b.cm, 0);
   if (acq >= 1) out.add('info', `Investissements de l'exercice : ${eur(acq, 0)} €`, "Factures demandées avec les pièces : date de mise en service, durée d'utilisation, composants ; dépenses de plus de 500 € HT passées en charges à reclasser ?");
+  immoEtatChecks(r, out);
   return out;
 }
 
@@ -970,7 +971,7 @@ function docsOf(r, key, arrete) {
     }
   } else if (key === 'immo') {
     if ((r.pieces.immo || []).length) add('fact', "Factures d'acquisition des immobilisations de l'exercice (date de mise en service)", { std: true, cat: 'immo' });
-    if (live(['2'])) add('tableau', `Tableau des immobilisations et des amortissements au ${d}`, { cab: true });
+    if (live(['2'])) add('tableau', `Tableau des immobilisations et des amortissements au ${d}`, { cab: true, immoEtat: true });
     if (balOf(r, ['20', '21', '22', '26']).some((b) => b.cm >= 1) || -mv(['775']) >= 1) add('cession', 'Factures ou actes de cession des immobilisations vendues ou mises au rebut (certificat de cession, carte grise barrée)', { cat: 'immo' });
     if (fl.vehicules) add('cg', 'Cartes grises des véhicules de la société', { std: true });
     if (balOf(r, ['211', '213']).some((b) => b.dm >= 1)) add('acte', "Acte notarié des acquisitions immobilières (ventilation terrain et construction, frais d'acquisition)", { cat: 'immo' });
@@ -1015,7 +1016,7 @@ function cycleDocs(r, key) {
   return list.map((x) => {
     const own = (loc[x.id] || {}).st || '';
     const lab = normLab(x.text);
-    const lu = x.silae && silaeLu(r, x.silae);
+    const lu = (x.silae && silaeLu(r, x.silae)) || (x.immoEtat && !!immoEtatSummary());
     const auto = S.recvLab.has(lab) || lu ? 'recu' : S.pendLab.has(lab) ? 'demande' : '';
     return Object.assign(x, { own, auto, lu: !!lu, st: own || auto });
   });
@@ -1045,7 +1046,7 @@ const CYCLE_INTRO = {
   regul: "Comptes d'attente soldés et compte 471 vide (aucune écriture), virements internes soldés ; à-nouveaux comparés à la clôture de l'exercice précédent, sens des soldes, doublons et dates atypiques.",
   clients: "Officine : le tiers payant, le chiffre d'affaires et la TVA par taux ont leurs onglets.",
   stocks: "Variation de stock comparée aux stocks d'ouverture et de clôture, inventaire, dépréciation et évolution du stock.",
-  immo: 'Investissements, cessions, dotations aux amortissements, immobilisations en cours et crédit-bail.',
+  immo: "Rapprochement avec l'état des immobilisations du module immo, investissements, cessions, dotations aux amortissements, immobilisations en cours et crédit-bail.",
   social: "Cadrage de la paie avec les éditions Silae (CYCLE SOCIAL : brut, organismes, contributions, net, cotisations à payer, congés payés), paie de chaque mois, salaires du dernier mois restant dus, cotisations du dernier mois ou du dernier trimestre restant dues, rémunération du dirigeant.",
   etat: 'TVA, impôt sur les sociétés, CFE et autres impôts et taxes, crédit de TVA.',
   capitaux: "Capital, affectation du résultat de l'exercice précédent, réserve légale, subventions et provisions.",
@@ -1106,7 +1107,7 @@ function viewCycle(key) {
   const r = ui.fec.result;
   ui.fec.lastCycle = key;
   if (CYCLE_VIEWS[key] && !(key === 'clients' && ui.fecProfile === 'pharmacie')) return CYCLE_VIEWS[key]();
-  return `${cycleKpis(r, key)}${cycleBanner(r, key)}${key === 'social' ? paieCard(r) : ''}${cycleHead(key, CYCLE_INTRO[key])}`;
+  return `${cycleKpis(r, key)}${cycleBanner(r, key)}${key === 'social' ? paieCard(r) : ''}${key === 'immo' ? immoEtatCard(r) : ''}${cycleHead(key, CYCLE_INTRO[key])}`;
 }
 
 // ---------- Cycle H : cadrage de la paie (CYCLE SOCIAL) ----------

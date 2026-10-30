@@ -34,7 +34,8 @@ de sécurité (CSP) n'autorise que les scripts du site.
 | `35-ratios.js` | Ratios sectoriels INSEE (Ésane 2023) par code NAF, comparés aux chiffres du dossier saisis ou repris de l'analyse FEC (données : `js/ratios-insee.js`, chargé à la demande) |
 | `36-tns.js` | TNS-COTISATION : régularisation des cotisations sociales des travailleurs non salariés à la clôture (contrôle de l'avis Urssaf et de la caisse, reste dû, écritures, rapport imprimable) |
 | `37-social.js` | CYCLE SOCIAL : cadrage de la paie (641, 645, 63, 42 et 43, congés payés 4282 et 4382) entre les éditions SILAE (récapitulatif Excel ou journal de paie PDF, détail des cotisations Excel ou PDF, solde de repos) et le FEC (celui de l'analyse depuis le cycle H, déposé, ou un grand livre du journal de paie) ; notes par compte, motifs d'écart, reclassements ; synthèse enregistrée dans la feuille de l'exercice et reprise par le cycle H (`paieCard`, `silaeChecks` de 14-fec-cycles.js) |
-| `38-formulaires.js` | Formulaires, démarrage (toujours en dernier) |
+| `38-immo.js` | Cycle G : rapprochement du FEC de l'analyse avec l'état des immobilisations du module immo (PDF ou texte collé, lu par `js/immo-etat.js`) : écritures sans fiche, contrôle du solde de chaque compte, sorties et avoirs ; synthèse enregistrée dans la feuille de l'exercice (contrôles du cycle G) |
+| `39-formulaires.js` | Formulaires, démarrage (toujours en dernier) |
 
 Règles : un fichier ne doit pas exécuter au chargement une fonction déclarée dans un fichier suivant (les appels depuis
 des événements ou d'autres fonctions sont libres) ; deux fichiers ne doivent pas déclarer le même nom ; les noms ne doivent
