@@ -715,6 +715,33 @@ dialog.wide { width: min(980px, calc(100vw - 1.5rem)); }
 /* Cycles de révision */
 .kpi em { display: block; font-style: normal; font-size: .75rem; color: var(--muted); margin-top: .15rem; }
 .cycle-tiles { margin-bottom: 0; }
+/* Synthèse de l'Espace FEC : points à traiter et avancement des cycles */
+.syn-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0 1rem; align-items: start; }
+@media (max-width: 1100px) { .syn-grid { grid-template-columns: minmax(0, 1fr); } }
+.syn-todo h2, .syn-cycles h2 { margin: 0; }
+.todo-list { list-style: none; margin: .5rem 0 0; padding: 0; }
+.todo-list li { display: flex; align-items: center; gap: .75rem; padding: .6rem 0; border-top: 1px solid var(--border); }
+.todo-tag { flex: none; min-width: 1.9rem; height: 1.9rem; padding: 0 .45rem; box-sizing: border-box; border-radius: 6px; display: inline-grid; place-items: center; font-weight: 700; font-size: .8rem; background: var(--primary-soft); color: var(--primary); }
+.todo-tag.error { background: var(--danger-soft); color: var(--danger); }
+.todo-tag.warn { background: var(--warn-soft); color: var(--warn); }
+.todo-txt { flex: 1 1 auto; min-width: 0; display: grid; gap: .15rem; }
+.todo-list .btn { flex: none; }
+.cyc-rows { display: grid; gap: .1rem; margin-top: .5rem; }
+.cyc-row { display: grid; grid-template-columns: 1.4rem minmax(0, 1fr) 80px 92px; grid-template-areas: "l n b s" ". d d d"; align-items: center; gap: .1rem .6rem; width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: .45rem .5rem; font: inherit; color: var(--text); cursor: pointer; }
+.cyc-row:hover { background: var(--surface-2); }
+.cyc-l { grid-area: l; font-weight: 700; color: var(--primary); }
+.cyc-n { grid-area: n; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cyc-bar { grid-area: b; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.cyc-bar i { display: block; height: 100%; background: var(--ok); }
+.cyc-left .cyc-bar i { background: var(--warn); }
+.cyc-s { grid-area: s; font-size: .8rem; color: var(--muted); text-align: right; white-space: nowrap; }
+.cyc-left .cyc-s { color: var(--warn); font-weight: 700; }
+.cyc-d { grid-area: d; display: none; font-size: .78rem; color: var(--muted); }
+.cyc-left .cyc-d { display: block; }
+.syn-gen > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .8rem; list-style: none; }
+.syn-gen > summary::-webkit-details-marker { display: none; }
+.syn-gen > summary h2 { margin: 0; font-size: 1.05rem; }
+.syn-gen[open] > summary { margin-bottom: .8rem; }
 button.kpi { font: inherit; text-align: left; cursor: pointer; width: 100%; }
 button.kpi:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .mdots { display: inline-flex; gap: 3px; vertical-align: middle; }

@@ -3,7 +3,7 @@
 'use strict';
 const GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', pieces: 'revision', revue: 'revision',
   'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', rappro: 'banque', brap: 'banque', lettrage: 'lettrage', paie: 'paie', 'immo-etat': 'immos',
-  tvarev: 'tva', tva: 'tva', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
+  tvarev: 'tva', tva: 'tva', graphes: 'consult', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
 
 // Cycles du dossier de révision : sous-onglet « Cycles A à K » de l'onglet Révision A–K.
 const CYCLE_TABS = ['regul', 'treso', 'achats', 'charges', 'clients', 'stocks', 'immo', 'social', 'etat', 'capitaux', 'autres'];

@@ -34,7 +34,7 @@ const CYCLES = ['regul', 'treso', 'achats', 'charges', 'clients', 'stocks', 'imm
   ko(/Révision A–K/.test(tabs) && !/Achats|Trésorerie/.test(tabs), 'un seul onglet pour les cycles');
   const tiles = await p.$$eval('.cycle-tile', (k) => k.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   console.log('tuiles :\n  ' + tiles.join('\n  '));
-  ko(tiles.length === 11 && /^\d+A · Régularité/.test(tiles[0]) && /K · Autres comptes/.test(tiles[10]), '11 tuiles A à K');
+  ko(tiles.length === 11 && /^A ?Régularité/.test(tiles[0]) && /^K ?Autres comptes/.test(tiles[10]), '11 lignes de cycles A à K dans la synthèse');
   await p.click('.fec-groups button[data-group="revision"]'); await p.waitForTimeout(150);
   const bar = await p.$$eval('.fec-cycles button', (x) => x.map((y) => y.textContent.trim()));
   console.log('barre :', bar.join(' | '));

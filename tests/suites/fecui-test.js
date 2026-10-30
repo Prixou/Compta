@@ -31,8 +31,10 @@ const { fecTab, fecMonth, fecMore } = require('./lib');
   console.log('KPI :', await p.$$eval('.fec-kpis .kpi', (k) => k.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).join(' | ')));
   console.log('points de révision :', await p.$$eval('section.card:has(h2:text-matches("Points de révision")) .fec-check', (l) => l.map((x) => x.querySelector('.lvl').textContent + ' ' + x.querySelector('strong').textContent).join(' | ')));
   // Info-bulle
+  await fecTab(p, 'graphes', 100);
   await p.hover('.viz rect.viz-hit >> nth=5');
   console.log('info-bulle :', (await p.textContent('#viz-tip')).replace(/\s+/g, ' '));
+  await fecTab(p, 'synthese', 100);
   await p.screenshot({ path: O + 'f1-synthese.png', fullPage: true });
   for (const tab of ['conformite', 'sig', 'balance', 'details']) {
     await fecTab(p, tab, 0);

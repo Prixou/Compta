@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '89';
+const ASSET_VERSION = '90';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -125,7 +125,7 @@ function setFecProfile(p) {
 // des sous-onglets de « Révision A–K » (barre des cycles sous les sous-onglets).
 const FEC_GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', pieces: 'revision', revue: 'revision',
   'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', rappro: 'banque', brap: 'banque', lettrage: 'lettrage', paie: 'paie', 'immo-etat': 'immos',
-  tvarev: 'tva', tva: 'tva', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
+  tvarev: 'tva', tva: 'tva', graphes: 'consult', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
 const groupOf = (tab) => (CYCLE_DEF[tab] ? 'revision' : FEC_GROUP_OF[tab] || 'synthese');
 // Onglet à l'arrivée du FEC : le dernier choisi parmi Synthèse, Mois, Révision A–K et Consultation
 const FEC_ARRIVE = ['synthese', 'mois', 'revision', 'consult'];
@@ -366,7 +366,7 @@ function viewFec() {
       if (a) tva = tvaData(r);
       return [['tvarev', 'Contrôle TVA'], ['tva', cnt('TVA du mois · bêta', a ? wpProgress(tva.cycle, tva.checks).left : 0)]];
     }]] : []),
-    ['consult', cnt('Consultation', errors), () => [['sig', 'SIG et bilan'], ['balance', 'Balance'], ['details', 'Journaux et tiers'], ['conformite', cnt('Conformité du fichier', errors)]]],
+    ['consult', cnt('Consultation', errors), () => [['graphes', 'Graphiques'], ['sig', 'SIG et bilan'], ['balance', 'Balance'], ['details', 'Journaux et tiers'], ['conformite', cnt('Conformité du fichier', errors)]]],
   ];
   let space = f.section ? groupOf(f.section) : f.space;
   if (!groups.some((g) => g[0] === space)) space = 'synthese';
@@ -391,11 +391,12 @@ function viewFec() {
     const k = r.kpi;
     const tile = (label, value, cls) => `<div class="kpi ${cls || ''}"><strong>${value}</strong><span>${label}</span></div>`;
     const nbPieces = r.pieces ? piecesCount(r, piecesState().mode, piecesState().arrete) : 0;
+    const left = cc ? Object.keys(CYCLE_DEF).reduce((t, c) => t + wpProgress(c, cc[c]).left, 0) : 0;
+    const gp = genPoints(r);
     body = `
-      ${nbPieces ? `<div class="banner info"><span><strong>${nbPieces} pièce(s) ou information(s)</strong> à demander au client pour ${piecesState().mode === 'bilan' ? 'le bilan' : 'la situation'} au ${fmtDate(piecesState().arrete)}.</span><button class="btn small" data-action="fec-tab" data-tab="pieces">Voir la liste</button></div>` : ''}
       <div class="kpis fec-kpis">
-        ${tile('Anomalies', errors, errors ? 'kpi-late' : '')}
-        ${tile('Points à vérifier', warnings, warnings ? 'kpi-wait' : '')}
+        ${tile('Points à traiter', left, left ? 'kpi-wait' : '')}
+        ${tile('Pièces à demander', nbPieces, nbPieces ? 'kpi-wait' : '')}
         ${tile('Chiffre d\'affaires', eurK(k.ca))}
         ${pharma ? (() => {
           const ph = pharmaData(r, pharmaRef(r));
@@ -406,9 +407,14 @@ function viewFec() {
         ${tile('EBE', eurK(k.ebe))}
         ${tile('Trésorerie', eurK(k.tresorerie), k.tresorerie < 0 ? 'kpi-late' : '')}`}
       </div>
-      ${cyclesCard(r)}
+      <div class="syn-grid">
+        ${fecTodoCard(r, { errors, nbPieces })}
+        ${cyclesCard(r)}
+      </div>
       ${justifCard(r)}
-      ${r.monthly.length ? `
+      ${gp.some((x) => x.level !== 'ok') ? `<details class="card syn-gen"><summary><h2>Points généraux <span class="count">${gp.filter((x) => x.level !== 'ok').length}</span></h2><span class="muted small">Caisse, comptes d'attente, tiers, doublons, dates atypiques, loi de Benford : repris dans leur cycle avec le même statut.</span></summary>${wpCycleBar('gen', gp)}${wpCheckList(gp, 'gen')}</details>` : ''}`;
+  } else if (f.section === 'graphes') {
+    body = r.monthly.length ? `
       <section class="card"><h2>Chiffre d'affaires et charges par mois</h2>
         ${legend([['--series-1', 'Chiffre d\'affaires (70)'], ['--series-2', 'Charges (classe 6)']])}
         ${barChart(r.monthly, [{ key: 'ca', label: 'Chiffre d\'affaires', color: '--series-1' }, { key: 'charges', label: 'Charges', color: '--series-2' }], { aria: 'Chiffre d\'affaires et charges par mois', xLabel: (x) => moisLabel(x.mois), tipTitle: (x) => moisLabel(x.mois).replace(/ \d+$/, '') + ' ' + x.mois.slice(0, 4) })}
@@ -419,9 +425,7 @@ function viewFec() {
           <div class="grid-wrap"><table class="dtable num"><thead><tr><th>Mois</th><th>CA</th><th>Charges</th><th>TVA collectée</th><th>TVA déductible</th><th>Trésorerie</th></tr></thead>
           <tbody>${r.monthly.map((x) => `<tr><td>${x.mois.slice(5)}/${x.mois.slice(0, 4)}</td><td>${eur(x.ca)}</td><td>${eur(x.charges)}</td><td>${eur(x.tvaCollectee)}</td><td>${eur(x.tvaDeductible)}</td><td>${eur(x.tresorerie)}</td></tr>`).join('')}</tbody></table></div>
         </details>
-      </section>` : ''}
-      <section class="card"><h2>Points de révision <span class="count">${genPoints(r).filter((x) => x.level !== 'ok').length}</span></h2><p class="muted small">Points repris dans leur cycle du dossier de révision, avec le même statut. Les comptes d'attente (cycle A), le compte courant d'associé et la caisse (cycle B) sont contrôlés dans leur cycle.</p>${wpCycleBar('gen', genPoints(r))}${wpCheckList(genPoints(r), 'gen')}</section>
-      ${errors ? `<section class="card"><h2>Anomalies de conformité du fichier</h2>${checkList(r.checks.filter((c) => c.level === 'error'))}<button class="btn small" data-action="fec-tab" data-tab="conformite">Voir tous les contrôles</button></section>` : ''}`;
+      </section>` : '<section class="card"><p class="muted">Aucun mouvement mensuel dans ce FEC.</p></section>';
   } else if (f.section === 'mois-pieces') {
     body = viewPieces();
   } else if (f.section === 'mois-ventes') {

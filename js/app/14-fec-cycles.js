@@ -542,17 +542,55 @@ function viewTreso() {
 }
 
 // Carte de la synthèse : un accès par cycle (A à K) avec le nombre de points, de comptes et de pièces restants.
+// Synthèse : avancement de chaque cycle (points traités, comptes et pièces restants), une ligne par cycle.
 function cyclesCard(r) {
   const cc = cycleChecks(r);
   if (!cc) return '';
-  return `<section class="card"><div class="card-head"><h2>Dossier de révision</h2><button class="btn small" data-action="wp-print">Dossier de travail (PDF)</button></div><div class="kpis fec-kpis cycle-tiles">${Object.keys(CYCLE_DEF).map((k) => {
+  return `<section class="card syn-cycles"><div class="card-head"><h2>Révision par cycle</h2><button class="btn small" data-action="wp-print">Dossier de travail (PDF)</button></div><div class="cyc-rows">${Object.keys(CYCLE_DEF).map((k) => {
     const pg = wpProgress(k, cc[k]);
     const rev = wpStore().cycles[k];
     const used = cycleUsed(r, k);
     const acc = accLeft(r, k), doc = docsLeft(r, k);
     const rest = [acc ? `${acc} compte(s) à justifier` : '', doc ? `${doc} pièce(s) à obtenir` : ''].filter(Boolean).join(' · ');
-    return `<button class="kpi cycle-tile${pg.left ? ' kpi-wait' : ''}${used ? '' : ' cycle-na'}" data-action="fec-tab" data-tab="${k}"><strong>${pg.left}</strong><span>${esc(CYCLES[k])}</span><em>${!used ? 'sans objet' : `${pg.total ? `${pg.done} / ${pg.total} point(s) traité(s)${pg.wait ? ` · ${pg.wait} en attente` : ''}` : 'rien à signaler'}${rest ? ` · ${rest}` : ''}`}${rev ? ' · revu ✓' : ''}</em></button>`;
+    const pct = !used ? 0 : !pg.total ? 100 : Math.round(((pg.done + pg.wait) / pg.total) * 100);
+    const txt = !used ? 'sans objet' : `${pg.total ? `${pg.done} / ${pg.total} point(s) traité(s)${pg.wait ? ` · ${pg.wait} en attente` : ''}` : 'rien à signaler'}${rest ? ` · ${rest}` : ''}${rev ? ' · revu ✓' : ''}`;
+    return `<button class="cycle-tile cyc-row${pg.left ? ' cyc-left' : ''}${used ? '' : ' cycle-na'}" data-action="fec-tab" data-tab="${k}" title="${esc(txt)}">
+      <span class="cyc-l">${CYCLE_DEF[k].l}</span><span class="cyc-n">${esc(CYCLE_DEF[k].court)}</span>
+      <span class="cyc-bar"><i data-w="${pct}"></i></span><span class="cyc-s">${pg.left ? `${pg.left} à traiter` : !used ? 'sans objet' : rev ? 'revu ✓' : 'à jour'}</span>
+      <span class="cyc-d">${esc(txt)}</span></button>`;
   }).join('')}</div></section>`;
+}
+
+// Synthèse : points à traiter sur ce FEC, chacun avec l'onglet où le traiter — anomalies du fichier, pièces à demander,
+// points des cycles A à K ni traités ni en attente de pièce, travaux « à faire » (cadrage de la paie, état des
+// immobilisations), ces derniers renvoyant à leur onglet.
+function fecTodoCard(r, o) {
+  const cc = cycleChecks(r);
+  const L = [];
+  if (o.errors) L.push({ c: 'FEC', t: `${o.errors} anomalie(s) de conformité du fichier`, s: 'Contrôles de l\'article A47 A-1 du LPF : colonnes, dates, équilibre, numérotation.', tab: 'conformite', go: 'Conformité', lvl: 'error' });
+  if (o.nbPieces) L.push({ c: 'Pièces', t: `${o.nbPieces} pièce(s) ou information(s) à demander au client`, s: `Pour ${piecesState().mode === 'bilan' ? 'le bilan' : 'la situation'} au ${fmtDate(piecesState().arrete)}.`, tab: 'pieces', go: 'Pièces à demander', lvl: 'warn' });
+  if (cc) {
+    Object.keys(CYCLE_DEF).forEach((k) => cc[k].forEach((x) => {
+      const act = (x.level === 'error' || x.level === 'warn') && !x.linked;
+      const st = act ? checkState(x.via || k, x) : '';
+      const aFaire = x.level === 'info' && / à faire$/.test(x.label);
+      if (!(act && !WP_DONE.includes(st) && st !== 'piece') && !aFaire) return;
+      let tab = k, go = `${CYCLE_DEF[k].l} · ${CYCLE_DEF[k].court}`;
+      if (k === 'social' && /paie|silae/i.test(x.label)) { tab = 'paie'; go = 'Paie'; }
+      if (k === 'immo' && /module immo|état des immobilisations/i.test(x.label)) { tab = 'immo-etat'; go = 'Immobilisations'; }
+      L.push({ c: CYCLE_DEF[k].l, t: x.label, s: x.detail, tab, go, lvl: aFaire ? 'info' : x.level });
+    }));
+  }
+  const order = { error: 0, warn: 1, info: 2 };
+  const list = L.map((x, i) => Object.assign(x, { i })).sort((a, b) => order[a.lvl] - order[b.lvl] || a.i - b.i);
+  const MAX = 12;
+  const cut = (t) => (t && t.length > 180 ? `${t.slice(0, 177)}…` : t || '');
+  return `<section class="card syn-todo"><h2>À traiter sur ce FEC <span class="count">${list.length}</span></h2>
+    ${list.length ? `<ul class="todo-list">${list.slice(0, MAX).map((x) => `<li><span class="todo-tag ${x.lvl}">${esc(x.c)}</span>
+      <div class="todo-txt"><strong>${esc(x.t)}</strong>${x.s ? `<span class="muted small">${esc(cut(x.s))}</span>` : ''}</div>
+      <button class="btn small" data-action="fec-tab" data-tab="${x.tab}">${esc(x.go)}</button></li>`).join('')}</ul>
+      ${list.length > MAX ? `<p class="muted small">Et ${list.length - MAX} autre(s) point(s) : <button class="link-btn" data-action="fec-group" data-group="revision">voir la révision A–K</button></p>` : ''}`
+      : '<p class="muted">Rien à traiter : chaque point est traité, justifié ou sans objet.</p>'}</section>`;
 }
 
 // Barre des cycles A à K, sous les onglets de l'espace Révision.
