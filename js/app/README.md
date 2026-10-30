@@ -32,7 +32,8 @@ de sécurité (CSP) n'autorise que les scripts du site.
 | `33-lettrage.js` | Lettrage proposé des comptes de tiers d'après le grand livre non lettré (PDF, texte) ou un FEC : factures consécutives et peu espacées, relevés, avoirs, règlements en plusieurs fois ; hypothèses, doublons, compte d'attente, mail des factures manquantes, comptes fermés ; copie et export Excel |
 | `34-lcr.js` | Écritures LCR pour ACD : relevés LCR en PDF (Crédit Agricole, CIC) rapprochés du listing fournisseurs (correspondances, listing et réglages retenus par dossier), une OD par relevé, fichier d'import ACD et tableau de contrôle |
 | `35-ratios.js` | Ratios sectoriels INSEE (Ésane 2023) par code NAF, comparés aux chiffres du dossier saisis ou repris de l'analyse FEC (données : `js/ratios-insee.js`, chargé à la demande) |
-| `36-formulaires.js` | Formulaires, démarrage (toujours en dernier) |
+| `36-tns.js` | TNS-COTISATION : régularisation des cotisations sociales des travailleurs non salariés à la clôture (contrôle de l'avis Urssaf et de la caisse, reste dû, écritures, rapport imprimable) |
+| `37-formulaires.js` | Formulaires, démarrage (toujours en dernier) |
 
 Règles : un fichier ne doit pas exécuter au chargement une fonction déclarée dans un fichier suivant (les appels depuis
 des événements ou d'autres fonctions sont libres) ; deux fichiers ne doivent pas déclarer le même nom ; les noms ne doivent

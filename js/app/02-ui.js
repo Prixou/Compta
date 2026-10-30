@@ -153,6 +153,7 @@ function renderShell() {
           <a href="#/rapprochement" data-nav="rapprochement">${icon('bank')}<span>Rapprochement</span></a>
           <a href="#/lettrage" data-nav="lettrage">${icon('link')}<span>Lettrage</span></a>
           <a href="#/lcr" data-nav="lcr">${icon('bank')}<span>Écritures LCR</span></a>
+          <a href="#/tns" data-nav="tns">${icon('calc')}<span>TNS-COTISATION</span></a>
           <a href="#/parametres" data-nav="parametres">${icon('gear')}<span>Paramètres</span></a>
         </nav>
         <div class="side-actions">
@@ -219,6 +220,7 @@ function route() {
     case 'lcr': main.innerHTML = viewLcr(); break;
     case 'calcul': main.innerHTML = viewCalc(); calcUpdate(); break;
     case 'ratios': main.innerHTML = viewRatios(parts[1]); break;
+    case 'tns': main.innerHTML = viewTns(parts[1]); break;
     case 'parametres': main.innerHTML = viewSettings(); break;
     default: main.innerHTML = viewDashboard();
   }

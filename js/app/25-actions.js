@@ -333,6 +333,9 @@ const actions = {
   'ratios-fec': () => ratTakeFec(),
   'ratios-copy': () => ratiosCopy(),
   'ratios-naf': () => ratiosSetNaf(),
+  'tns-profil': (el) => tnsProfil(el.dataset.p),
+  'tns-print': () => tnsPrint(),
+  'tns-clear': () => tnsClear(),
   'ratios-clear': () => { const st = ratState(); st.vals = { tva: 20 }; st.src = ''; ratSave(); refresh(); },
   'fec-pick': async (el) => {
     // Depuis l'accueil de l'analyse : l'espace choisi s'ouvrira à l'arrivée du FEC.
@@ -598,6 +601,8 @@ document.addEventListener('change', (e) => {
     onImportChange(t);
   } else if (t.dataset.ratios === 'ref' || t.dataset.ratios === 'client') {
     ratiosChange(t);
+  } else if (t.dataset.tns) {
+    onTnsChange(t);
   } else if (t.dataset.cab && ui.cab) {
     onCabChange(t);
   } else if (t.dataset.cal && ui.cal) {

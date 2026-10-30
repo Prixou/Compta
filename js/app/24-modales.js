@@ -164,6 +164,7 @@ function forgetSession() {
   ui.lett = null;
   ui.lcr = null;
   ui.ratios = null;
+  ui.tns = null;
   cmpStop();
   ui.cmp = null;
   closeGrillePop();
