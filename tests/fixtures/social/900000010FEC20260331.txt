@@ -1,0 +1,25 @@
+JournalCode	JournalLib	EcritureNum	EcritureDate	CompteNum	CompteLib	CompAuxNum	CompAuxLib	PieceRef	PieceDate	EcritureLib	Debit	Credit	EcritureLet	DateLet	ValidDate	Montantdevise	Idevise
+OD	Opérations diverses	1	20260131	641100	Salaires			PAIE1	20260131	Paie 01/2026	5000,00	0,00			20260131		
+OD	Opérations diverses	1	20260131	645100	Charges URSSAF			PAIE1	20260131	Paie 01/2026	1500,00	0,00			20260131		
+OD	Opérations diverses	1	20260131	431100	URSSAF			PAIE1	20260131	Paie 01/2026	0,00	1900,00			20260131		
+OD	Opérations diverses	1	20260131	437100	AG2R			PAIE1	20260131	Paie 01/2026	0,00	500,00			20260131		
+OD	Opérations diverses	1	20260131	442100	Prélèvement à la source			PAIE1	20260131	Paie 01/2026	0,00	100,00			20260131		
+OD	Opérations diverses	1	20260131	421000	Net à payer			PAIE1	20260131	Paie 01/2026	0,00	4300,00	A		20260131		
+OD	Opérations diverses	1	20260131	645300	Charges retraite			PAIE1	20260131	Paie 01/2026	300,00	0,00			20260131		
+BQ	Banque	2	20260203	421000	Net à payer			VIR1	20260203	Virement salaires	4300,00	0,00	A		20260203		
+BQ	Banque	2	20260203	512000	Banque			VIR1	20260203	Virement salaires	0,00	4300,00			20260203		
+OD	Opérations diverses	3	20260228	641100	Salaires			PAIE2	20260228	Paie 02/2026	5000,00	0,00			20260228		
+OD	Opérations diverses	3	20260228	645100	Charges URSSAF			PAIE2	20260228	Paie 02/2026	1800,00	0,00			20260228		
+OD	Opérations diverses	3	20260228	431100	URSSAF			PAIE2	20260228	Paie 02/2026	0,00	1900,00			20260228		
+OD	Opérations diverses	3	20260228	437100	AG2R			PAIE2	20260228	Paie 02/2026	0,00	500,00			20260228		
+OD	Opérations diverses	3	20260228	442100	Prélèvement à la source			PAIE2	20260228	Paie 02/2026	0,00	100,00			20260228		
+OD	Opérations diverses	3	20260228	421000	Net à payer			PAIE2	20260228	Paie 02/2026	0,00	4300,00	B		20260228		
+BQ	Banque	4	20260303	421000	Net à payer			VIR2	20260303	Virement salaires	4300,00	0,00	B		20260303		
+BQ	Banque	4	20260303	512000	Banque			VIR2	20260303	Virement salaires	0,00	4300,00			20260303		
+OD	Opérations diverses	5	20260331	641100	Salaires			PAIE3	20260331	Paie 03/2026	5200,00	0,00			20260331		
+OD	Opérations diverses	5	20260331	645100	Charges URSSAF			PAIE3	20260331	Paie 03/2026	1560,00	0,00			20260331		
+OD	Opérations diverses	5	20260331	431100	URSSAF			PAIE3	20260331	Paie 03/2026	0,00	1976,00			20260331		
+OD	Opérations diverses	5	20260331	437100	AG2R			PAIE3	20260331	Paie 03/2026	0,00	500,00			20260331		
+OD	Opérations diverses	5	20260331	442100	Prélèvement à la source			PAIE3	20260331	Paie 03/2026	0,00	100,00			20260331		
+OD	Opérations diverses	5	20260331	421000	Net à payer			PAIE3	20260331	Paie 03/2026	0,00	4484,00			20260331		
+OD	Opérations diverses	5	20260331	645300	Charges retraite			PAIE3	20260331	Paie 03/2026	300,00	0,00			20260331		

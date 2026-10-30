@@ -9,6 +9,7 @@ const O = path.join(__dirname, '../out/');
 let ko = 0;
 const expect = (cond, label, info) => { if (cond) console.log(`OK ${label}`); else { ko++; console.log(`KO ${label}${info ? ' : ' + info : ''}`); } };
 const EXP = JSON.parse(fs.readFileSync(D + 'attendu.json', 'utf8'));
+const EXPF = JSON.parse(fs.readFileSync(D + 'attendu-fec.json', 'utf8'));
 (async () => {
   const br = await chromium.launch();
   const ctx = await br.newContext({ viewport: { width: 1366, height: 950 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' });
@@ -79,7 +80,19 @@ const EXP = JSON.parse(fs.readFileSync(D + 'attendu.json', 'utf8'));
   await pg.fill('[data-social=soft]', 'ACD'); await pg.dispatchEvent('[data-social=soft]', 'change'); await pg.waitForTimeout(150);
   expect((await pg.textContent('.soc-card[data-key="641"] .soc-note')).replace(/[\u202f\u00a0]/g, ' ').startsWith('641 – SILAE : 15 200,00 € / ACD :') && await pg.evaluate(() => data.settings.socialSoft === 'ACD'), 'nom du logiciel dans les notes, retenu');
 
-  // 9. Téléphone, retrait des fichiers, verrouillage
+  // 9. FEC à la place du grand livre : paie passée au journal OD, repérée écriture par écriture
+  await pg.fill('[data-social=soft]', 'Pennylane'); await pg.dispatchEvent('[data-social=soft]', 'change'); await pg.waitForTimeout(100);
+  await pg.click('[data-action=social-clear]'); await pg.waitForTimeout(150);
+  await drop('recap', 'recap-paie.xls');
+  await drop('cot', 'detail-cotisations.xls');
+  await drop('gl', '900000010FEC20260331.txt');
+  expect((await pg.textContent('.soc-zone:nth-child(3)')).includes('FEC : ') && (await pg.textContent('.soc-zone:nth-child(3) h2')) === 'FEC', 'case FEC : fichier texte lu, lignes des classes 42, 43, 44, 63 et 64 retenues', await pg.textContent('.soc-zone:nth-child(3) .soc-files'));
+  got = await dump();
+  expect(same(got, EXPF.before), 'FEC : mêmes montants, statuts et notes que l\'outil d\'origine (paie en journal OD)', JSON.stringify(got.map((x) => x.slice(0, 5))));
+  await pg.click('.soc-card[data-key="645100"] [data-social=move]'); await pg.waitForTimeout(150);
+  expect(same(await dump(), EXPF.after) && JSON.stringify(await pg.evaluate(() => socOdRows(ui.social))) === JSON.stringify(EXPF.od), 'FEC : reclassement et écriture identiques');
+
+  // 10. Téléphone, retrait des fichiers, verrouillage
   await pg.screenshot({ path: O + 'social.png', fullPage: true });
   await pg.setViewportSize({ width: 390, height: 844 }); await pg.waitForTimeout(300);
   const over = await pg.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

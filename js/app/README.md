@@ -33,7 +33,7 @@ de sécurité (CSP) n'autorise que les scripts du site.
 | `34-lcr.js` | Écritures LCR pour ACD : relevés LCR en PDF (Crédit Agricole, CIC) rapprochés du listing fournisseurs (correspondances, listing et réglages retenus par dossier), une OD par relevé, fichier d'import ACD et tableau de contrôle |
 | `35-ratios.js` | Ratios sectoriels INSEE (Ésane 2023) par code NAF, comparés aux chiffres du dossier saisis ou repris de l'analyse FEC (données : `js/ratios-insee.js`, chargé à la demande) |
 | `36-tns.js` | TNS-COTISATION : régularisation des cotisations sociales des travailleurs non salariés à la clôture (contrôle de l'avis Urssaf et de la caisse, reste dû, écritures, rapport imprimable) |
-| `37-social.js` | CYCLE SOCIAL : cadrage de la paie (641, 645, 63, 42 et 43) entre les éditions SILAE (récapitulatif de paie, détail des cotisations) et le grand livre du journal de paie ; notes par compte, motifs d'écart, reclassements |
+| `37-social.js` | CYCLE SOCIAL : cadrage de la paie (641, 645, 63, 42 et 43) entre les éditions SILAE (récapitulatif de paie, détail des cotisations) et le FEC (ou le grand livre du journal de paie) ; notes par compte, motifs d'écart, reclassements |
 | `38-formulaires.js` | Formulaires, démarrage (toujours en dernier) |
 
 Règles : un fichier ne doit pas exécuter au chargement une fonction déclarée dans un fichier suivant (les appels depuis

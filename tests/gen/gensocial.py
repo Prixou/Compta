@@ -106,5 +106,30 @@ def gl():
     wb.save(os.path.join(OUT, 'grand-livre-pa.xlsx'))
 
 
-recap(); cot(); gl()
+def fec():
+    # Mêmes écritures dans un FEC, la paie passée au journal OD (repérée par écriture, quel que soit le journal)
+    head = 'JournalCode\tJournalLib\tEcritureNum\tEcritureDate\tCompteNum\tCompteLib\tCompAuxNum\tCompAuxLib\tPieceRef\tPieceDate\tEcritureLib\tDebit\tCredit\tEcritureLet\tDateLet\tValidDate\tMontantdevise\tIdevise'
+    out = [head]
+    ends = ['20260131', '20260228', '20260331']
+    pays = ['20260203', '20260303']
+    amt = lambda v: f'{v:.2f}'.replace('.', ',') if v else '0,00'
+    n = 0
+    for i, d in enumerate(ends):
+        n += 1
+        let = 'ABC'[i] if i < 2 else ''
+        lines = [('641100', 'Salaires', BRUT[i], 0, ''), ('645100', 'Charges URSSAF', U_PAT[i] + (R_PAT if i == 1 else 0), 0, ''),
+                 ('431100', 'URSSAF', 0, U_SAL[i] + U_PAT[i], ''), ('437100', 'AG2R', 0, R_SAL + R_PAT, ''), ('442100', 'Prélèvement à la source', 0, PAS, ''),
+                 ('421000', 'Net à payer', 0, NET[i], let)]
+        if i != 1:
+            lines.append(('645300', 'Charges retraite', R_PAT, 0, ''))
+        for acc, lib, de, cr, lt in lines:
+            out.append('\t'.join(['OD', 'Opérations diverses', str(n), d, acc, lib, '', '', f'PAIE{i + 1}', d, f'Paie {d[4:6]}/2026', amt(de), amt(cr), lt, '', d, '', '']))
+        if i < 2:
+            n += 1
+            for acc, lib, de, cr in [('421000', 'Net à payer', NET[i], 0), ('512000', 'Banque', 0, NET[i])]:
+                out.append('\t'.join(['BQ', 'Banque', str(n), pays[i], acc, lib, '', '', f'VIR{i + 1}', pays[i], 'Virement salaires', amt(de), amt(cr), let if acc == '421000' else '', '', pays[i], '', '']))
+    open(os.path.join(OUT, '900000010FEC20260331.txt'), 'w', encoding='utf-8').write('\r\n'.join(out) + '\r\n')
+
+
+recap(); cot(); gl(); fec()
 print('net', NET, 'total', sum(NET))

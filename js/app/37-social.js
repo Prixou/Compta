@@ -1,6 +1,6 @@
 /*
  * Suivi Dossiers — CYCLE SOCIAL : cadrage de la paie (641, 645, 63 liés à la paie, 42 et 43) entre les éditions SILAE
- * (récapitulatif de paie, détail des cotisations) et le grand livre du journal de paie (Pennylane…), avec une note par
+ * (récapitulatif de paie, détail des cotisations) et le FEC (ou le grand livre du journal de paie), avec une note par
  * compte, les motifs d’écart et les écritures de reclassement.
  * Scripts chargés dans l'ordre par index.html ; ils partagent la portée globale (voir js/app/README.md).
  */
@@ -8,8 +8,9 @@
 
 // ---------- CYCLE SOCIAL ----------
 // Trois dépôts : récapitulatif de paie SILAE (brut, net, indemnités par période), détail des cotisations SILAE (par
-// organisme : parts salariale et patronale, détail mensuel, contributions formation et apprentissage), grand livre du
-// journal de paie. Chaque compte est rapproché de la paie : 641 du brut, chaque 645 de la part patronale des organismes
+// organisme : parts salariale et patronale, détail mensuel, contributions formation et apprentissage), FEC (ou grand
+// livre Excel du journal de paie). Dans un FEC, les écritures de paie sont celles qui mouvementent un 645 ou créditent le
+// 421, quel que soit leur journal ; dans un grand livre, celles des journaux de paie. Chaque compte est rapproché de la paie : 641 du brut, chaque 645 de la part patronale des organismes
 // qui lui sont rattachés (automatiquement, au plus près, ou à la main), 6312 / 6333 / 6335 des contributions, 421 du
 // net, 43x et 44x des cotisations (salariales + patronales) de leurs organismes. Un écart reçoit des motifs
 // (automatiques, saisis, pistes trouvées dans les autres comptes) ; deux écarts opposés sont proposés en reclassement.
@@ -169,6 +170,32 @@ function socParseGl(rows) {
   return out;
 }
 
+// FEC (texte) : seules les lignes des classes 42, 43, 44, 63 et 64 sont retenues, avec leur écriture (journal + numéro)
+function socParseFec(text) {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) throw new Error('fichier vide');
+  const h0 = lines[0];
+  const sep = h0.includes('\t') ? '\t' : h0.includes('|') ? '|' : ';';
+  const clean = (x) => (x || '').trim().replace(/^"|"$/g, '');
+  const H = h0.split(sep).map((x) => clean(x).toLowerCase());
+  const ix = (n) => H.indexOf(n);
+  const iJ = ix('journalcode'), iN = ix('ecriturenum'), iD = ix('ecrituredate'), iC = ix('comptenum'), iDe = ix('debit'), iCr = ix('credit'), iL = ix('ecriturelet'), iM = ix('montant'), iS = ix('sens');
+  if (iC < 0 || iJ < 0) throw new Error('en-têtes FEC introuvables (JournalCode, CompteNum)');
+  const out = [];
+  for (let k = 1; k < lines.length; k++) {
+    const c = lines[k].split(sep).map(clean);
+    const acc = (c[iC] || '').replace(/\s/g, '');
+    if (!/^(4[234]|6[34])/.test(acc)) continue;
+    let d = iDe >= 0 ? socNum(c[iDe]) : 0, cr = iCr >= 0 ? socNum(c[iCr]) : 0;
+    if (iDe < 0 && iM >= 0) { const m = socNum(c[iM]); if (/^(c|-)/i.test(c[iS] || '')) { cr = m; d = 0; } else { d = m; cr = 0; } }
+    const ds = (c[iD] || '').replace(/\D/g, '');
+    const dt = ds.length === 8 ? new Date(Date.UTC(+ds.slice(0, 4), +ds.slice(4, 6) - 1, +ds.slice(6, 8), 12)) : socDate(c[iD]);
+    const jnl = (c[iJ] || '').toUpperCase();
+    out.push({ acc, date: dt, mk: socMk(dt), jnl, ecr: `${jnl}|${c[iN] || k}`, let: iL >= 0 ? c[iL] || '' : '', d, c: cr });
+  }
+  return out;
+}
+
 async function socLoad(list, zone) {
   const st = socState();
   if (!list.length) return;
@@ -176,6 +203,17 @@ async function socLoad(list, zone) {
   const N = { recap: 'un récapitulatif de paie', cot: 'un détail des cotisations', gl: 'un grand livre' };
   for (const file of list) {
     try {
+      if (zone === 'gl' && !/\.xls/i.test(file.name)) {
+        const buf = new Uint8Array(await file.arrayBuffer());
+        let t;
+        try { t = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { t = new TextDecoder('windows-1252').decode(buf); }
+        if (/journalcode/i.test(t.slice(0, 1000))) {
+          const gl = socParseFec(t);
+          st.parsed.gl.push(...gl);
+          st.files.push({ name: file.name, zone, info: `FEC : ${gl.length} lignes retenues (classes 42, 43, 44, 63, 64) – comptes : ${[...new Set(gl.map((x) => socShort(x.acc)))].sort().join(', ')}` });
+          continue;
+        }
+      }
       const rows = await socReadRows(file);
       const k = socKindOf(rows);
       if (k && k !== zone) throw new Error(`ce fichier ressemble à ${N[k]}, déposez-le dans la bonne case`);
@@ -274,15 +312,19 @@ function socCompute(st) {
   const R = st.parsed.recap, O = st.parsed.cot, G = st.parsed.gl;
   const { MAP, MAN, RM, SAL, RECL } = st;
   const A = socAggregate(G), PJ = socPaieJournal(G), PJS = socPaieJournals(G, PJ), per = R.periods;
+  // Écritures de paie : dans un FEC, toute écriture qui mouvemente un 645 ou crédite le 421 (quel que soit le journal) ;
+  // dans un grand livre, les journaux de paie
+  const PE = new Set(G.filter((r) => r.ecr && (/^645/.test(r.acc) || (/^421/.test(r.acc) && r.c > 0)) && !/^R?AN$|^BQ|^BAN/.test(r.jnl)).map((r) => r.ecr));
+  const isP = (r) => (r.ecr ? PE.has(r.ecr) : PJS.has(r.jnl));
   const cards = [], orgByKey = {};
   O.forEach((o) => { orgByKey[o.key] = o; });
-  const flows = (a) => socR2(a.rows.filter((r) => PJS.has(r.jnl)).reduce((x, r) => x + r.c - r.d, 0));
+  const flows = (a) => socR2(a.rows.filter((r) => isP(r)).reduce((x, r) => x + r.c - r.d, 0));
   const month = (a) => { const m = {}; a.rows.forEach((r) => { m[r.mk] = (m[r.mk] || 0) + r.d - r.c; }); return m; };
-  const monthPJ = (a) => { const m = {}; a.rows.filter((r) => PJS.has(r.jnl)).forEach((r) => { m[r.mk] = (m[r.mk] || 0) + r.c - r.d; }); return m; };
+  const monthPJ = (a) => { const m = {}; a.rows.filter((r) => isP(r)).forEach((r) => { m[r.mk] = (m[r.mk] || 0) + r.c - r.d; }); return m; };
 
   // 641
   const a641 = Object.values(A).filter((a) => /^641/.test(a.acc));
-  a641.forEach((a) => { a.sal = SAL[a.acc] === undefined ? a.rows.some((r) => PJS.has(r.jnl)) : SAL[a.acc]; });
+  a641.forEach((a) => { a.sal = SAL[a.acc] === undefined ? a.rows.some((r) => isP(r)) : SAL[a.acc]; });
   const g1 = a641.filter((a) => a.sal && !/^6414/.test(a.acc)), g2 = a641.filter((a) => a.sal && /^6414/.test(a.acc));
   if (g1.length || R.brut.length) {
     const c = socR2(g1.reduce((x, a) => x + a.solde, 0));
@@ -327,7 +369,7 @@ function socCompute(st) {
     if (Math.abs(amt) >= 0.005) tcItems.push({ key: `${o.key}t${i}`, label: `${l.code} ${l.lib} (${o.label})`, amt });
   }));
   const tvaAmt = socR2(O.reduce((x, o) => x + o.tcLines.filter((l) => /TVA/i.test(l.lib)).reduce((y, l) => y + l.pat + l.sal, 0), 0));
-  const debit = (a) => socR2(a.rows.filter((r) => PJS.has(r.jnl)).reduce((x, r) => x + r.d - r.c, 0));
+  const debit = (a) => socR2(a.rows.filter((r) => isP(r)).reduce((x, r) => x + r.d - r.c, 0));
   const a63 = Object.values(A).filter((a) => (/^63(12|33|35)/.test(a.acc) ? a.rows.length > 0 : /^63/.test(a.acc) && Math.abs(debit(a)) > 0.005));
   if (tcItems.length || a63.length) {
     const bucket = (t) => (/libératoire/i.test(t.label) ? '6335' : /apprentissage/i.test(t.label) && !/ccca/i.test(t.label) ? '6312' : '6333');
@@ -357,9 +399,9 @@ function socCompute(st) {
   a4.sort((x, y) => x.acc.localeCompare(y.acc)).forEach((a) => {
     const fl = flows(a), solde = socR2(a.C - a.D);
     const unl = a.rows.filter((r) => !r.let);
-    const anUnl = socR2(unl.filter((r) => r.jnl === 'AN').reduce((x, r) => x + r.c - r.d, 0));
+    const anUnl = socR2(unl.filter((r) => /^R?AN$/.test(r.jnl)).reduce((x, r) => x + r.c - r.d, 0));
     const unlM = {};
-    unl.filter((r) => PJS.has(r.jnl)).forEach((r) => { unlM[r.mk] = (unlM[r.mk] || 0) + r.c - r.d; });
+    unl.filter((r) => isP(r)).forEach((r) => { unlM[r.mk] = (unlM[r.mk] || 0) + r.c - r.d; });
     const lettre = a.rows.some((r) => r.let);
     const points = [];
     if (lettre && Math.abs(anUnl) > 0.005) points.push(`à-nouveau non lettré de ${socFa(anUnl)} €${anUnl < 0 ? ' (débiteur)' : ''}`);
@@ -393,7 +435,7 @@ function socCompute(st) {
     const out = [], pref = side > 0 ? /^4(3|4)/ : /^6(3|4)/;
     Object.values(A).forEach((a) => {
       if (a.acc === cd.key || (cd.key.startsWith('63-') && a.short.startsWith(cd.key.slice(3)))) return;
-      const rows = a.rows.filter((x) => PJS.has(x.jnl));
+      const rows = a.rows.filter((x) => isP(x));
       if (!rows.length) return;
       const val = (x) => (side > 0 ? x.c - x.d : x.d - x.c);
       const p = pref.test(a.acc) ? 0.5 : 0;
@@ -456,7 +498,7 @@ function socCompute(st) {
     cd.st = Math.abs(cd.e) <= SOC_TOL ? 'ok' : Math.abs(cd.res) <= SOC_TOL ? 'just' : 'anom';
     if (cd.points && cd.points.length && cd.st === 'ok') cd.st = 'just';
   });
-  return { cards, PJ, A, onlyPJ: G.every((r) => PJS.has(r.jnl)) };
+  return { cards, PJ, A, onlyPJ: G.every((r) => isP(r)) };
 }
 function socRun() {
   const st = socState();
@@ -514,8 +556,9 @@ const SOC_ZONES = [
     steps: '<li>Sélectionner la période souhaitée</li><li>Clic droit, <b>Récapitulatif de paie par période</b></li><li><b>Ouvrir dans tableur</b> (à droite de l\'écran)</li><li>Enregistrer le tableau sous <b>Classeur Excel XLS</b> dans le dossier sur lequel vous travaillez</li>' },
   { k: 'cot', n: 2, t: 'Détail cotisations SILAE', accept: '.xls,.xlsx,.xlsm,.xltx', drop: 'Déposer le détail des cotisations', hint: 'Fichier Excel ouvert depuis SILAE',
     steps: '<li>Sélectionner la période souhaitée</li><li>Clic droit, <b>Détail des cotisations</b></li><li><b>Ouvrir dans tableur</b> (à droite de l\'écran)</li><li>Enregistrer le tableau sous <b>Classeur Excel XLS</b> dans le dossier sur lequel vous travaillez</li>' },
-  { k: 'gl', n: 3, t: 'Grand livre Pennylane', accept: '.xls,.xlsx,.xlsm,.xltx,.csv', drop: 'Déposer le grand livre', hint: 'Un ou plusieurs exports XLS',
-    steps: '<li>Déplacer les écritures de paie dans le journal de paie <b>PA</b><details class="soc-proc"><summary>Voir la procédure</summary><ol><li><b>Saisie</b>, puis <b>Journaux</b>, puis <b>OD</b></li><li>Mettre « Salaire » en libellé</li><li><b>Tout sélectionner</b></li><li><b>Déplacer de journal</b>, <b>Destination</b> : <b>PA</b></li></ol></details></li><li><b>Révision</b>, puis <b>Grand livre</b></li><li>Sélectionner <b>PA</b> dans <b>Journaux</b></li><li><b>Exporter</b>, <b>XLS</b> : enlever libellé pièce et factures s\'ils sont dans l\'onglet <b>Colonnes</b></li>' },
+  { k: 'gl', n: 3, t: 'FEC', accept: '.txt,.csv,.fec,.xls,.xlsx', drop: 'Déposer le FEC', hint: 'Fichier texte du FEC (un grand livre Excel est aussi accepté)',
+    steps: '<li>Exporter le <b>FEC</b> de l\'exercice depuis le logiciel comptable</li><li>Le déposer tel quel, sans l\'ouvrir ni le modifier (fichier .txt)</li>',
+    note: 'Les écritures de paie sont repérées automatiquement (toute écriture qui mouvemente un 645 ou crédite le 421), quel que soit le journal.' },
 ];
 const socChip = (cd) => (cd.s == null ? '<span class="soc-chip vide">Hors paie</span>' : `<span class="soc-chip ${cd.st}">${SOC_CHIP[cd.st]}</span>`);
 
@@ -552,13 +595,13 @@ function viewSocial() {
     const ok = z.k === 'gl' ? st.parsed.gl.length : st.parsed[z.k];
     const bad = fs.some((x) => x.err);
     return `<section class="card soc-zone"><div class="soc-zh"><span class="soc-n">${z.n}</span><h2>${z.t}</h2><span class="soc-chip ${ok ? 'ok' : bad ? 'anom' : 'vide'}">${ok ? 'Chargé' : bad ? 'Fichier refusé' : 'À déposer'}</span></div>
-      <ol class="soc-steps">${z.steps}</ol>
+      <ol class="soc-steps">${z.steps}</ol>${z.note ? `<p class="muted small soc-hint">${z.note}</p>` : ''}
       <div class="fec-drop soc-drop" data-action="social-pick" data-zone="${z.k}" role="button" tabindex="0"><p><strong>${z.drop}</strong></p><p class="muted small">${z.hint}</p></div>
       ${fs.length ? `<ul class="soc-files">${fs.map((x) => `<li><span>${esc(x.name)}</span><em class="${x.err ? 'late' : 'muted'}">${esc(x.err || x.info || 'Chargé')}</em></li>`).join('')}</ul>` : ''}</section>`;
   };
   let h = `<div class="page-head"><div><h1>CYCLE SOCIAL</h1><p class="muted small">Cadrage paie : 641, 645, 63, 42 et 43</p></div>
       <div class="head-actions">${st.last ? '<button class="btn" data-action="social-copy-all">Copier toutes les notes</button>' : ''}${st.files.length ? '<button class="btn" data-action="social-clear">Retirer les fichiers</button>' : ''}</div></div>
-    <p class="muted">Déposez chaque export dans sa case en suivant les étapes. Chaque compte est ensuite rapproché de la paie et reçoit sa note. Les fichiers sont lus sur l'appareil : rien n'est envoyé ni conservé.</p>
+    <p class="muted">Déposez les deux exports SILAE et le FEC dans leur case en suivant les étapes. Chaque compte est ensuite rapproché de la paie et reçoit sa note. Les fichiers sont lus sur l'appareil : rien n'est envoyé ni conservé.</p>
     <div class="soc-zones">${SOC_ZONES.map(zone).join('')}</div>
     <section class="card"><div class="lett-opts">
       <label>Date de clôture <input type="date" data-social="dClo" value="${esc(st.dClo)}"></label>
