@@ -32,7 +32,7 @@
 // sont retenus.
 
 const lettState = () => (ui.lett = ui.lett || { src: '', fileName: '', text: '', fec: null, accs: [], lcAccs: [], ignored: 0, hyp: [], dup: [], lcr: [], miss: [], msg: '', hide: true, q: '', tiers: 'frs', status: 'idle', runId: 0, mail: null, closed: new Set(), vis: new Set(), mx: null, mxEdit: {} });
-const LETT_DEF = { ja: 'AC, AH, HA, VT, VE', jr: 'OD, BQ, LCR, CA, CE', md: '45', nc: '', m1: '', lc: 'LCR', ex: '', ign: 'BNC' };
+const LETT_DEF = { ja: 'AC, AH, HA, ACH, VT, VE', jr: 'OD, BQ, LCR, CA, CE, 51', md: '45', nc: '', m1: '', lc: 'LCR', ex: '', ign: 'BNC' };
 function lettSettings() {
   const s = data.settings.lettrage || {};
   const out = {};
@@ -45,32 +45,55 @@ const lettFmt = (c) => (c / 100).toLocaleString('fr-FR', { minimumFractionDigits
 const lettKey = (x, y) => (x.d < y.d ? -1 : x.d > y.d ? 1 : x.i - y.i);
 const lettLetter = (n) => String.fromCharCode(65 + (Math.floor(n / 26) % 26)) + String.fromCharCode(65 + (n % 26));
 const LETT_N = '(-?\\d{1,3}(?:\\s\\d{3})*,\\d{2})';
-const LETT_END = new RegExp('(?<=\\s)' + LETT_N + '\\s+' + LETT_N + '\\s*$');
-const LETT_NOISE = /Page - \d+|Grands-livres|Edition provisoire|^Du \d|^Date |^Pièce|^Débit|^Comp[ .]|^Total|^\d{6,8} - |^Let\./;
-const LETT_AN = /(\d\d)\/(\d\d)\/(\d{4})\s+-([A-Z]{2,4})-/;
+const LETT_END = new RegExp('(?<=\\s)' + LETT_N + '(?:\\s+' + LETT_N + ')?\\s*$');
+const LETT_NOISE = /Page - \d+|Grands-livres|Edition provisoire|^Du \d|^Date |^Pièce|^Débit|^Comp[ .]|^Total|^\d{6,8} - |^Let\.|^TOTAL\s|^SOUS-TOTAL|Grand livre|^COMPT\.|^EXERCICE|^P[ÉE]RIODE|^COMPTES du|Édité par|^\d{1,3}$|^4 - |^40 - /;
+const LETT_AN = /(\d\d)\/(\d\d)\/(\d{4})\s+-([A-Z0-9]{2,4})-/;
+// Grand livre Pennylane (« Grand livre - Fournisseurs », comptes « 40… - Nom ») ou Cegid (« Compte … »)
+const lettIsPennylane = (text) => /Grand livre\s*-\s*Fournisseurs|COMPT\. FIG/i.test(text);
+// Société et période du grand livre, pour les mails
+function lettGlMeta(text) {
+  const o = {};
+  let m = String(text).match(/^(.+?)\s+Grand livre\s*-\s*Fournisseurs/m) || String(text).match(/^\d{6,8}\s+-\s+(.+)$/m);
+  if (m) o.comp = m[1].trim();
+  m = String(text).match(/P[ÉE]RIODE\s+du\s+(\d\d)\/(\d\d)\/(\d{4})\s+au\s+(\d\d)\/(\d\d)\/(\d{4})/i);
+  if (m) { o.dd = `${m[3]}-${m[2]}-${m[1]}`; o.db = `${m[6]}-${m[5]}-${m[4]}`; }
+  return o;
+}
 
-// Grand livre (texte) → comptes et écritures
+// Grand livre (texte) → comptes et écritures. Pennylane : la référence de la pièce (8 à 10 caractères) qui termine le
+// libellé est retirée, « BQ1 », « BQ2 »… sont des journaux de banque, un à-nouveau « AN AAAA-MM-JJ – » reprend sa date.
+// Un à-nouveau au crédit est une facture, au débit un règlement.
 function lettParseGl(text, JA, JR) {
   const accs = [];
   let cur = null, pend = null, prev = 0;
   const known = new Set([...JA, ...JR, 'AN', 'EI']);
+  const PEN = lettIsPennylane(text);
   const fin = () => {
     const me = pend.t.match(LETT_END);
     if (!me) return false;
-    const label = pend.t.slice(0, me.index).trim(), amt = lettCents(me[1]), bal = lettCents(me[2]), delta = bal - prev;
+    let label = pend.t.slice(0, me.index).trim();
+    const amt = lettCents(me[1]), bal = me[2] ? lettCents(me[2]) : 0, delta = bal - prev;
     prev = bal;
+    if (PEN) label = label.replace(/\s(?=[A-Z0-9…]*[A-Z])[A-Z0-9]{8,10}\s?…?$/, '');
     let j = '?', d = pend.d;
     const mk = label.match(LETT_AN);
+    let mi = null;
     if (mk) { j = mk[4]; d = `${mk[3]}-${mk[2]}-${mk[1]}`; }
-    else j = label.split(/\s+/).find((t) => known.has(t)) || '?';
-    const type = JA.includes(j) ? 'achat' : JR.includes(j) ? 'reglement' : 'autre';
-    cur.lines.push({ d, date: fmtDate(pend.d), j, label: label.replace(/\s+/g, ' '), a: Math.abs(delta) || amt, side: delta > 0 ? 'D' : 'C', type, an: !!mk, i: cur.lines.length });
+    else {
+      j = label.split(/\s+/).map((t) => (/^BQ\d+$/.test(t) ? 'BQ' : t)).find((t) => known.has(t)) || '?';
+      mi = label.match(/^AN\s+(\d{4})-(\d\d)-(\d\d)\s+[–-]/);
+      if (mi) d = `${mi[1]}-${mi[2]}-${mi[3]}`;
+    }
+    const side = delta > 0 ? 'D' : 'C';
+    let type = JA.includes(j) ? 'achat' : JR.includes(j) ? 'reglement' : 'autre';
+    if (j === 'AN') type = side === 'C' ? 'achat' : 'reglement';
+    cur.lines.push({ d, date: fmtDate(pend.d), j, label: label.replace(/\s+/g, ' '), a: Math.abs(delta) || amt, side, type, an: !!mk || !!mi || /^AN\s/.test(label), i: cur.lines.length });
     return true;
   };
   for (const raw of String(text).split('\n')) {
-    const l = raw.trim();
+    const l = raw.trim().replace(/^\d{1,2}\s+(?=\d\d\/\d\d\/\d{4}\s|TOTAL\s)/, '');
     if (!l) continue;
-    const mc = l.match(/^Com\s?pte\s+(\S+)\s*(.*)$/);
+    const mc = PEN ? l.match(/^(40[0-9A-Z]{5,12})\s*-\s*(.+)$/) : l.match(/^Com\s?pte\s+(\S+)\s*(.*)$/);
     if (mc && cur && cur.code === mc[1]) { pend = null; continue; }
     if (mc) { cur = { code: mc[1], name: mc[2], lines: [] }; accs.push(cur); prev = 0; pend = null; continue; }
     if (LETT_NOISE.test(l)) { pend = null; continue; }
@@ -81,6 +104,7 @@ function lettParseGl(text, JA, JR) {
     else continue;
     if (fin()) pend = null;
   }
+  accs.fmt = PEN ? 'Pennylane' : 'Cegid';
   return accs;
 }
 
@@ -195,6 +219,13 @@ function lettRun(a, maxDays, nc) {
     return out;
   };
   const pl = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
+  // R : règlement remboursé ou annulé (écriture du côté des factures sur un journal de règlement, même montant, après le
+  //     règlement)
+  for (const c of C) {
+    if (c.type !== 'reglement' || c.used) continue;
+    const p = P.find((x) => !x.used && x.a === c.a && x.d <= c.d);
+    if (p) take([c], [p], 'règlement ↔ remboursement');
+  }
   // 0 : relevé saisi en plus des factures (même total que le règlement) : lettré à part, mis en évidence
   for (const p of P) {
     const open = C.filter((c) => !c.used && lettPays(c, p, m1));
@@ -399,7 +430,7 @@ function lettApplyVisa(hyp, vis) {
 function lettDups(accs) {
   const L = [], out = [];
   accs.forEach((a) => a.lines.filter((x) => x.type === 'achat' && !x.an).forEach((x) => {
-    const t = x.label.split(/\s+/).filter((w) => /\d/.test(w) && w.length >= 4 && !/^B\d{9}$/.test(w) && !/^\d\d\/\d\d\/\d{4}$/.test(w));
+    const t = x.label.split(/\s+/).filter((w) => /\d/.test(w) && w.length >= 4 && !/^B\d{9}$/.test(w) && !/^\d\d\/\d\d\/\d{4}$/.test(w) && !/^\d{4}-\d\d-\d\d$/.test(w));
     x.num = (t.pop() || '').toUpperCase();
     x.dup = 0;
     L.push([a, x]);
@@ -451,13 +482,18 @@ const lettMailText = (miss) => 'Bonjour,\n\nPour finaliser le lettrage de notre 
 function lettMx(st) {
   if (!st.mx) {
     const t = new Date();
-    st.mx = { type: '', rev: false, db: `${t.getFullYear()}-12-31`, dd: `${t.getFullYear()}-01-01`, ddT: false, sc: null, dr: ymd(new Date(t.getFullYear(), t.getMonth(), 0)) };
+    st.mx = { type: '', rev: false, db: `${t.getFullYear()}-12-31`, dd: `${t.getFullYear()}-01-01`, ddT: false, dbT: false, sc: null, dr: ymd(new Date(t.getFullYear(), t.getMonth(), 0)), nonph: false, reg: false, regm: 'global' };
   }
-  if (st.mx.sc === null) { const c = st.fec && clientBySiren(st.fec.siren); st.mx.sc = c ? c.nom : ''; }
-  return st.mx;
+  const mx = st.mx;
+  // Société et période : celles du grand livre (ou du dossier du FEC), tant qu'elles n'ont pas été saisies
+  const gm = st.src === 'gl' ? lettGlMeta(st.text) : {};
+  if (mx.sc === null) { const c = st.fec && clientBySiren(st.fec.siren); mx.sc = c ? c.nom : gm.comp || ''; }
+  if (gm.db && !mx.dbT) mx.db = gm.db;
+  if (gm.dd && !mx.ddT) mx.dd = gm.dd;
+  return mx;
 }
 function lettMxMails(st) {
-  const mx = lettMx(st), EX = lettList(lettSettings().ex), out = { bil: [], rev: null };
+  const mx = lettMx(st), EX = lettList(lettSettings().ex), out = { bil: [], rev: null, reg: [], regG: null };
   const fd = (s) => (s ? fmtDate(s) : '…');
   if (mx.type) {
     const kind = mx.type === 'bilan' ? 'Bilan' : 'Situation';
@@ -469,6 +505,22 @@ function lettMxMails(st) {
         return { id: a.code, n, sub: `${kind} au ${fd(mx.db)} - demande d'extrait de compte - ${n}`,
           body: `Bonjour,\n\nNous sommes en pleine élaboration d'${mx.type === 'bilan' ? 'un bilan' : 'une situation'} à la date du ${fd(mx.db)} pour le compte de la société ${mx.sc || 'XXX'} dont le numéro client est le XXX.\n\nSerait-il possible de nous fournir un extrait de compte allant du ${fd(mx.dd)} au ${fd(mx.db)} ?\n\nVous remerciant pour votre collaboration,\n\nCordialement` };
       });
+  }
+  // « Règlement ? » (société non pharmaceutique) : demande au client s'il a réglé les factures restées ouvertes, quand
+  // et comment ; un mail par fournisseur ou un mail global
+  if (mx.nonph && mx.reg) {
+    const ask = '\n\nPourriez-vous nous indiquer si vous avez réglé ces factures et, si oui, à quelle date et de quelle manière (virement, chèque, carte bancaire, prélèvement, LCR…) ?\n\nVous remerciant pour votre collaboration,\n\nCordialement';
+    const invNum = (x) => (x.num !== undefined ? x.num : x.label.split(/\s+/).filter((w) => /\d/.test(w) && w.length >= 4 && !/^B\d{9}$/.test(w) && !/^\d\d\/\d\d\/\d{4}$/.test(w) && !/^\d{4}-\d\d-\d\d$/.test(w)).pop() || '');
+    out.reg = st.accs.filter((a) => a.inv === 'C' && !st.closed.has(a.code) && !EX.includes(String(a.code).toUpperCase())).map((a) => {
+      const L = a.rest.filter((x) => x.side === 'C' && x.type === 'achat' && !x.hyp).sort(lettKey);
+      if (!L.length) return null;
+      const n = a.name || a.code, tot = L.reduce((t, x) => t + x.a, 0);
+      const ls = L.map((x) => `${fd(x.d)} - ${invNum(x) ? `facture n° ${invNum(x)}` : 'facture'} - ${lettFmt(x.a)} €`);
+      return { id: `reg:${a.code}`, n, c: L.length, ls, tot, sub: `Factures non réglées - ${n}`,
+        body: `Bonjour,\n\nDans le cadre de nos travaux, nous avons relevé que les factures suivantes de ${n} ne sont pas enregistrées comme réglées :\n\n${ls.join('\n')}\n\nTotal : ${lettFmt(tot)} €${ask}` };
+    }).filter(Boolean);
+    out.regG = { id: '#reg', n: 'Règlement ? (mail global)', c: out.reg.reduce((t, m) => t + m.c + 2, 0), sub: 'Factures fournisseurs non réglées - demande de précisions',
+      body: `Bonjour,\n\nDans le cadre de nos travaux, nous avons relevé que les factures fournisseurs suivantes ne sont pas enregistrées comme réglées :\n\n${out.reg.map((m) => `${m.n}\n${m.ls.join('\n')}`).join('\n\n')}\n\nTotal : ${lettFmt(out.reg.reduce((t, m) => t + m.tot, 0))} €${ask}` };
   }
   if (mx.rev) {
     out.rev = { id: '#rev', n: 'Révision mensuelle', sub: `Révision mensuelle au ${fd(mx.dr)} - pièces manquantes`,
@@ -483,22 +535,28 @@ function lettMxPanel(st) {
   const box = (f, on, label) => `<label class="check inline"><input type="checkbox" data-lett="mx" data-f="${f}"${on ? ' checked' : ''}> ${label}</label>`;
   const date = (f, label) => `<label>${label} <input type="date" data-lett="mx" data-f="${f}" value="${esc(mx[f])}"></label>`;
   const mail = (m) => `<div class="lett-mxm"><h3>${esc(m.n)}</h3><p class="small">Objet : ${esc(m.sub)}</p>
-      <textarea data-lett="mxtxt" data-i="${esc(m.id)}" rows="${m.id === '#rev' ? 9 + st.miss.length : 10}">${esc(lettMxText(st, m))}</textarea>
+      <textarea data-lett="mxtxt" data-i="${esc(m.id)}" rows="${m.id === '#rev' ? 9 + st.miss.length : m.c ? 12 + m.c : 10}">${esc(lettMxText(st, m))}</textarea>
       <button class="btn small" data-action="lett-mx-copy" data-i="${esc(m.id)}">Copier ce mail</button></div>`;
   return `<section class="card lett-panel lett-mx"><h2>Mails de situation et de révision</h2>
     <p class="muted small">${st.miss.length} règlement(s) sans facture. Cochez une option pour générer les mails.</p>
     <div class="lett-opts">${box('bilan', mx.type === 'bilan', 'Bilan')}${box('situation', mx.type === 'situation', 'Situation')}${date('db', 'Date de clôture')}
       ${box('rev', mx.rev, 'Révision mensuelle')}${date('dr', 'Révision arrêtée au')}</div>
+    <div class="lett-opts">${box('nonph', mx.nonph, 'Société non pharmaceutique')}${mx.nonph ? `<button class="btn${mx.reg ? ' primary' : ''}" data-action="lett-mx-reg" aria-pressed="${mx.reg}">Règlement ?</button>` : ''}
+      <span class="muted small">${mx.nonph ? 'Demande au client s\'il a réglé les factures fournisseurs non réglées, quand et comment.' : 'Cochez pour activer la demande « Règlement ? » (inutile pour une pharmacie).'}</span></div>
     ${mx.type ? `<div class="lett-opts"><label>Société (nom du client) <input data-lett="mx" data-f="sc" value="${esc(mx.sc)}" placeholder="XXX"></label>${date('dd', 'Début d\'exercice')}</div>
     <div class="lett-mxg"><h3>${mx.type === 'bilan' ? 'Bilan' : 'Situation'} au ${esc(fmtDate(mx.db))} : ${X.bil.length} mail(s) aux fournisseurs dont le lettrage pose problème</h3>
       ${X.bil.length ? `<button class="btn" data-action="lett-mx-all">Copier tous les mails</button>${X.bil.map(mail).join('')}` : '<p class="muted small">Aucun fournisseur concerné.</p>'}</div>` : ''}
+    ${X.regG ? `<div class="lett-mxg"><h3>Règlement ?</h3><div class="lett-opts"><label class="check inline"><input type="radio" name="lett-regm" data-lett="mx" data-f="regm" value="fournisseur"${mx.regm === 'fournisseur' ? ' checked' : ''}> Un mail par fournisseur</label><label class="check inline"><input type="radio" name="lett-regm" data-lett="mx" data-f="regm" value="global"${mx.regm === 'global' ? ' checked' : ''}> Un mail global</label></div>
+      ${!X.reg.length ? '<p class="muted small">Aucune facture fournisseur restée non réglée.</p>' : mx.regm === 'global' ? mail(X.regG)
+    : `<p class="small"><strong>${X.reg.length} mail(s) au client, un par fournisseur concerné</strong> <button class="btn small" data-action="lett-mx-all" data-g="reg">Copier tous les mails</button></p>${X.reg.map(mail).join('')}`}</div>` : ''}
     ${X.rev ? `<div class="lett-mxg">${mail(X.rev)}</div>` : ''}</section>`;
 }
-function lettMxCopy(id) {
+function lettMxCopy(id, group) {
   const st = lettState(), X = lettMxMails(st);
   const area = (i) => [...document.querySelectorAll('textarea[data-lett=mxtxt]')].find((t) => t.dataset.i === i);
   if (id) { const el = area(id); return el && lettClip(el.value, 'Mail copié : collez-le dans votre messagerie.'); }
-  return lettClip(X.bil.map((m) => `Objet : ${m.sub}\n\n${(area(m.id) || {}).value || lettMxText(st, m)}`).join('\n\n--------\n\n'), `${X.bil.length} mail(s) copié(s) : collez-les dans votre messagerie.`);
+  const list = group === 'reg' ? X.reg : X.bil;
+  return lettClip(list.map((m) => `Objet : ${m.sub}\n\n${(area(m.id) || {}).value || lettMxText(st, m)}`).join('\n\n--------\n\n'), `${list.length} mail(s) copié(s) : collez-les dans votre messagerie.`);
 }
 function lettGo(code) {
   const el = [...document.querySelectorAll('details.lett-acc')].find((d) => d.dataset.code === code);
@@ -532,9 +590,10 @@ function lettCompute() {
   st.dup = lettDups(st.accs);
   st.lcr = lettLcr(st.lcAccs, st.accs, md, isNC);
   st.miss = lettMissing(st.accs.filter((a) => !st.closed.has(a.code)), set.ex);
+  if (st.mx && !st.mx.scT) st.mx.sc = null;
   const nl = st.accs.reduce((t, a) => t + a.lines.length, 0);
   const extra = `${st.ignored ? ` (${st.ignored} compte(s) ignoré(s) : ${IGN.join(', ')})` : ''}${st.lcAccs.length ? `, compte d'attente ${st.lcAccs.map((a) => a.code).join(', ')}` : ''}`;
-  if (st.src === 'gl') st.msg = st.accs.length ? `${st.accs.length} compte(s) lu(s)${extra}, ${nl} écriture(s).` : 'Aucun compte reconnu : le texte doit contenir les lignes « Compte … » et les écritures datées.';
+  if (st.src === 'gl') st.msg = st.accs.length ? `Format ${all.fmt} : ${st.accs.length} compte(s) lu(s)${extra}, ${nl} écriture(s).` : 'Aucun compte reconnu : le texte doit contenir les lignes « Compte … » et les écritures datées.';
   else if (st.src === 'fec') st.msg = `${st.accs.length} compte(s) ${st.tiers === 'cli' ? 'clients' : 'fournisseurs'} avec des écritures non lettrées${extra}, ${nl} écriture(s)${st.fec.open.truncated ? ' (FEC très volumineux : liste tronquée)' : ''}.`;
 }
 const lettRefresh = () => { if (/^#\/(lettrage|fec)/.test(location.hash)) refresh(); };
@@ -726,7 +785,7 @@ function onLettChange(t) {
   if (k === 'mail') { st.mail = { gen: st.mailGen, txt: t.value }; return; }
   if (k === 'mxtxt') {
     const X = lettMxMails(st);
-    const m = X.bil.concat(X.rev || []).find((x) => x.id === t.dataset.i);
+    const m = X.bil.concat(X.rev || [], X.reg, X.regG || []).find((x) => x.id === t.dataset.i);
     if (m) st.mxEdit[m.id] = { gen: m.body, txt: t.value };
     return;
   }
@@ -735,9 +794,13 @@ function onLettChange(t) {
     const mx = lettMx(st), f = t.dataset.f;
     if (f === 'bilan' || f === 'situation') mx.type = t.checked ? f : '';
     else if (f === 'rev') mx.rev = t.checked;
+    else if (f === 'nonph') { mx.nonph = t.checked; mx.reg = t.checked; }
+    else if (f === 'regm') mx.regm = t.value;
     else {
       mx[f] = t.value;
       if (f === 'dd') mx.ddT = true;
+      if (f === 'db') mx.dbT = true;
+      if (f === 'sc') mx.scT = true;
       if (f === 'db' && !mx.ddT && t.value) mx.dd = `${t.value.slice(0, 4)}-01-01`;
     }
     return refresh();
