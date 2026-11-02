@@ -135,6 +135,8 @@ js/xlsx-writer.js     écriture locale de fichiers .xlsx (exports), sans dépend
 js/fec-worker.js      analyse du FEC dans un Web Worker (contrôles, balance, SIG, pièces manquantes)
 js/archive-reader.js  lecture locale des archives .zip FEC + justificatifs (noms des fichiers uniquement)
 js/bank-reader.js     lecture locale des relevés bancaires (CFONB 120, OFX, CAMT.053, CSV, Excel)
+js/scan-ocr.js        reconnaissance de caractères des PDF scannés (relevés LCR BNP Paribas), sur l'appareil
+js/ocr/               moteur Tesseract (tesseract.js 5.1.1, Apache 2.0) et modèle français, chargés à la première utilisation
 js/silae-pdf.js       lecture locale des éditions de paie Silae en PDF (journal de paie, détail des cotisations, solde de repos)
 js/immo-etat.js       lecture locale de l'état des immobilisations (PDF ou texte) et rapprochement avec le FEC
 js/ratios-insee.js    ratios sectoriels INSEE (Ésane 2023) par code NAF, chargés à la demande

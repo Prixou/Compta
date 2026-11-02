@@ -1207,3 +1207,11 @@ tr.tns-sec td { font-weight: 700; background: var(--primary-soft); }
 .soc-bar { margin: .6rem 0 0; }
 @media (max-width: 640px) { .soc-addm { grid-template-columns: 1fr 1fr; } .soc-addm button { grid-column: 1 / -1; } }
 .soc-hint { margin: 0; }
+
+/* Écritures LCR : relevé scanné à vérifier */
+.lcr-ocr summary { cursor: pointer; }
+.lcr-ocr-t td { vertical-align: middle; }
+.lcr-ocr-t .lcr-input { width: 100%; min-width: 6rem; }
+.lcr-ocr-t .lcr-input.n { text-align: right; }
+.lcr-input.warn { border-color: var(--warn); background: var(--warn-soft); }
+.lcr-ocr-t tr.lcr-doubt td { background: var(--warn-soft); }

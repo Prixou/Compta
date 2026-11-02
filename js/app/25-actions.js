@@ -270,6 +270,8 @@ const actions = {
   'lcr-plan': () => pickFiles('.xlsx,.csv,.txt,.zip').then((f) => lcrPlanFile(f[0])),
   'lcr-pdf': () => pickFiles('.pdf,application/pdf').then((f) => lcrAddPdfs(f)),
   'lcr-del': (el) => { lcrState().rel.splice(+el.dataset.i, 1); refresh(); },
+  'lcr-ocr-del': (el) => { lcrOcrRow(+el.dataset.r, +el.dataset.j); refresh(); },
+  'lcr-ocr-add': (el) => { lcrOcrRow(+el.dataset.r); refresh(); },
   'lcr-clear': () => { Object.assign(lcrState(), { rel: [], errors: [] }); refresh(); },
   'lcr-view': (el) => { lcrState().view = el.dataset.v; refresh(); },
   'lcr-ok': (el) => { lcrSetMem(el.dataset.nom, { code: lcrResolve(el.dataset.nom).code, ok: true }); refresh(); },

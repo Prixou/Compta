@@ -163,6 +163,7 @@ function forgetSession() {
   ui.brap = null;
   ui.lett = null;
   ui.lcr = null;
+  if (window.ScanOcr) ScanOcr.stop();
   ui.ratios = null;
   ui.tns = null;
   ui.social = null;

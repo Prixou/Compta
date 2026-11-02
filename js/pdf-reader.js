@@ -8,7 +8,8 @@
  *
  * Pris en charge : PDF générés par un logiciel (relevés, éditions comptables) : objets directs et flux d'objets, flux
  * compressés (Flate) ou en ASCII, polices simples (WinAnsi, MacRoman, différences, ToUnicode) et composites avec
- * ToUnicode, formulaires (XObject). Non pris en charge : PDF chiffrés, PDF scannés (images, sans texte).
+ * ToUnicode, formulaires (XObject). Non pris en charge : PDF chiffrés. Pour un PDF scanné (images, sans texte), chaque
+ * page donne ses photos JPEG (images : [{ width, height, jpeg }]), à lire avec une reconnaissance de caractères.
  */
 (function () {
   'use strict';
@@ -270,7 +271,18 @@
         try { data += latin1(await decode(o)) + '\n'; } catch (e) { /* flux illisible : ignoré */ }
       }
       await runContent(data, get(pg.res) || {}, [1, 0, 0, 1, 0, 0], glyphs, { get, objs, decode, fontCache }, 0);
-      pages.push({ width: box[2] - box[0], height: box[3] - box[1], x0: box[0], y0: box[1], glyphs });
+      // Images de la page (PDF scanné) : photos JPEG, à lire avec une reconnaissance de caractères
+      const images = [];
+      const xo = get((get(pg.res) || {}).XObject) || {};
+      Object.keys(xo).forEach((k) => {
+        const ref = xo[k];
+        const o = ref && ref.ref !== undefined ? objs.get(ref.ref) : null;
+        if (!o || !o.value || o.value.Subtype !== '/Image' || o.dataStart === undefined) return;
+        let f = get(o.value.Filter);
+        f = Array.isArray(f) ? f.map(get) : [f];
+        if (f.length === 1 && (f[0] === '/DCTDecode' || f[0] === '/DCT')) images.push({ width: get(o.value.Width), height: get(o.value.Height), jpeg: streamBytes(o) });
+      });
+      pages.push({ width: box[2] - box[0], height: box[3] - box[1], x0: box[0], y0: box[1], glyphs, images });
     }
     return { pages };
   }

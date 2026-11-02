@@ -55,3 +55,8 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
 
 Une suite échoue si elle s'arrête sur une erreur, si la page lève une erreur JavaScript, si elle affiche une liste
 `erreurs` non vide, ou si le check-up signale un contrôle `KO`. À lancer avant chaque publication.
+
+`genbnp_scan.py` produit deux relevés de lettres de change BNP Paribas **scannés** (PDF image, `fixtures/lcr-bnp/`),
+données inventées, avec bruit de numérisation ; le second a un trait vertical de scanner et des séparations en
+pointillés. Résultats attendus dans `attendu.json` (`suites/lcrbnp-test.js` : lecture par reconnaissance de caractères,
+puis correction d'une lecture).

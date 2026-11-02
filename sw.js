@@ -4,7 +4,7 @@
  * et n'effectue aucune requête vers un autre domaine.
  */
 // À garder identique aux ?v= de index.html et à ASSET_VERSION dans js/app/10-fec.js.
-const VERSION = '93';
+const VERSION = '94';
 const CACHE = 'suivi-dossiers-v' + VERSION;
 const ASSETS = [
   './',
@@ -18,6 +18,7 @@ const ASSETS = [
   'js/archive-reader.js?v=' + VERSION,
   'js/fec-anon.js?v=' + VERSION,
   'js/pdf-reader.js?v=' + VERSION,
+  'js/scan-ocr.js?v=' + VERSION,
   'js/releve-pdf.js?v=' + VERSION,
   'js/ca3-pdf.js?v=' + VERSION,
   'js/silae-pdf.js?v=' + VERSION,

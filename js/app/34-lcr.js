@@ -12,7 +12,9 @@
 // 2. Relevés en PDF, autant qu'on veut : relevé d'effets à payer du Crédit Agricole (n° du relevé, date de règlement,
 //    date d'édition « AU », contrat, effets avec avis P = payé, R ou S = rejeté) ou relevé de lettres de change du CIC
 //    (n° de relevé, date de règlement, date « LE : », compte et total, effets ; un montant refusé = rejeté) ; nombre et
-//    total contrôlés. Le dossier est repéré par le contrat (Crédit Agricole) ou le compte (CIC).
+//    total contrôlés ; relevé de lettres de change BNP Paribas scanné (PDF image), lu par reconnaissance de caractères
+//    (js/scan-ocr.js) puis vérifiable et corrigeable effet par effet. Le dossier est repéré par le contrat (Crédit
+//    Agricole) ou le compte (CIC, BNP Paribas).
 // 3. Chaque tireur est rapproché d'un compte du listing (mots du nom, formes juridiques ignorées) ; les corrections et
 //    confirmations sont retenues pour le dossier, et reprises le mois suivant, comme le listing (associé au dossier au
 //    premier export) et les réglages.
@@ -23,7 +25,7 @@
 const LCR_DEF = { journal: 'OD', banque: '58003000', dateMode: 'reglement', libMax: 30 };
 const lcrState = () => (ui.lcr = ui.lcr || { rel: [], errors: [], view: 'todo', progress: '', planErr: '', idx: null, sug: null, linked: '' });
 const lcrData = () => data.settings.lcrAcd || {};
-const LCR_BANKS = { CA: 'Crédit Agricole', CIC: 'CIC' };
+const LCR_BANKS = { CA: 'Crédit Agricole', CIC: 'CIC', BNP: 'BNP Paribas' };
 // Réglages du dossier des relevés chargés, sinon les derniers utilisés
 function lcrOpts() {
   const d = lcrData(), c = lcrContrat();
@@ -225,7 +227,7 @@ const LCR_TODO = new Set(['verif', 'creer', 'vide']);
 
 // ---------- Lecture des relevés ----------
 const LCR_AMT = '\\d{1,3}(?:[ .]\\d{3})*,\\d{2}';
-const LCR_UNKNOWN = 'Format non reconnu. Formats lus : relevé d\'effets à payer du Crédit Agricole, relevé de lettres de change du CIC.';
+const LCR_UNKNOWN = 'Format non reconnu. Formats lus : relevé d\'effets à payer du Crédit Agricole, relevé de lettres de change du CIC, relevé de lettres de change BNP Paribas scanné.';
 function lcrFinish(o) {
   const sum = o.effets.reduce((a, e) => a + e.c, 0);
   const r = {
@@ -293,6 +295,113 @@ function lcrParse(raw) {
   if (!r) r = lcrParseCA(L, T);
   return r || { ok: false, msg: LCR_UNKNOWN };
 }
+// BNP Paribas : « Relevé de lettres de change présentées au paiement », papier scanné. Le tableau des effets est repéré
+// par ses traits : trois traits horizontaux pour l'en-tête, puis une ligne par effet jusqu'à la ligne « TOTAL DU RELEVE »
+// (où le trait entre n° d'ordre et référence s'arrête) ; colonnes n° d'ordre, référence tiré, nom du tireur, échéance et
+// nature, montant. Chaque cellule est lue seule. Les n° d'ordre et de relevé (6 + 2 chiffres) portent une clé de contrôle.
+const LCR_BNP_COLS = [0, 143, 310, 671, 868, 1120, 1223, 1468];
+const LCR_MOIS = ['janvier', 'fevrier', 'mars', 'avril', 'mai', 'juin', 'juillet', 'aout', 'septembre', 'octobre', 'novembre', 'decembre'];
+const lcrBnpKey = (n) => (((22 - ((n * 100) % 97)) % 97) + 97) % 97;
+const lcrBnpOk = (num) => /^\d{8}$/.test(num) && lcrBnpKey(+num.slice(0, 6)) === +num.slice(6);
+async function lcrBnpPage(p, onStep) {
+  ScanOcr.cleanStreaks(p);
+  const L = ScanOcr.hLines(p, 0, p.w, Math.round(p.h * 0.3), Math.round(p.h * 0.85), 0.4);
+  // En-tête du tableau : trois traits espacés régulièrement (environ 78 points)
+  const t = L.findIndex((l, i) => L[i + 2] && Math.abs(L[i + 1].a - l.a - 78) < 12 && Math.abs(L[i + 2].a - L[i + 1].a - 78) < 12);
+  if (t < 0) return null;
+  const top = L[t], mid = L[t + 1], hb = L[t + 2];
+  // Bords et séparations des colonnes, mesurés sur la seconde moitié de l'en-tête (intitulés des colonnes)
+  const V = ScanOcr.vLines(p, 0, p.w, mid.b + 3, hb.a - 3, 0.95).map((v) => (v.a + v.b) / 2);
+  if (V.length < 2) return null;
+  const left = V[0], right = V[V.length - 1], k = (right - left) / LCR_BNP_COLS[LCR_BNP_COLS.length - 1];
+  const D = LCR_BNP_COLS.map((c) => { const e = left + c * k; const n = V.reduce((b, v) => (Math.abs(v - e) < Math.abs(b - e) ? v : b), V[0]); return Math.abs(n - e) < 15 ? n : e; });
+  // Ligne du total : le trait entre nom du tireur et échéance s'arrête (la ligne du total n'a pas cette séparation, et
+  // son texte n'atteint pas cette colonne) ; un trait mal scanné peut s'interrompre sur quelques points
+  let totalTop = 0;
+  for (let y = hb.b + 2, gap = 0; y < p.h - 40; y++) {
+    if (ScanOcr.dark(p, { x0: Math.round(D[3]) - 3, x1: Math.round(D[3]) + 4, y0: y, y1: y + 1 }) > 0) { gap = 0; totalTop = y; } else if (++gap > 6) break;
+  }
+  if (totalTop - hb.b < 20) return null;
+  // Lignes d'effet : traits fins entre les lignes, sinon hauteur régulière (36 points)
+  const H = ScanOcr.hLines(p, Math.round(D[0]) + 4, Math.round(D[4]) - 4, hb.b + 6, totalTop - 6, 0.6).map((l) => (l.a + l.b) / 2);
+  const cuts = [hb.b, ...H, totalTop];
+  const rows = [];
+  for (let i = 0; i + 1 < cuts.length; i++) {
+    const n = Math.max(1, Math.round((cuts[i + 1] - cuts[i]) / 35.7));
+    for (let j = 0; j < n; j++) rows.push([cuts[i] + ((cuts[i + 1] - cuts[i]) * j) / n, cuts[i] + ((cuts[i + 1] - cuts[i]) * (j + 1)) / n]);
+  }
+  const cell = (c, r, o) => ScanOcr.text(p, { x0: D[c] + 9, x1: D[c + 1] - 8, y0: r[0] + 3, y1: r[1] - 2 }, o);
+  const effets = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (onStep) onStep(`effet ${i + 1} / ${rows.length}`);
+    const num = (await cell(0, r, { chars: '0123456789 ' })).replace(/\D/g, '');
+    let ref = (await cell(1, r, { chars: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ' })).replace(/[^0-9A-Z]/g, '');
+    if (ref.length < 4) ref = '';
+    // (point isolé après un mot : reste d'un trait de scanner ; « S.A.S. » est conservé)
+    const nom = (await cell(2, r, {})).replace(/[|_[\]{}]/g, ' ').replace(/([A-Za-zÀ-ÿ]{2,})\.(?=\s)/g, '$1').replace(/\s+/g, ' ').trim().toUpperCase();
+    const echT = (await cell(3, r, { chars: '0123456789.AN ' })).replace(/\s+/g, ' ');
+    const amt = (await cell(4, r, { chars: '0123456789, ' })).replace(/\D/g, '');
+    if (!num && !nom && !amt) continue;
+    const em = echT.replace(/[^\d]/g, '').match(/^(\d{2})(\d{2})(\d{4})/);
+    effets.push({ nom, num, ref, ech: em ? `${em[1]}/${em[2]}/${em[3]}` : '', c: amt ? parseInt(amt, 10) : 0, avis: 'P', doubt: !lcrBnpOk(num) || !em || !amt || !nom });
+  }
+  const totT = (await ScanOcr.text(p, { x0: D[4] + 4, x1: D[5] - 3, y0: totalTop + 3, y1: totalTop + 36 }, { chars: '0123456789, ' })).replace(/\D/g, '');
+  if (onStep) onStep('en-tête du relevé');
+  const head = await ScanOcr.text(p, { x0: 0, x1: p.w, y0: Math.round(p.h * 0.17), y1: top.a - 4 }, { psm: 6, scale: 1 });
+  return { effets, total: totT ? parseInt(totT, 10) : null, head };
+}
+async function lcrParseScan(doc, onStep) {
+  const pages = [];
+  for (const pg of doc.pages) {
+    const img = (pg.images || []).sort((a, b) => b.width * b.height - a.width * a.height)[0];
+    if (img) pages.push(await ScanOcr.page(img.jpeg));
+  }
+  if (!pages.length) return { ok: false, msg: 'Ce PDF ne contient ni texte ni image lisible.' };
+  if (onStep) onStep('chargement du moteur de lecture');
+  await ScanOcr.ready();
+  const effets = [];
+  let total = null, head = '';
+  for (let i = 0; i < pages.length; i++) {
+    const r = await lcrBnpPage(pages[i], onStep && ((m) => onStep(`page ${i + 1} / ${pages.length}, ${m}`)));
+    if (!r) continue;
+    effets.push(...r.effets);
+    if (r.total !== null) total = r.total;
+    head += `${r.head}\n`;
+  }
+  const H = head.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (!effets.length || !/BNP|LETTRES DE CHANGE|reglement/i.test(H)) return { ok: false, msg: `Scan non reconnu : seul le relevé de lettres de change BNP Paribas est lu sur un PDF scanné. ${LCR_UNKNOWN}` };
+  const rg = H.match(/r.glement\s*\W{0,3}\s*(\d{2})[.,/ ]?(\d{2})[.,/ ]?(\d{4})/i);
+  const rv = H.match(/Relev.\s*\W{0,3}\s*(\d{6})\s?(\d{2})/i);
+  // Compte : ligne RIB (banque, guichet, compte, clé), sinon IBAN ; un trait du scanner peut couper les chiffres
+  const ribL = (H.match(/RIB[^\n]*/i) || [''])[0].replace(/\D/g, ''), ibanL = (H.match(/IBAN[^\n]*/i) || [''])[0].replace(/^[^F]*FR\s*\d{2}/i, '').replace(/\D/g, '');
+  const ribD = ribL.length >= 23 ? ribL : ibanL.length >= 23 ? ibanL : '';
+  const rib = ribD ? [null, ribD.slice(0, 5), ribD.slice(5, 10), ribD.slice(10, 21)] : null;
+  const le = H.match(/\ble\s+(\d{1,2})\s+([a-z]+)\s+(\d{4})/i);
+  const mo = le ? LCR_MOIS.indexOf(le[2].toLowerCase()) : -1;
+  const rej = H.match(/REJET\s+T\S*\s+de\s+([\d .]+,\d{2})/i);
+  // Total : ligne « TOTAL DU RELEVE » et rappel « REJET TOTAL de … euros », lus séparément ; celui qui tombe juste sur la
+  // somme des effets l'emporte
+  const sum = effets.reduce((a, e) => a + e.c, 0), rejT = rej ? lcrCents(rej[1]) : null;
+  if (total !== sum && rejT === sum) total = rejT;
+  else if (total === null) total = rejT;
+  // N° du relevé : lu dans l'en-tête et validé par sa clé, sinon déduit du premier effet (n° suivant)
+  let releve = rv && lcrBnpOk(rv[1] + rv[2]) ? rv[1] + rv[2] : '', doubt = false;
+  if (!releve && effets[0] && lcrBnpOk(effets[0].num)) { const n = +effets[0].num.slice(0, 6) - 1; releve = `${n}${String(lcrBnpKey(n)).padStart(2, '0')}`; doubt = true; }
+  if (!releve) { releve = rv ? rv[1] + rv[2] : '0'; doubt = true; }
+  const r = lcrFinish({ bank: 'BNP', releve, rg: rg || [null, '01', '01', '1900'], au: le && mo >= 0 ? [null, le[1].padStart(2, '0'), String(mo + 1).padStart(2, '0'), le[3]] : null, nb: null, total,
+    contrat: rib ? `${rib[1]}-${rib[2]}-${rib[3]}` : '', effets });
+  r.ocr = true;
+  r.doubt = doubt || !rg;
+  return r;
+}
+// Relevé lu par reconnaissance de caractères, corrigé à la main : somme et contrôle recalculés
+function lcrRecheck(r) {
+  r.sum = r.effets.reduce((a, e) => a + e.c, 0);
+  r.key = `${r.bank}:${r.releve}`;
+  r.piece = parseInt(r.releve, 10) || 0;
+  r.controle = (r.nb === null || r.nb === r.effets.length) && (r.total === null || r.total === r.sum);
+}
 const lcrPdfLines = (doc) => doc.pages.flatMap((p) => PdfReader.lines(p).map((l) => PdfReader.segments(l, 0.9).map((x) => x.text).join('   ')));
 async function lcrAddPdfs(files) {
   const list = Array.from(files || []);
@@ -306,7 +415,8 @@ async function lcrAddPdfs(files) {
     if (!/\.pdf$/i.test(f.name) && f.type !== 'application/pdf') { st.errors.push({ file: f.name, msg: 'Ce fichier n\'est pas un PDF.' }); continue; }
     try {
       const doc = await PdfReader.read(await f.arrayBuffer());
-      const r = lcrParse(lcrPdfLines(doc));
+      const scanned = !doc.pages.some((pg) => pg.glyphs.length) && doc.pages.some((pg) => pg.images && pg.images.length);
+      const r = scanned ? await lcrParseScan(doc, (m) => { st.progress = `Lecture du scan ${i} / ${list.length} (${f.name}) : ${m}…`; lcrRefresh(); }) : lcrParse(lcrPdfLines(doc));
       if (!r.ok) st.errors.push({ file: f.name, msg: r.msg });
       else if (st.rel.some((x) => x.key === r.key)) st.errors.push({ file: f.name, msg: `Relevé n° ${r.releve} déjà chargé : doublon ignoré.` });
       else { r.file = f.name; st.rel.push(r); }
@@ -405,8 +515,9 @@ function viewLcr(embedded) {
     ${ctr.size > 1 ? `<p class="lcr-alert warn">Ces relevés viennent de plusieurs comptes (${[...ctr].map(esc).join(', ')}). Chargez les relevés d'un seul dossier à la fois : les correspondances sont retenues pour le compte ${esc(dossier)}.</p>`
     : st.rel.length ? `<p class="muted small lcr-dossier">${esc(LCR_BANKS[st.rel[0].bank] || '')} · compte ${esc(dossier)}</p>` : ''}
     ${st.rel.length ? `<div class="grid-wrap"><table class="dtable lcr-rel"><thead><tr><th>Relevé</th><th>Banque</th><th>Édité le</th><th>Règlement</th><th class="n">Effets</th><th class="n">Total</th><th>Contrôle</th><th>Fichier</th><th></th></tr></thead><tbody>
-      ${st.rel.map((r, i) => { const rej = r.effets.filter((e) => e.avis !== 'P').length; return `<tr><td class="mono">${esc(r.releve)}</td><td>${esc(LCR_BANKS[r.bank] || r.bank)}</td><td>${esc(r.au || '')}</td><td>${esc(r.regl)}</td><td class="n">${r.effets.length}${rej ? ` <span class="badge warn">${lcrPl(rej, 'rejeté', 'rejetés')}</span>` : ''}</td><td class="n">${lcrEur(r.sum)}</td><td>${r.controle ? '<span class="badge ok">= relevé</span>' : `<span class="badge bad">Écart : relevé ${r.total != null ? lcrEur(r.total) : '?'}${r.nb != null ? `, ${r.nb} effets` : ''}</span>`}</td><td class="muted lcr-file">${esc(r.file)}</td><td><button class="btn small" data-action="lcr-del" data-i="${i}" aria-label="Retirer le relevé ${esc(r.releve)}">Retirer</button></td></tr>`; }).join('')}
-      </tbody></table></div>` : ''}`,
+      ${st.rel.map((r, i) => { const rej = r.effets.filter((e) => e.avis !== 'P').length; return `<tr><td class="mono">${esc(r.releve)}</td><td>${esc(LCR_BANKS[r.bank] || r.bank)}</td><td>${esc(r.au || '')}</td><td>${esc(r.regl)}</td><td class="n">${r.effets.length}${rej ? ` <span class="badge warn">${lcrPl(rej, 'rejeté', 'rejetés')}</span>` : ''}</td><td class="n">${lcrEur(r.sum)}</td><td>${r.controle ? '<span class="badge ok">= relevé</span>' : `<span class="badge bad">Écart : relevé ${r.total != null ? lcrEur(r.total) : '?'}${r.nb != null ? `, ${r.nb} effets` : ''}</span>`}</td><td class="muted lcr-file">${esc(r.file)}${r.ocr ? ` <span class="badge ${r.controle && !r.doubt && !r.effets.some((e) => e.doubt) ? '' : 'warn'}">scan lu par OCR</span>` : ''}</td><td><button class="btn small" data-action="lcr-del" data-i="${i}" aria-label="Retirer le relevé ${esc(r.releve)}">Retirer</button></td></tr>`; }).join('')}
+      </tbody></table></div>` : ''}
+    ${st.rel.map((r, i) => (r.ocr ? lcrOcrBox(r, i) : '')).join('')}`,
     st.rel.length || st.errors.length ? '<button class="btn small" data-action="lcr-clear">Vider la liste</button>' : '');
 
   // 3. Comptes
@@ -465,13 +576,57 @@ function viewLcr(embedded) {
   const s4 = step(4, 'Écritures et import ACD', 'Contrôlez les écritures, puis téléchargez le fichier à importer dans ACD.', done4, s4body);
 
   return `${toolHead(embedded ? '' : 'Écritures LCR pour ACD', embedded ? 'Relevés LCR en PDF : les comptes fournisseurs viennent du FEC ouvert ; une écriture par relevé, prête à importer dans ACD.' : 'Relevés LCR en PDF et listing fournisseurs (ou FEC) du dossier : une écriture par relevé, prête à importer dans ACD.', '',
-    '<p>L\'outil passe chaque effet au débit du fournisseur, le total du relevé au crédit du compte de contrepartie, une écriture par relevé, et prépare le fichier d\'import ACD. Relevés lus : Crédit Agricole (relevé d\'effets à payer) et CIC (relevé de lettres de change). Les effets rejetés ne sont pas repris.</p>', 'lcr')}
+    '<p>L\'outil passe chaque effet au débit du fournisseur, le total du relevé au crédit du compte de contrepartie, une écriture par relevé, et prépare le fichier d\'import ACD. Relevés lus : Crédit Agricole (relevé d\'effets à payer), CIC (relevé de lettres de change) et BNP Paribas (relevé de lettres de change scanné, lu par reconnaissance de caractères sur l\'appareil, à vérifier avec le total). Les effets rejetés ne sont pas repris.</p>', 'lcr')}
     <div class="lcr">${s1}${s2}${s3}${s4}</div>`;
+}
+
+// Relevé scanné : lecture à vérifier et à corriger (en-tête et effets)
+function lcrOcrBox(r, i) {
+  const bad = !r.controle || r.doubt || r.effets.some((e) => e.doubt);
+  const f = (field, val, label, cls = '') => `<input class="lcr-input ${cls}" data-lcr="ocr" data-r="${i}" data-f="${field}" value="${esc(val)}" aria-label="${esc(label)}" autocomplete="off" spellcheck="false">`;
+  return `<details class="lcr-box lcr-ocr"${bad ? ' open' : ''}><summary>Relevé ${esc(r.releve)} (scan) : ${bad ? '<strong>lecture à vérifier</strong>' : 'lecture vérifiée par le total'} · ${esc(r.file)}</summary><div class="lcr-inner">
+    <p class="muted small">Lu par reconnaissance de caractères. Comparez avec le relevé et corrigez si besoin : le total des effets doit être égal au total du relevé. Les n° d'ordre sont vérifiés par leur clé.</p>
+    ${r.controle ? '' : `<p class="lcr-alert bad">Total des effets lus : ${lcrEur(r.sum)} € ; total du relevé : ${r.total != null ? `${lcrEur(r.total)} €` : 'non lu'}. Corrigez le montant mal lu ou ajoutez l'effet manquant.</p>`}
+    <div class="lett-opts"><label>N° du relevé ${f('releve', r.releve, 'N° du relevé', r.doubt ? 'warn' : '')}</label><label>Date de règlement ${f('regl', r.regl, 'Date de règlement')}</label><label>Total du relevé ${f('total', r.total != null ? lcrEur(r.total) : '', 'Total du relevé')}</label><label>Compte ${f('contrat', r.contrat, 'Compte')}</label></div>
+    <div class="grid-wrap"><table class="dtable lcr-ocr-t"><thead><tr><th>N° d'ordre</th><th>Tireur</th><th>Échéance</th><th class="n">Montant</th><th></th></tr></thead><tbody>
+    ${r.effets.map((e, j) => { const g = (field, val, label, cls = '') => `<input class="lcr-input ${cls}" data-lcr="ocr" data-r="${i}" data-j="${j}" data-f="${field}" value="${esc(val)}" aria-label="${esc(label)}" autocomplete="off" spellcheck="false">`;
+    return `<tr class="${e.doubt ? 'lcr-doubt' : ''}"><td>${g('num', e.num, 'N° d\'ordre', lcrBnpOk(e.num) ? '' : 'warn')}</td><td>${g('nom', e.nom, 'Tireur')}</td><td>${g('ech', e.ech, 'Échéance')}</td><td class="n">${g('c', lcrEur(e.c), 'Montant', 'n')}</td><td><button class="btn small" data-action="lcr-ocr-del" data-r="${i}" data-j="${j}" aria-label="Retirer l'effet ${esc(e.num)}">Retirer</button></td></tr>`; }).join('')}
+    </tbody></table></div>
+    <button class="btn small" data-action="lcr-ocr-add" data-r="${i}">Ajouter un effet</button>
+  </div></details>`;
+}
+const lcrAmt = (v) => { const n = parseFloat(String(v).replace(/[\s\u00a0\u202f€]/g, '').replace(',', '.')); return Number.isFinite(n) ? Math.round(n * 100) : 0; };
+const lcrDateFr = (v) => { const m = String(v).match(/(\d{1,2})\D(\d{1,2})\D(\d{2,4})/); return m ? `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3].length === 2 ? `20${m[3]}` : m[3]}` : ''; };
+function lcrOcrEdit(t) {
+  const r = lcrState().rel[+t.dataset.r];
+  if (!r) return;
+  const f = t.dataset.f, v = t.value.trim();
+  if (t.dataset.j !== undefined) {
+    const e = r.effets[+t.dataset.j];
+    if (!e) return;
+    if (f === 'c') e.c = lcrAmt(v);
+    else if (f === 'ech') e.ech = lcrDateFr(v) || v;
+    else if (f === 'num') e.num = v.replace(/\D/g, '');
+    else e.nom = v.toUpperCase().replace(/\s+/g, ' ');
+    e.doubt = !lcrBnpOk(e.num) || !e.nom || !e.c;
+  } else if (f === 'releve') { r.releve = v.replace(/\D/g, '') || r.releve; r.doubt = false; }
+  else if (f === 'regl') r.regl = lcrDateFr(v) || r.regl;
+  else if (f === 'total') r.total = v ? lcrAmt(v) : null;
+  else if (f === 'contrat') r.contrat = v;
+  lcrRecheck(r);
+}
+function lcrOcrRow(i, j) {
+  const r = lcrState().rel[i];
+  if (!r) return;
+  if (j === undefined) r.effets.push({ nom: '', num: '', ref: '', ech: '', c: 0, avis: 'P', doubt: true });
+  else r.effets.splice(j, 1);
+  lcrRecheck(r);
 }
 
 function onLcrChange(t) {
   const k = t.dataset.lcr;
-  if (k === 'acct') {
+  if (k === 'ocr') lcrOcrEdit(t);
+  else if (k === 'acct') {
     const v = t.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     lcrSetMem(t.dataset.nom, v ? { code: v, ok: true } : null);
   } else if (k in LCR_DEF) {
