@@ -136,12 +136,18 @@ function ecrProposals(r) {
   }
 
   // 5. Corrections
-  cy.achats.dupStrong.items.forEach((x, i) => add({
-    src: { cycle: 'achats', check: 'Factures fournisseurs en double', ex: cy.achats.dupStrong.ex[i] },
-    id: `dup:${x.sup}:${x.piece}:${i}`, group: 'Corrections', extournable: false, editable: false, amount: x.ttc,
-    label: `Annulation de la facture en double ${x.piece} — ${x.supLib}`, why: `Facture de ${eur(x.ttc)} € TTC saisie deux fois (la seconde le ${dt(x.date)}) : à confirmer sur le relevé fournisseur.`,
-    make: () => [L(acctOf(r, '401'), `Annulation doublon ${x.piece}`, x.ttc, 0, { num: x.sup, lib: x.supLib }), L(x.compte, `Annulation doublon ${x.piece}`, 0, x.ht)]
-      .concat(x.tva > 0.005 ? [L(acctOf(r, '4456'), `Annulation doublon ${x.piece}`, 0, x.tva)] : []),
+  // Doublons très probables (onglet « Doublons ») : annulation de chaque pièce marquée « à annuler ? »
+  const dv = doublonsView(r);
+  (dv ? dv.fort : []).forEach((g) => g.rows.filter((x) => x.role === 'annuler').forEach((x) => {
+    const fa = x.amt > 0, ref = x.piece || `${x.jc} ${x.num}`, lab = `Annulation doublon ${ref}`;
+    add({
+      src: { cycle: 'achats', check: 'Factures fournisseurs en double', ex: dupExample(g) },
+      id: `dup:${x.sup}:${x.jc}:${x.num}`, group: 'Corrections', extournable: false, editable: false, amount: Math.abs(x.amt),
+      label: `Annulation ${fa ? 'de la facture' : "de l'avoir"} en double ${ref} — ${x.name}`,
+      why: `${fa ? 'Facture' : 'Avoir'} de ${eur(Math.abs(x.amt))} € TTC saisi${fa ? 'e' : ''} en double (écriture ${x.jc} ${x.num} du ${dt(x.date)}) : à confirmer sur le relevé fournisseur.`,
+      make: () => [L(acctOf(r, '401'), lab, fa ? x.amt : 0, fa ? 0 : -x.amt, { num: x.sup, lib: x.name }), L(x.compte, lab, fa ? 0 : x.ht, fa ? x.ht : 0)]
+        .concat(x.tva > 0.005 ? [L(acctOf(r, '4456'), lab, fa ? 0 : x.tva, fa ? x.tva : 0)] : []),
+    });
   }));
   const amendes = {};
   cy.charges.amendes.items.forEach((x) => { if (x.compte && !x.compte.startsWith('6712')) amendes[x.compte] = round2((amendes[x.compte] || 0) + x.amt); });

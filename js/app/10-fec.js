@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '96';
+const ASSET_VERSION = '97';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -137,7 +137,7 @@ function setFecProfile(p) {
 
 // Espace FEC : tout ce qui s'appuie sur le FEC, en onglets (f.space) et sous-onglets (f.section). Les cycles A à K sont
 // des sous-onglets de « Révision A–K » (barre des cycles sous les sous-onglets).
-const FEC_GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', pieces: 'revision', revue: 'revision',
+const FEC_GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', doublons: 'revision', pieces: 'revision', revue: 'revision',
   'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', rappro: 'banque', brap: 'banque', lettrage: 'lettrage', lcr: 'lettrage', paie: 'paie', 'immo-etat': 'immos',
   tvarev: 'tva', tva: 'tva', graphes: 'consult', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
 const groupOf = (tab) => (CYCLE_DEF[tab] ? 'revision' : FEC_GROUP_OF[tab] || 'synthese');
@@ -366,7 +366,7 @@ function viewFec() {
     ...(pharma ? [['officine', 'Officine', () => [['tp', 'Tiers payant'], ['catva', 'CA & TVA']]]] : []),
     ['revision', cnt('Révision A–K', cc ? Object.keys(CYCLE_DEF).reduce((t, k) => t + wpProgress(k, cc[k]).left, 0) : 0), (a) => [
       ...(cc ? [['cycles', 'Cycles A à K']] : []),
-      ...(r.cycles ? [['ecritures', cnt('Écritures', a ? ecrProposals(r).filter((p) => p.on).length : 0)]] : []),
+      ...(r.cycles ? [['ecritures', cnt('Écritures', a ? ecrProposals(r).filter((p) => p.on).length : 0)], ['doublons', cnt('Doublons', a ? doublonsCount(r) : 0)]] : []),
       ['pieces', cnt('Pièces à demander', a && r.pieces ? piecesCount(r, piecesState().mode, piecesState().arrete) : 0)], ['revue', 'Revue N / N-1']]],
     ['mois', 'Mois', (a) => {
       const ym = a ? fecMonth() : '';
@@ -449,6 +449,8 @@ function viewFec() {
     body = viewSaisie();
   } else if (f.section === 'ecritures') {
     body = viewEcritures();
+  } else if (f.section === 'doublons') {
+    body = viewDoublons(r);
   } else if (inCycle) {
     body = viewCycle(f.section);
   } else if (f.section === 'tva') {

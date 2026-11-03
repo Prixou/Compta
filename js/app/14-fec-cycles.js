@@ -114,9 +114,11 @@ function chkAchats(r, ref, prev, terme) {
   const pharma = ui.fecProfile === 'pharmacie';
   genIn(r, out, 'achats');
   mispostCheck(r, out, '401');
-  if (a.dupStrong.n) out.add('warn', 'Factures fournisseurs en double', `${a.dupStrong.n} facture(s) saisie(s) deux fois (même fournisseur, même montant, même n° de pièce, à moins de 15 jours d'écart) : ${eur(a.dupStrong.total)} € de charges et de TVA déductible en trop ?`, a.dupStrong.ex, { full: a.dupStrong.ex.length >= a.dupStrong.n });
-  else if (a.invoices) out.add('ok', 'Aucune facture fournisseur en double', `${a.invoices.toLocaleString('fr-FR')} factures contrôlées (fournisseur, montant et n° de pièce)${a.recurringRefs ? ` ; ${a.recurringRefs} référence(s) d'échéancier mensuel (loyer, crédit-bail, abonnement) écartée(s)` : ''}.`);
-  if (a.dupPossible.n) out.add('info', "Factures de même montant à quelques jours d'intervalle", `${a.dupPossible.n} cas chez un même fournisseur (3 jours au plus) : livraisons distinctes ou doublon ?`, a.dupPossible.ex, { full: a.dupPossible.ex.length >= a.dupPossible.n });
+  // Factures en double : détail dans l'onglet « Doublons » (40-fec-doublons.js)
+  const dv = doublonsView(r);
+  const nDup = a.doublons ? a.doublons.n : a.invoices;
+  if (dv && dv.fort.length + dv.verif.length) out.add(dv.fort.length ? 'warn' : 'info', 'Factures fournisseurs en double', `${dv.fort.length} doublon(s) très probable(s) et ${dv.verif.length} à vérifier sur ${nDup.toLocaleString('fr-FR')} factures et avoirs contrôlés (date, n° de facture, montant, libellé et compte fournisseur) : détail dans l'onglet « Doublons ».`, dv.fort.concat(dv.verif).map(dupExample), { full: true });
+  else if (a.invoices) out.add('ok', 'Aucune facture fournisseur en double', `${nDup.toLocaleString('fr-FR')} factures et avoirs contrôlés (date, n° de facture, montant, libellé et compte fournisseur)${dv && dv.d.copies.length ? ` ; ${dv.d.copies.length} copie(s) rattachée(s) à un règlement` : ''}.`);
   const od = overdue(r, '401', ref, terme);
   if (od.b91[1] > 0) out.add('warn', 'Dettes fournisseurs échues depuis plus de 90 jours', `${eur(od.b91[1], 0)} € (${od.b91[0]} facture(s)) : litige, avoir attendu, ou facture déjà réglée par un autre moyen ?`, od.tiers.filter((t) => t.b91 > 0).slice(0, 10).map((t) => `${t.lib} : ${eur(t.b91)} € (${oldestTxt(t)})`));
   if (a.delay.lateN) out.add(a.delay.lateAmt > a.delay.paidAmt * 0.2 ? 'warn' : 'info', 'Factures fournisseurs réglées à plus de 60 jours', `${a.delay.lateN} facture(s), ${eur(a.delay.lateAmt, 0)} € : au-delà du délai légal maximal (art. L441-10 du code de commerce), amende administrative possible.`, a.suppliers.filter((s) => s.lateN).slice(0, 10).map((s) => `${s.lib} : ${s.lateN} facture(s), délai moyen ${s.delay} j`));

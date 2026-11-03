@@ -198,6 +198,7 @@ function analyse(buffer, fileName, until, docs) {
   REQUIRED.forEach((f) => { reqEmpty[f] = 0; });
   const accounts = new Map();
   const aux = new Map();
+  const supLines = new Map(); // écriture|fournisseur → [lettrage, libellé, date de pièce] (factures en double)
   const journals = new Map();
   const entries = new Map();
   const splits = new Map(); // parties d'écritures multi-dates (voir plus bas)
@@ -329,6 +330,10 @@ function analyse(buffer, fileName, until, docs) {
       t.c += c;
       // Lignes conservées pour la balance âgée : date, débit, crédit, lettrage, libellé, à-nouveau.
       if (date || an) t.lines.push([date || '0000-00-00', d, c, g('EcritureLet'), elib, an ? 1 : 0, oek]);
+      if (/^40[1-7]/.test(compte) && !an) {
+        const sk = oek + '|' + (auxNum || compte);
+        if (!supLines.has(sk)) supLines.set(sk, [g('EcritureLet'), elib, pd.iso || '']);
+      }
       if (date && !an) {
         if (d > 0 && date > (t.lastD || '')) t.lastD = date;
         if (c > 0 && date > (t.lastC || '')) t.lastC = date;
@@ -690,7 +695,7 @@ function analyse(buffer, fileName, until, docs) {
   };
 
   perso.groups = Array.from(persoG.values()).sort((a, b) => b.total - a.total).slice(0, 30);
-  const cycles = buildCycles({ entries: opEntries, aux, auxNames, accounts, chAcc, tresoAcc, cut, perso, amendes, weekend, gifts, closing, start, months, maxOp, docs, attCol: attIdx >= 0 ? header[attIdx] : '', sfxOcc });
+  const cycles = buildCycles({ entries: opEntries, aux, supLines, auxNames, accounts, chAcc, tresoAcc, cut, perso, amendes, weekend, gifts, closing, start, months, maxOp, docs, attCol: attIdx >= 0 ? header[attIdx] : '', sfxOcc });
   cycles.tva = buildTva({ groups: [entries.values(), splits.values()], accounts, opEntries });
 
   // ---------- Mensuel ----------
@@ -1272,8 +1277,177 @@ function anOrigDate(lib) {
   return Number.isNaN(Date.parse(d)) ? '' : d;
 }
 
+// ---------- Factures fournisseurs en double ----------
+// Triangulation sur cinq critères : date (3 jours d'écart au plus, date de pièce sinon d'écriture), n° de facture (lu dans le
+// n° de pièce et le libellé) ou même n° de pièce interne (même document saisi deux fois), montant (TTC au centime), libellé
+// (mots peu fréquents du compte) et compte fournisseur. Doublon : 3 critères sur 5 dont le montant ou le n°. Exceptions :
+// facture mensuelle d'un même montant (sauf deux fois le même mois), deux n° de facture différents, facture et avoir,
+// doublon déjà annulé par un avoir, copie rattachée à un règlement (chaque exemplaire lettré avec son propre paiement).
+const DUP_DAYS = 3, DUP_SIM = 0.75;
+const DUP_DATE = /\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g;
+const DUP_STOP = new Set(('fact facture factures fa fac fct avoir av ref n no num du de des la le les sur cde commande bl liv livraison '
+  + 'sas sarl sa ste eurl selarl snc sel et ets labo laboratoire laboratoires pharma france').split(' '));
+const dupWords = (s, drop) => normTxt(String(s || '').replace(DUP_DATE, ' ')).replace(/[^a-z ]+/g, ' ').split(/\s+/)
+  .filter((w) => w.length > 1 && !DUP_STOP.has(w) && !(drop && drop.has(w)));
+function dupSim(a, b) {
+  if (!a || !b) return 0;
+  const tri = (t) => { const x = `  ${t} `, out = new Set(); for (let i = 0; i < x.length - 2; i++) out.add(x.slice(i, i + 3)); return out; };
+  const x = tri(a), y = tri(b);
+  let n = 0;
+  x.forEach((v) => { if (y.has(v)) n++; });
+  return (2 * n) / (x.size + y.size);
+}
+// N° de facture candidats (sans les dates) : jeton alphanumérique, zéros de tête ôtés (B000007361 → B7361), et chiffres
+// seuls d'un numéro long (FA2601234 et 2601234 se répondent).
+function dupTokens(...texts) {
+  const out = new Set();
+  texts.forEach((t) => (String(t || '').replace(DUP_DATE, ' ').match(/[A-Za-z]*\d[\w/-]*/g) || []).forEach((m) => {
+    const [, pre, rest] = /^([A-Z]*)(.*)$/.exec(m.replace(/[^A-Za-z0-9]/g, '').toUpperCase());
+    const core = rest.replace(/\D/g, '').replace(/^0+/, '');
+    if (core.length < 4) return;
+    out.add(pre + core);
+    if (core.length >= 6) out.add(core);
+  }));
+  return out;
+}
+// Montants (centimes) qui ressemblent à une faute de frappe : chiffres inversés, un chiffre différent, virgule décalée.
+function dupTypo(a, b) {
+  a = Math.abs(a); b = Math.abs(b);
+  const x = String(a), y = String(b);
+  if (x.split('').sort().join('') === y.split('').sort().join('')) return true;
+  if (x.length === y.length && x.split('').filter((ch, i) => ch !== y[i]).length === 1) return true;
+  return a === b * 10 || a === b * 100 || b === a * 10 || b === a * 100;
+}
+function findDoublons(list, entries, aux) {
+  const recs = list.filter((x) => Math.abs(x.amt) >= 1 && x.date).map((x, i) => Object.assign(x, { i, cents: Math.round(x.amt * 100), ym: x.date.slice(0, 7) }));
+  // N° de pièce interne (GED d'ACD « B000005133 ») : même forme pour la plupart des écritures du journal, toutes différentes
+  const shapes = new Map(), vals = new Map(), nb = new Map();
+  entries.forEach((en) => {
+    const pc = String(en.piece || '').trim();
+    if (!pc || en.an) return;
+    const sh = pc.replace(/\d/g, '9'), k = en.jc + '|' + sh;
+    shapes.set(k, (shapes.get(k) || 0) + 1);
+    (vals.get(k) || vals.set(k, new Set()).get(k)).add(pc);
+    nb.set(en.jc, (nb.get(en.jc) || 0) + 1);
+  });
+  const internal = new Map();
+  shapes.forEach((k, key) => {
+    const [jc, sh] = [key.slice(0, key.indexOf('|')), key.slice(key.indexOf('|') + 1)];
+    if (/9{4}/.test(sh) && k >= (nb.get(jc) || 0) * 0.6 && vals.get(key).size >= k * 0.9 && (!internal.has(jc) || k > internal.get(jc)[1])) internal.set(jc, [sh, k]);
+  });
+  recs.forEach((x) => {
+    x.pint = internal.has(x.jc) && internal.get(x.jc)[0] === x.piece.replace(/\d/g, '9') ? x.piece : '';
+    x.toks = dupTokens(x.lib, x.pint ? '' : x.piece);
+    dupTokens(x.num).forEach((t) => x.toks.delete(t)); // n° interne de l'écriture
+  });
+  // Références qui reviennent (n° de contrat, code postal, n° de carte…) : pas des n° de facture
+  const tokRecs = new Map(), tokMonths = new Map();
+  recs.forEach((x) => x.toks.forEach((t) => {
+    tokRecs.set(t, (tokRecs.get(t) || 0) + 1);
+    const k = x.sup + '|' + t;
+    (tokMonths.get(k) || tokMonths.set(k, new Set()).get(k)).add(x.ym);
+  }));
+  recs.forEach((x) => { x.toks = new Set(Array.from(x.toks).filter((t) => tokRecs.get(t) <= 3 && tokMonths.get(x.sup + '|' + t).size < 3)); });
+  // Factures mensuelles d'un même montant dans le compte (3 mois ou plus)
+  const months = new Map();
+  recs.forEach((x) => { const k = x.sup + '|' + x.cents; (months.get(k) || months.set(k, new Set()).get(k)).add(x.ym); });
+  // Mots fréquents d'un compte (nom du fournisseur, description habituelle) : sans valeur pour comparer deux factures
+  const nameW = new Map(), cnt = new Map(), nrec = new Map();
+  recs.forEach((x) => {
+    const w = nameW.get(x.sup) || nameW.set(x.sup, new Set()).get(x.sup);
+    dupWords(x.name).forEach((v) => w.add(v));
+    nrec.set(x.sup, (nrec.get(x.sup) || 0) + 1);
+    const c = cnt.get(x.sup) || cnt.set(x.sup, new Map()).get(x.sup);
+    new Set(dupWords(x.lib)).forEach((v) => c.set(v, (c.get(v) || 0) + 1));
+  });
+  cnt.forEach((c, sup) => c.forEach((k, v) => { if (k > Math.max(2, nrec.get(sup) * 0.1)) nameW.get(sup).add(v); }));
+  // Lettrages comprenant un règlement (banque ou caisse) et nombre de règlements de chaque montant
+  const payLet = new Set(), payAmt = new Map();
+  aux.forEach((t) => {
+    if (!/^40[1-7]/.test(t.racine)) return;
+    t.lines.forEach(([, d, c, l, , isAn, ek]) => {
+      if (!l || isAn || !(entries.get(ek) || {}).has5) return;
+      payLet.add(t.num + '|' + l);
+      const k = `${t.num}|${l}|${Math.round((d - c) * 100)}`;
+      payAmt.set(k, (payAmt.get(k) || 0) + 1);
+    });
+  });
+  const invAmt = new Map();
+  recs.forEach((x) => { if (x.let) { const k = `${x.sup}|${x.let}|${x.cents}`; invAmt.set(k, (invAmt.get(k) || 0) + 1); } });
+  const paid = (x) => !!x.let && payLet.has(x.sup + '|' + x.let);
+  // Paires candidates : même montant, même n° ou même pièce interne (aucune autre paire n'a de critère fort)
+  const buckets = new Map();
+  const put = (k, i) => (buckets.get(k) || buckets.set(k, []).get(k)).push(i);
+  recs.forEach((x) => { put('m' + x.cents, x.i); x.toks.forEach((t) => put('n' + t, x.i)); if (x.pint) put('p' + x.pint, x.i); });
+  const pairs = new Set();
+  buckets.forEach((ids) => {
+    if (ids.length > 400) return;
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) if (ids[i] !== ids[j]) pairs.add(Math.min(ids[i], ids[j]) * 1e6 + Math.max(ids[i], ids[j]));
+  });
+  const found = [], copies = new Set();
+  let fixed = 0;
+  pairs.forEach((pk) => {
+    const a = recs[Math.floor(pk / 1e6)], b = recs[pk % 1e6];
+    if ((a.amt > 0) !== (b.amt > 0)) return; // facture et avoir
+    const M = a.cents === b.cents;
+    // Même n° de facture, ou même pièce interne ; même n° mais montants sans rapport : n° de relevé ou de commande commun
+    const same = Array.from(a.toks).some((t) => b.toks.has(t)) || (!!a.pint && a.pint === b.pint);
+    const N = same && (M || dupTypo(a.cents, b.cents));
+    const conflict = a.toks.size > 0 && b.toks.size > 0 && !same; // deux n° de facture différents : deux factures
+    const C = a.sup === b.sup;
+    const D = Math.abs(daysBetween(a.dd, b.dd)) <= DUP_DAYS;
+    let L;
+    if (C) { // même compte : seuls les mots peu fréquents du compte comptent
+      const la = dupWords(a.lib, nameW.get(a.sup)).join(' '), lb = dupWords(b.lib, nameW.get(b.sup)).join(' ');
+      L = nrec.get(a.sup) >= 3 && !!la && !!lb && dupSim(la, lb) >= DUP_SIM;
+    } else { // deux comptes : libellé de l'un proche du nom de l'autre (même fournisseur saisi sur deux comptes)
+      const la = dupWords(a.lib).join(' '), lb = dupWords(b.lib).join(' '), na = dupWords(a.name).join(' '), nb2 = dupWords(b.name).join(' ');
+      L = Math.max(dupSim(la, nb2), dupSim(lb, na)) >= DUP_SIM;
+    }
+    const score = M + N + C + D + L;
+    if (score < 3 || !(M || N) || conflict) return;
+    let note = '';
+    if (M && C && !N && months.get(a.sup + '|' + a.cents).size >= 3) {
+      if (a.ym !== b.ym) return; // facture mensuelle habituelle
+      note = 'facture mensuelle saisie deux fois le même mois';
+    }
+    // Copie volontaire : chaque exemplaire lettré avec son propre règlement (lettrages différents, ou même lettrage avec
+    // autant de règlements de ce montant que de factures de ce montant)
+    if (paid(a) && paid(b) && (a.let !== b.let || (payAmt.get(`${a.sup}|${a.let}|${a.cents}`) || 0) >= invAmt.get(`${a.sup}|${a.let}|${a.cents}`))) {
+      copies.add(a.i); copies.add(b.i);
+      return;
+    }
+    // Déjà annulé : avoir du même montant sur l'un des comptes, daté au plus tôt de la première facture
+    const first = a.dd < b.dd ? a.dd : b.dd;
+    if (recs.some((x) => (x.sup === a.sup || x.sup === b.sup) && x.cents === -a.cents && x.dd >= first)) { fixed++; return; }
+    // Original lettré avec son règlement et copie non lettrée, même jour et même montant : très probable
+    const unpaidCopy = D && M && C && ((paid(a) && !b.let) || (paid(b) && !a.let));
+    found.push({ a, b, score, note, crit: [D, N, M, L, C].map((v) => (v ? 1 : 0)).join(''), fort: score >= 4 || (M && N) || unpaidCopy });
+  });
+  // Groupes (doublons en plusieurs exemplaires) ; pièce à garder : la lettrée, sinon la première saisie
+  const parent = new Map();
+  const root = (k) => { while (parent.has(k) && parent.get(k) !== k) k = parent.get(k); return k; };
+  found.forEach((p) => { parent.set(p.a.i, root(p.a.i)); parent.set(p.b.i, root(p.b.i)); parent.set(root(p.a.i), root(p.b.i)); });
+  const byRoot = new Map();
+  found.forEach((p) => { const k = root(p.a.i); (byRoot.get(k) || byRoot.set(k, []).get(k)).push(p); });
+  const row = (x) => ({ jc: x.jc, num: x.num, date: x.date, piece: x.piece, lib: x.lib, sup: x.sup, name: x.name, amt: x.amt, let: x.let, ht: x.ht, tva: x.tva, compte: x.compte });
+  const groups = Array.from(byRoot.values()).map((items) => {
+    const ids = Array.from(new Set(items.flatMap((p) => [p.a.i, p.b.i]))).sort((i, j) => (!recs[i].let - !recs[j].let) || recs[i].date.localeCompare(recs[j].date) || i - j);
+    const keep = ids[0];
+    const best = items.reduce((m, p) => (p.score > m.score || (p.fort && !m.fort) ? p : m), items[0]);
+    const rows = ids.map((i) => {
+      const own = items.filter((p) => p.a.i === i || p.b.i === i);
+      const withKeep = own.filter((p) => p.a.i === keep || p.b.i === keep).sort((p, q) => q.score - p.score)[0];
+      const it = withKeep || own.sort((p, q) => q.score - p.score)[0];
+      return Object.assign(row(recs[i]), { role: i === keep ? 'garder' : withKeep && withKeep.fort ? 'annuler' : 'verifier', crit: it.crit, score: it.score });
+    });
+    return { key: ids.map((i) => `${recs[i].jc}|${recs[i].num}|${recs[i].sup}`).sort().join(','), fort: best.fort, score: best.score, crit: best.crit, note: best.note, rows };
+  }).sort((g, h) => (h.fort - g.fort) || Math.max(...h.rows.map((x) => Math.abs(x.amt))) - Math.max(...g.rows.map((x) => Math.abs(x.amt))));
+  return { n: recs.length, groups: groups.slice(0, 500), copies: Array.from(copies).sort((i, j) => recs[i].sup.localeCompare(recs[j].sup) || recs[i].date.localeCompare(recs[j].date)).slice(0, 500).map((i) => row(recs[i])), fixed };
+}
+
 function buildCycles(x) {
-  const { entries, aux, auxNames, accounts, chAcc, tresoAcc, cut, closing, start, months } = x;
+  const { entries, aux, supLines, auxNames, accounts, chAcc, tresoAcc, cut, closing, start, months } = x;
   const libOf = (c) => (accounts.get(c) || {}).lib || '';
   const sups = new Map(), custs = new Map();
   const agg = (map, key) => {
@@ -1287,6 +1461,12 @@ function buildCycles(x) {
   const cash = bucket(), notesFrais = bucket(), giftVat = bucket();
   const directSales = [];
   const need = []; // pièces dont un justificatif est attendu (factures d'achat et de vente, dépenses payées directement)
+  const dupRecs = []; // factures et avoirs fournisseurs, pour la recherche des doublons
+  const dupRec = (en, ek, sup, name, amt, ht, tva, compte) => {
+    const sl = supLines.get(ek + '|' + sup) || [];
+    dupRecs.push({ jc: en.jc || '', num: String(en.num || ''), date: en.date, dd: sl[2] || en.date, sup, name, amt: round2(amt), ht: round2(Math.abs(ht)), tva: round2(Math.abs(tva)),
+      compte, piece: String(en.piece || '').trim(), lib: String(sl[1] || en.lib || '').slice(0, 80), let: sl[0] || '' });
+  };
   const das2 = new Map();
   const flux = {}, big = [];
   let avoirsP = 0, avoirsS = 0;
@@ -1333,6 +1513,7 @@ function buildCycles(x) {
       if (!a.first || date < a.first) a.first = date;
       if (date > a.last) a.last = date;
       purchases.push([supKey, date, ttc, en.piece || '', ref, ht, round2(tv6), main]);
+      dupRec(en, ek, supKey, a.lib, ttc, ht, tv6, main);
       need.push({ kind: 'achat', date, piece: en.piece || '', amt: ttc, lib: en.lib || '', num: supKey, tlib: a.lib, att: en.att || '' });
       if (ht >= 150 && tv6 < 0.01 && tv52 < 0.01 && !/^(616|627)/.test(main)) {
         let g = noVatP.get(main);
@@ -1345,6 +1526,7 @@ function buildCycles(x) {
     } else if (supNet > 0.005 && ht < -0.005 && !hasTr) {
       const a = agg(sups, supKey);
       need.push({ kind: 'achat', date, piece: en.piece || '', amt: -round2(supNet), lib: en.lib || '', num: supKey, tlib: a.lib, att: en.att || '', avoir: true });
+      dupRec(en, ek, supKey, a.lib, -supNet, ht, tv6, main);
       a.av++; a.avAmt += supNet; avoirsP += supNet;
     } else if (supNet > 0.005 && tr < -0.005) {
       const a = agg(sups, supKey);
@@ -1438,22 +1620,8 @@ function buildCycles(x) {
   const supF = finish(sups, '401', ttcP);
   const cliF = finish(custs, '411', ttcS);
 
-  // Factures fournisseurs en double : même fournisseur, même montant, même n° de pièce, saisies à moins de 15 jours d'écart.
-  // Une même référence qui revient chaque mois pour le même montant est un n° de contrat ou d'échéancier (loyer,
-  // crédit-bail, abonnement) : ce n'est pas un doublon.
-  const dupStrong = bucket(), dupPossible = bucket(), recurring = new Set();
-  purchases.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[2] - b[2] || (a[1] < b[1] ? -1 : 1)));
-  for (let i = 1; i < purchases.length; i++) {
-    const p = purchases[i], q = purchases[i - 1];
-    if (p[0] !== q[0] || Math.abs(p[2] - q[2]) > 0.005 || p[2] < 50) continue;
-    const name = auxNames.get(p[0]) || p[0];
-    const gap = Math.abs(daysBetween(q[1], p[1]));
-    if (p[3] && p[3] === q[3]) {
-      if (gap >= 15) { recurring.add(p[0] + '|' + p[3]); continue; }
-      addEx(dupStrong, p[2], `${name} · ${fmt(p[2])} € · pièce ${p[3]} saisie le ${dmy(q[1])} et le ${dmy(p[1])}`, 30,
-        { sup: p[0], supLib: name, date: p[1], piece: p[3], ttc: p[2], ht: p[5], tva: p[6], compte: p[7] });
-    } else if (gap <= 3) addEx(dupPossible, p[2], `${name} · ${fmt(p[2])} € · pièces ${q[3] || '?'} (${dmy(q[1])}) et ${p[3] || '?'} (${dmy(p[1])})`, 30);
-  }
+  // Factures fournisseurs en double (voir findDoublons)
+  const doublons = findDoublons(dupRecs, entries, aux);
 
   // Numérotation des factures de vente (art. 242 nonies A, annexe II du CGI) : toutes les écritures de produits (70, 75, 77),
   // factures et avoirs, regroupées en séries par journal et préfixe du n° (« FA-2025-0012 » → série « FA-2025- »).
@@ -1608,7 +1776,7 @@ function buildCycles(x) {
     justif: matchDocs(need, x.docs, x.attCol),
     achats: {
       invoices: purchases.length, ttc: ttcP, avoirs: round2(avoirsP), suppliers: supF.list, nbSuppliers: supF.count, delay: supF.delay,
-      dupStrong, dupPossible, recurringRefs: recurring.size, noVat: Array.from(noVatP.values()).sort((a, b) => b.total - a.total), overVat: overVatP, autoliq, cut: cut.achats,
+      doublons, noVat: Array.from(noVatP.values()).sort((a, b) => b.total - a.total), overVat: overVatP, autoliq, cut: cut.achats,
     },
     charges: {
       accounts: Array.from(chAcc.values()).map(({ big: _b, ...a }) => ({ ...a, total: round2(a.total), direct: round2(a.direct), months: Object.fromEntries(Object.entries(a.months).map(([k, v]) => [k, round2(v)])) })).sort((a, b) => a.compte.localeCompare(b.compte)),

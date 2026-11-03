@@ -77,9 +77,12 @@ function saisieChecks(r, ym) {
   const a = r.cycles && r.cycles.achats;
   if (a) {
     fromCycle('achats', (o) => {
-      const idx = a.dupStrong.items.map((x, i) => i).filter((i) => inMonth(a.dupStrong.items[i].date, ym));
-      if (idx.length) o.add('warn', 'Factures fournisseurs en double', `${idx.length} facture(s) du mois saisie(s) deux fois (même fournisseur, même montant, même n° de pièce, à moins de 15 jours d'écart) : ${eur(idx.reduce((t, i) => t + a.dupStrong.items[i].ttc, 0))} € de charges et de TVA déductible en trop ?`, idx.map((i) => a.dupStrong.ex[i]), { full: a.dupStrong.items.length >= a.dupStrong.n });
-      else o.add('ok', 'Aucune facture fournisseur en double', 'Factures du mois contrôlées (fournisseur, montant et n° de pièce).');
+      // Doublons dont une copie (pièce autre que celle à garder) est saisie dans le mois : détail dans Révision A–K → Doublons
+      const dv = doublonsView(r);
+      const gs = dv ? dv.fort.concat(dv.verif).filter((g) => g.rows.some((x) => x.role !== 'garder' && inMonth(x.date, ym))) : [];
+      const nf = gs.filter((g) => g.fort).length;
+      if (gs.length) o.add(nf ? 'warn' : 'info', 'Factures fournisseurs en double', `${gs.length} doublon(s) dont une copie est saisie dans le mois${nf ? ` (${nf} très probable(s))` : ''} : détail dans Révision A–K → Doublons.`, gs.map(dupExample), { full: true });
+      else o.add('ok', 'Aucune facture fournisseur en double', 'Factures du mois contrôlées (date, n° de facture, montant, libellé et compte fournisseur).');
     });
   }
   const o = checksList();

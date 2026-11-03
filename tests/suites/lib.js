@@ -1,7 +1,7 @@
 // Aides communes aux suites : navigation dans l'Espace FEC (onglets Synthèse, Révision A–K, Mois, Rapprochement bancaire,
 // Lettrage, Paie, Immobilisations, TVA, Consultation, et leurs sous-onglets).
 'use strict';
-const GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', pieces: 'revision', revue: 'revision',
+const GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', doublons: 'revision', pieces: 'revision', revue: 'revision',
   'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', rappro: 'banque', brap: 'banque', lettrage: 'lettrage', lcr: 'lettrage', paie: 'paie', 'immo-etat': 'immos',
   tvarev: 'tva', tva: 'tva', graphes: 'consult', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
 

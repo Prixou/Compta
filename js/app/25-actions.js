@@ -440,6 +440,19 @@ const actions = {
   },
   'rappro-xlsx': () => exportRappro(),
   'note-print': () => printNote(),
+  // Doublons : groupe écarté (« Pas un doublon », conservé dans le dossier) ou rétabli ; liste Excel
+  'doublon-ecarte': (el) => {
+    doublonsEcartes(true)[el.dataset.key] = todayStr();
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
+  },
+  'doublon-retablir': (el) => {
+    delete doublonsEcartes(true)[el.dataset.key];
+    ui.fec.dupEcartesOpen = true;
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
+  },
+  'doublons-xlsx': () => exportDoublonsXlsx(),
   // Pièces à demander : toutes, factures fournisseurs ou factures clients (comptes d'attente toujours compris)
   'pieces-tiers': (el) => {
     // Choix conservé dans le dossier : repris à la prochaine demande
