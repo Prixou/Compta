@@ -30,7 +30,7 @@ const doublonsCount = (r) => { const v = doublonsView(r); return v ? v.fort.leng
 
 // Résumé d'un groupe (élément de la feuille de travail du cycle C, écriture d'annulation) : fournisseur, montant, pièces.
 const dupExample = (g) => `${g.rows[0].name} · ${eur(Math.abs(g.rows[0].amt))} € · ${g.rows.map((x) => `${x.piece || 'sans pièce'} du ${fmtDate(x.date)}`).join(', ')}`;
-const DUP_CRIT = ['Date', 'N°', 'Montant', 'Libellé', 'Compte'];
+const DUP_CRIT = ['Date', 'N° de facture', 'Montant', 'Libellé', 'Compte'];
 const dupCrit = (c) => DUP_CRIT.map((l, i) => `${l} ${c[i] === '1' ? '✔' : '✗'}`).join(' · ');
 const DUP_ROLE = { garder: ['ok', 'à garder'], annuler: ['bad', 'à annuler ?'], verifier: ['warn', 'à vérifier'] };
 

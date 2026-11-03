@@ -38,6 +38,7 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   expect(live.filter((g) => g.fort).length === 6 && live.filter((g) => !g.fort).length === 6, '6 doublons très probables, 6 probables');
   const chq = find(/CHQ 928992/);
   expect(chq && chq.fort && /Libellé ✔/.test(chq.head), 'libellés identiques à l\'espace et au tiret près (« FOURNISSEUR- CHQ 928992 ») : même libellé', chq && chq.head);
+  expect(!find(/DESGARDIN/) && !find(/BABAU/), 'n° de chèque dans le libellé : pas un n° de facture ; n° de pièce 26.05.215 et 26.04.215 (ni des dates) différents : pas des doublons');
   expect(!find(/MU SERVICES/), 'même n° et même montant à 4 mois d\'écart : pas comparées (plus de 3 semaines)');
   expect(!find(/PRESTA CONSEIL/), 'dates dans le libellé (2026.04.15, 2026.05.15) : pas des n° de facture');
   expect(find(/IOTA PHARMA/) && !find(/IOTA PHARMA/).fort && /n° saisi en partie/.test(find(/IOTA PHARMA/).head), 'n° de facture saisi en partie (fin du n°, une seule facture) : probable, jamais très probable');

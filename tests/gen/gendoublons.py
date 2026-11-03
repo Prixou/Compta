@@ -87,6 +87,10 @@ inv(day(10, 13), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'LS-20261013', 'LAMBDA SANTE'
 inv(day(10, 13), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'LS-20261014', 'LAMBDA SANTE', let='H'); pay(day(10, 24), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'VIR LAMBDA', let='H')
 # N° saisi en partie (fin du n°, une seule facture du fournisseur) : probable
 inv(day(10, 10), 'FIOTA', 'IOTA PHARMA', 150.00, '7121777368', 'IOTA PHARMA'); inv(day(10, 12), 'FIOTA', 'IOTA PHARMA', 150.00, '77368', 'IOTA PHARMA')
+# N° de chèque dans le libellé (référence du règlement), n° de pièce différents avec des points : pas des doublons
+inv(day(5, 30), 'FDESG', 'DESGARDIN', 274.80, '26.05.215', 'DESGARDIN CHQ 9436281'); inv(day(5, 30), 'FDESG', 'DESGARDIN', 274.80, '26.04.215', 'DESGARDIN 04.2026 CH 9436281')
+for pc, lb in (('35733', 'FRANCOIS BABAU- CHQ 9436262'), ('-35734', 'FRANCOIS BABAU -CHQ 9436262'), ('-35735', 'FRANCOIS BABAU - CHQ 9436262')):
+    inv(day(2, 24), 'FDIVERS', 'FOURNISSEURS DIVERS', 30.00, pc, lb)
 # --- Pas des doublons ---
 inv(day(4, 4), *GRS, 899.00, 'OC77812', 'REPARTITEUR'); inv(day(4, 6), *GRS, 899.00, 'OC77812', 'REPARTITEUR')
 inv(day(4, 30), *GRS, -899.00, 'OC77812', 'ANNULATION DOUBLON OC77812')                                   # déjà annulé

@@ -1289,10 +1289,15 @@ const DUP_DAYS = 3, DUP_GAP = 21, DUP_LIB = 0.9;
 const DUP_DATE = /\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b|\b(\d{4})[./-](\d{1,2})[./-](\d{1,2})\b|(?<!\d[./-])\b(\d{1,2})[./-](\d{4})\b(?![./-]\d)|(?<!\d[./-])\b(\d{4})[./-](\d{1,2})\b(?![./-]\d)/g;
 const dupYear = (y) => +y >= 1990 && +y <= 2099;
 const dupNoDates = (s) => String(s || '').replace(DUP_DATE, (m, d1, m1, y1, y2, m2, d2, m3, y3, y4, m4) => (
-  (d1 && +d1 >= 1 && +d1 <= 31 && +m1 >= 1 && +m1 <= 12) || (y2 && dupYear(y2) && +m2 >= 1 && +m2 <= 12 && +d2 >= 1 && +d2 <= 31)
+  (d1 && +d1 >= 1 && +d1 <= 31 && +m1 >= 1 && +m1 <= 12 && (y1.length === 2 || (y1.length === 4 && dupYear(y1)))) || (y2 && dupYear(y2) && +m2 >= 1 && +m2 <= 12 && +d2 >= 1 && +d2 <= 31)
   || (m3 && +m3 >= 1 && +m3 <= 12 && dupYear(y3)) || (y4 && dupYear(y4) && +m4 >= 1 && +m4 <= 12) ? ' ' : m));
 const DUP_STOP = new Set(('fact facture factures fa fac fct avoir av ref n no num du de des la le les sur cde commande bl liv livraison '
   + 'sas sarl sa ste eurl selarl snc sel et ets labo laboratoire laboratoires pharma france').split(' '));
+// Texte où chercher un n° de facture : sans les dates, les n° de chèque (référence du règlement : « CHQ 9436281 »,
+// « CH 9436281 ») ni les montants (1.234,56)
+const DUP_CHQ = /\b(?:CHQ|CHQE|CHEQUE|CHÈQUE|CH|CQ)\b\.?\s*(?:N°|NO|N)?\s*\d+/gi;
+const DUP_AMT = /\b\d{1,3}(?:[ .\u00a0]\d{3})*,\d{2}\b/g;
+const dupNumText = (s) => dupNoDates(s).replace(DUP_CHQ, ' ').replace(DUP_AMT, ' ');
 const dupWords = (s, drop) => normTxt(dupNoDates(s)).replace(/[^a-z ]+/g, ' ').split(/\s+/)
   .filter((w) => w.length > 1 && !DUP_STOP.has(w) && !(drop && drop.has(w)));
 function dupSim(a, b) {
@@ -1307,7 +1312,7 @@ function dupSim(a, b) {
 // sans ses lettres de tête (FA2601234 et 2601234 se répondent).
 function dupTokens(...texts) {
   const out = new Set();
-  texts.forEach((t) => (dupNoDates(t).match(/[A-Za-z]*\d[\w/-]*/g) || []).forEach((m) => {
+  texts.forEach((t) => (dupNumText(t).match(/[A-Za-z]*\d[\w./-]*/g) || []).forEach((m) => {
     const [, pre, rest] = /^([A-Z]*)(.*)$/.exec(m.replace(/[^A-Za-z0-9]/g, '').toUpperCase());
     const core = rest.replace(/^0+/, ''); // lettres du milieu conservées : 863C808815 et 863D808815 diffèrent
     const nd = core.replace(/\D/g, '').length;
@@ -1349,7 +1354,7 @@ function findDoublons(list, entries, aux) {
     x.toks = dupTokens(x.lib, x.pint ? '' : x.piece);
     dupTokens(x.num).forEach((t) => x.toks.delete(t)); // n° interne de l'écriture
     // Suites de chiffres telles que saisies (zéros compris, sans les dates) : n° saisi à moitié
-    x.digs = (dupNoDates(`${x.lib} ${x.pint ? '' : x.piece}`).match(/\d{5,}/g) || []).filter((g) => g !== String(x.num));
+    x.digs = (dupNumText(`${x.lib} ${x.pint ? '' : x.piece}`).match(/\d{5,}/g) || []).filter((g) => g !== String(x.num));
   });
   // Références qui reviennent (n° de contrat, code postal, n° de carte…) : pas des n° de facture
   const tokRecs = new Map(), tokMonths = new Map();
