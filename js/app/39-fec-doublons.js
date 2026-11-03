@@ -31,7 +31,7 @@ const doublonsCount = (r) => { const v = doublonsView(r); return v ? v.fort.leng
 // Résumé d'un groupe (élément de la feuille de travail du cycle C, écriture d'annulation) : fournisseur, montant, pièces.
 const dupExample = (g) => `${g.rows[0].name} · ${eur(Math.abs(g.rows[0].amt))} € · ${g.rows.map((x) => `${x.piece || 'sans pièce'} du ${fmtDate(x.date)}`).join(', ')}`;
 const DUP_CRIT = ['Date', 'N° de facture', 'Montant', 'Libellé', 'Compte'];
-const dupCrit = (c) => DUP_CRIT.map((l, i) => `${l} ${c[i] === '1' ? '✔' : '✗'}`).join(' · ');
+const dupCrit = (c, num) => DUP_CRIT.map((l, i) => `${l} ${c[i] === '1' ? '✔' : '✗'}${i === 1 && c[i] === '1' && num ? ` (${num})` : ''}`).join(' · ');
 const DUP_ROLE = { garder: ['ok', 'à garder'], annuler: ['bad', 'à annuler ?'], verifier: ['warn', 'à vérifier'] };
 
 function viewDoublons(r) {
@@ -41,7 +41,7 @@ function viewDoublons(r) {
   const table = (rows, withRole) => `<div class="grid-wrap"><table class="dtable num dup-table"><thead><tr>${withRole ? '<th>Suggestion</th>' : ''}<th>Journal</th><th>N° écriture</th><th>Date</th><th>Pièce</th><th class="txt">Libellé</th><th class="txt">Fournisseur</th><th>Montant</th><th>Lettrage</th></tr></thead>
     <tbody>${rows.map((x) => `<tr>${withRole ? `<td><span class="badge ${DUP_ROLE[x.role][0]}">${DUP_ROLE[x.role][1]}</span></td>` : ''}<td>${esc(x.jc)}</td><td>${esc(x.num)}</td><td>${fmtDate(x.date)}</td><td>${esc(x.piece)}</td><td class="txt">${esc(x.lib)}</td><td class="txt">${esc(x.name)} <span class="muted small">${esc(x.sup)}</span></td><td>${eur(x.amt)}</td><td>${esc(x.let)}</td></tr>`).join('')}</tbody></table></div>`;
   const group = (g, k, ecarte) => `<div class="dup-group${g.fort ? ' fort' : ''}">
-    <div class="dup-head"><strong>${k}. ${g.fort ? 'Très probable' : 'Probable'}</strong><span class="muted small">${g.score}/5 · ${dupCrit(g.crit)}${g.note ? ` · ${esc(g.note)}` : ''}</span>
+    <div class="dup-head"><strong>${k}. ${g.fort ? 'Très probable' : 'Probable'}</strong><span class="muted small">${g.score}/5 · ${esc(dupCrit(g.crit, g.num))}${g.note ? ` · ${esc(g.note)}` : ''}</span>
       <span class="dup-actions">${ecarte ? `<button class="btn small" data-action="doublon-retablir" data-key="${esc(g.key)}">Rétablir</button>`
     : `${g.fort && g.rows.some((x) => x.role === 'annuler') ? '<button class="btn small" data-action="fec-tab" data-tab="ecritures">Écriture d\'annulation</button>' : ''}<button class="btn small" data-action="doublon-ecarte" data-key="${esc(g.key)}">Pas un doublon</button>`}</span></div>
     ${table(g.rows, true)}</div>`;

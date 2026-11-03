@@ -1287,11 +1287,12 @@ function anOrigDate(lib) {
 // lettré avec son propre paiement).
 const DUP_DAYS = 3, DUP_GAP = 21, DUP_LIB = 0.9, DUP_CENTS = 10; // montants à 10 centimes près
 // Dates écrites dans un libellé ou une pièce (jj/mm/aaaa, aaaa.mm.jj, mm/aaaa, aaaa-mm, valeurs vérifiées) : jamais un n°
-const DUP_DATE = /\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b|\b(\d{4})[./-](\d{1,2})[./-](\d{1,2})\b|(?<!\d[./-])\b(\d{1,2})[./-](\d{4})\b(?![./-]\d)|(?<!\d[./-])\b(\d{4})[./-](\d{1,2})\b(?![./-]\d)/g;
+const DUP_DATE = /\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b|\b(\d{4})[./-](\d{1,2})[./-](\d{1,2})\b|(?<!\d[./-])\b(\d{1,2})[./-](\d{4})\b(?![./-]\d)|(?<!\d[./-])\b(\d{4})[./-](\d{1,2})\b(?![./-]\d)|(?<![\d./-])\b(\d{1,2})[./](\d{1,2})\b(?![./-]?\d)/g;
 const dupYear = (y) => +y >= 1990 && +y <= 2099;
-const dupNoDates = (s) => String(s || '').replace(DUP_DATE, (m, d1, m1, y1, y2, m2, d2, m3, y3, y4, m4) => (
+const dupNoDates = (s) => String(s || '').replace(DUP_DATE, (m, d1, m1, y1, y2, m2, d2, m3, y3, y4, m4, d5, m5) => (
   (d1 && +d1 >= 1 && +d1 <= 31 && +m1 >= 1 && +m1 <= 12 && (y1.length === 2 || (y1.length === 4 && dupYear(y1)))) || (y2 && dupYear(y2) && +m2 >= 1 && +m2 <= 12 && +d2 >= 1 && +d2 <= 31)
-  || (m3 && +m3 >= 1 && +m3 <= 12 && dupYear(y3)) || (y4 && dupYear(y4) && +m4 >= 1 && +m4 <= 12) ? ' ' : m));
+  || (m3 && +m3 >= 1 && +m3 <= 12 && dupYear(y3)) || (y4 && dupYear(y4) && +m4 >= 1 && +m4 <= 12)
+  || (d5 && +d5 >= 1 && +d5 <= 31 && +m5 >= 1 && +m5 <= 12) ? ' ' : m)); // jj.mm sans année (« 29.06 ») compris
 const DUP_STOP = new Set(('fact facture factures fa fac fct avoir av ref n no num du de des la le les sur cde commande bl liv livraison '
   + 'sas sarl sa ste eurl selarl snc sel et ets labo laboratoire laboratoires pharma france').split(' '));
 // Texte où chercher un n° de facture : sans les dates, les n° de chèque (référence du règlement : « CHQ 9436281 »,
@@ -1345,6 +1346,8 @@ function findDoublons(list, entries, aux) {
   recs.forEach((x) => {
     x.pint = internal.has(x.jc) && internal.get(x.jc)[0] === x.piece.replace(/\d/g, '9') ? x.piece : '';
     x.toks = dupTokens(x.lib, x.pint ? '' : x.piece);
+    x.orig = new Map();
+    [x.lib, x.pint ? '' : x.piece].forEach((t) => (dupNumText(t).match(/[A-Za-z]*\d[\w./-]*/g) || []).forEach((m) => dupTokens(m).forEach((k) => { if (!x.orig.has(k)) x.orig.set(k, m); })));
     dupTokens(x.num).forEach((t) => x.toks.delete(t)); // n° interne de l'écriture
     // Suites de chiffres telles que saisies (zéros compris, sans les dates) : n° saisi à moitié
     x.digs = (dupNumText(`${x.lib} ${x.pint ? '' : x.piece}`).match(/\d{5,}/g) || []).filter((g) => g !== String(x.num));
@@ -1415,14 +1418,20 @@ function findDoublons(list, entries, aux) {
     // (n° saisi en partie : le plus court est la fin du plus long, chiffres à la suite, 5 au moins, et ne désigne qu'une
     // facture du fournisseur ; jamais très probable ; le début seul d'un n° ne suffit pas)
     const part = (x, y, sup) => y.length > x.length && y.endsWith(x) && uniq(sup, x);
-    const full = Array.from(a.toks).some((t) => b.toks.has(t)) || (!!a.pint && a.pint === b.pint);
-    const partial = !full && a.digs.some((x) => b.digs.some((y) => part(x, y, b.sup) || part(y, x, a.sup)));
+    // Le n° de facture prime sur le n° de pièce : même n° de facture (pièce ou libellé), même avec des n° de pièce différents
+    const shared = Array.from(a.toks).find((t) => b.toks.has(t));
+    const tokShared = !!shared;
+    const full = tokShared || (!!a.pint && a.pint === b.pint);
+    const partDig = full ? null : a.digs.find((x) => b.digs.some((y) => part(x, y, b.sup))) || b.digs.find((y) => a.digs.some((x) => part(y, x, a.sup)));
+    const partial = !!partDig;
     const same = full || partial;
+    // N° commun affiché (tel qu'écrit dans la pièce ou le libellé)
+    const numTxt = tokShared ? a.orig.get(shared) || b.orig.get(shared) || shared : full ? a.piece : partial ? partDig : '';
     const N = same;
     // N° présents des deux côtés et différents (n° de facture, ou n° de pièce de même nature : deux n° internes, ou deux
     // n° de fournisseur) : facteur principal, le doublon reste possible (faute de saisie) mais n'est jamais très probable
     const pieceDiff = !!a.piece && !!b.piece && !!a.pint === !!b.pint && dupPiece(a.piece) !== dupPiece(b.piece);
-    const tokConflict = !same && a.toks.size > 0 && b.toks.size > 0; // deux n° de facture du fournisseur différents
+    const tokConflict = !same && !tokShared && a.toks.size > 0 && b.toks.size > 0; // deux n° de facture du fournisseur différents
     const numDiff = tokConflict || (!same && pieceDiff);
     const C = a.sup === b.sup;
     const D = Math.abs(daysBetween(a.dd, b.dd)) <= DUP_DAYS;
@@ -1471,7 +1480,7 @@ function findDoublons(list, entries, aux) {
     // Original lettré avec son règlement et copie non lettrée, même jour et même montant : très probable
     const unpaidCopy = D && M && C && ((paid(a) && !b.let) || (paid(b) && !a.let));
     found.push({ a, b, score, note: [note, numDiff ? 'n° de pièce ou de facture différents' : '', partial ? 'n° saisi en partie' : ''].filter(Boolean).join(' · '),
-      crit: [D, N, M, L, C].map((v) => (v ? 1 : 0)).join(''), fort: !numDiff && !partial && (score >= 4 || (M && N) || unpaidCopy) });
+      crit: [D, N, M, L, C].map((v) => (v ? 1 : 0)).join(''), num: N ? numTxt : '', fort: !numDiff && !partial && (score >= 4 || (M && N) || unpaidCopy) });
   });
   // Groupes (doublons en plusieurs exemplaires) ; pièce à garder : la lettrée, sinon la première saisie
   const parent = new Map();
@@ -1490,7 +1499,7 @@ function findDoublons(list, entries, aux) {
       const it = withKeep || own.sort((p, q) => q.score - p.score)[0];
       return Object.assign(row(recs[i]), { role: i === keep ? 'garder' : withKeep && withKeep.fort ? 'annuler' : 'verifier', crit: it.crit, score: it.score });
     });
-    return { key: ids.map((i) => `${recs[i].jc}|${recs[i].num}|${recs[i].sup}`).sort().join(','), fort: best.fort, score: best.score, crit: best.crit, note: best.note, rows };
+    return { key: ids.map((i) => `${recs[i].jc}|${recs[i].num}|${recs[i].sup}`).sort().join(','), fort: best.fort, score: best.score, crit: best.crit, num: best.num, note: best.note, rows };
   }).sort((g, h) => (h.fort - g.fort) || Math.max(...h.rows.map((x) => Math.abs(x.amt))) - Math.max(...g.rows.map((x) => Math.abs(x.amt))));
   return { n: recs.length, groups: groups.slice(0, 500), copies: Array.from(copies).sort((i, j) => recs[i].sup.localeCompare(recs[j].sup) || recs[i].date.localeCompare(recs[j].date)).slice(0, 500).map((i) => row(recs[i])), fixed };
 }
