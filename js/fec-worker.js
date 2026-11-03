@@ -1284,11 +1284,16 @@ function anOrigDate(lib) {
 // probable si les deux pièces portent des n° différents. Exceptions : facture mensuelle d'un même montant (sauf deux fois
 // le même mois), facture et avoir, doublon déjà annulé par un avoir, copie rattachée à un règlement (chaque exemplaire
 // lettré avec son propre paiement).
-const DUP_DAYS = 3, DUP_LIB = 0.9;
-const DUP_DATE = /\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g;
+const DUP_DAYS = 3, DUP_GAP = 21, DUP_LIB = 0.9;
+// Dates écrites dans un libellé ou une pièce (jj/mm/aaaa, aaaa.mm.jj, mm/aaaa, aaaa-mm, valeurs vérifiées) : jamais un n°
+const DUP_DATE = /\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b|\b(\d{4})[./-](\d{1,2})[./-](\d{1,2})\b|(?<!\d[./-])\b(\d{1,2})[./-](\d{4})\b(?![./-]\d)|(?<!\d[./-])\b(\d{4})[./-](\d{1,2})\b(?![./-]\d)/g;
+const dupYear = (y) => +y >= 1990 && +y <= 2099;
+const dupNoDates = (s) => String(s || '').replace(DUP_DATE, (m, d1, m1, y1, y2, m2, d2, m3, y3, y4, m4) => (
+  (d1 && +d1 >= 1 && +d1 <= 31 && +m1 >= 1 && +m1 <= 12) || (y2 && dupYear(y2) && +m2 >= 1 && +m2 <= 12 && +d2 >= 1 && +d2 <= 31)
+  || (m3 && +m3 >= 1 && +m3 <= 12 && dupYear(y3)) || (y4 && dupYear(y4) && +m4 >= 1 && +m4 <= 12) ? ' ' : m));
 const DUP_STOP = new Set(('fact facture factures fa fac fct avoir av ref n no num du de des la le les sur cde commande bl liv livraison '
   + 'sas sarl sa ste eurl selarl snc sel et ets labo laboratoire laboratoires pharma france').split(' '));
-const dupWords = (s, drop) => normTxt(String(s || '').replace(DUP_DATE, ' ')).replace(/[^a-z ]+/g, ' ').split(/\s+/)
+const dupWords = (s, drop) => normTxt(dupNoDates(s)).replace(/[^a-z ]+/g, ' ').split(/\s+/)
   .filter((w) => w.length > 1 && !DUP_STOP.has(w) && !(drop && drop.has(w)));
 function dupSim(a, b) {
   if (!a || !b) return 0;
@@ -1302,10 +1307,10 @@ function dupSim(a, b) {
 // seuls d'un numéro long (FA2601234 et 2601234 se répondent).
 function dupTokens(...texts) {
   const out = new Set();
-  texts.forEach((t) => (String(t || '').replace(DUP_DATE, ' ').match(/[A-Za-z]*\d[\w/-]*/g) || []).forEach((m) => {
+  texts.forEach((t) => (dupNoDates(t).match(/[A-Za-z]*\d[\w/-]*/g) || []).forEach((m) => {
     const [, pre, rest] = /^([A-Z]*)(.*)$/.exec(m.replace(/[^A-Za-z0-9]/g, '').toUpperCase());
     const core = rest.replace(/\D/g, '').replace(/^0+/, '');
-    if (core.length < 4) return;
+    if (core.length < 4 || (!pre && core.length === 4 && dupYear(core))) return; // année seule
     out.add(pre + core);
     if (core.length >= 6) out.add(core);
   }));
@@ -1343,7 +1348,7 @@ function findDoublons(list, entries, aux) {
     x.toks = dupTokens(x.lib, x.pint ? '' : x.piece);
     dupTokens(x.num).forEach((t) => x.toks.delete(t)); // n° interne de l'écriture
     // Suites de chiffres telles que saisies (zéros compris, sans les dates) : n° saisi à moitié
-    x.digs = (`${x.lib} ${x.pint ? '' : x.piece}`.replace(DUP_DATE, ' ').match(/\d{5,}/g) || []).filter((g) => g !== String(x.num));
+    x.digs = (dupNoDates(`${x.lib} ${x.pint ? '' : x.piece}`).match(/\d{5,}/g) || []).filter((g) => g !== String(x.num));
   });
   // Références qui reviennent (n° de contrat, code postal, n° de carte…) : pas des n° de facture
   const tokRecs = new Map(), tokMonths = new Map();
@@ -1402,6 +1407,7 @@ function findDoublons(list, entries, aux) {
   pairs.forEach((pk) => {
     const a = recs[Math.floor(pk / 1e6)], b = recs[pk % 1e6];
     if ((a.amt > 0) !== (b.amt > 0)) return; // facture et avoir
+    if (Math.abs(daysBetween(a.dd, b.dd)) > DUP_GAP) return; // plus de 3 semaines d'écart : pas comparées
     const M = a.cents === b.cents;
     // Même n° de facture, ou même pièce interne ; même n° mais montants sans rapport : n° de relevé ou de commande commun
     // (n° saisi en partie : le plus court est le début ou la fin du plus long, chiffres à la suite, 5 au moins, et ne désigne
@@ -1422,13 +1428,17 @@ function findDoublons(list, entries, aux) {
     // (ni dans le nom du compte, ni dans plus de deux libellés d'un compte d'au moins 5 factures, pour reconnaître le nom du
     // fournisseur), au moins un mot commun de 3 lettres ou plus, et libellés presque identiques. Deux comptes : libellé de l'un presque identique au nom de l'autre (même fournisseur
     // saisi sur deux comptes).
+    const flat = (x) => normTxt(dupNoDates(x.lib)).replace(/[^a-z0-9]+/g, '');
+    const says = (x) => /\d{4,}/.test(dupNoDates(x.lib)) || dupWords(x.lib, nameW.get(x.sup)).some((w) => w.length >= 3);
+    const fa = flat(a), fb = flat(b);
+    const Lsame = fa.length >= 6 && dupSim(fa, fb) >= 0.95 && says(a) && says(b); // « FOURNISSEUR- CHQ 928992 » = « FOURNISSEUR - CHQ 928992 »
     let L;
     if (C) {
       const wa = dupWords(a.lib, nameW.get(a.sup)).filter((w) => w.length >= 3), wb = dupWords(b.lib, nameW.get(b.sup)).filter((w) => w.length >= 3);
-      L = nrec.get(a.sup) >= 5 && wa.some((w) => wb.includes(w)) && dupSim(wa.join(' '), wb.join(' ')) >= DUP_LIB;
+      L = Lsame || (nrec.get(a.sup) >= 5 && wa.some((w) => wb.includes(w)) && dupSim(wa.join(' '), wb.join(' ')) >= DUP_LIB);
     } else {
       const la = dupWords(a.lib).join(' '), lb = dupWords(b.lib).join(' '), na = dupWords(a.name).join(' '), nb2 = dupWords(b.name).join(' ');
-      L = Math.max(la.length >= 3 ? dupSim(la, nb2) : 0, lb.length >= 3 ? dupSim(lb, na) : 0) >= DUP_LIB;
+      L = Lsame || Math.max(la.length >= 3 ? dupSim(la, nb2) : 0, lb.length >= 3 ? dupSim(lb, na) : 0) >= DUP_LIB;
     }
     const score = M + N + C + D + L;
     // N° différents et pièces toutes deux lettrées (payées, ensemble ou chacune) : deux factures réglées, sauf même jour (3 jours

@@ -62,7 +62,9 @@ for m in range(1, 11):
 
 # --- Doublons très probables ---
 inv(day(3, 12), *GRN, 1234.56, 'FA2601234', 'GROSSISTE'); inv(day(3, 12), *GRN, 1234.56, 'FA2601234', 'GROSSISTE')
-inv(day(2, 2), 'FALPHA', 'LABORATOIRES ALPHA', 638.94, 'F260555', 'LABORATOIRES ALPHA'); inv(day(3, 9), 'FALPHA', 'LABORATOIRES ALPHA', 638.94, 'F260555', 'ALPHA')
+inv(day(2, 2), 'FALPHA', 'LABORATOIRES ALPHA', 638.94, 'F260555', 'LABORATOIRES ALPHA'); inv(day(2, 12), 'FALPHA', 'LABORATOIRES ALPHA', 638.94, 'F260555', 'ALPHA')
+# Libellés identiques à l'espace et au tiret près, n° de chèque : même libellé
+inv(day(3, 5), 'FCHQ', 'FOURNISSEUR', 250.00, '', 'FOURNISSEUR- CHQ 928992'); inv(day(3, 7), 'FCHQ', 'FOURNISSEUR', 250.00, '', 'FOURNISSEUR - CHQ 928992')
 inv(day(8, 7), 'FBETA', 'BETA PHARMA', 597.11, 'INV-778899', 'BETA PHARMA'); inv(day(8, 7), 'FDIVERS', 'FOURNISSEURS DIVERS', 597.11, 'INV-778899', 'BETA PHARMA')
 inv(day(4, 22), 'FEPSI', 'LABO EPSILON', 412.80, 'B000009001', 'LABO EPSILON 920555001', jc='AC', jl='ACHATS GED')
 inv(day(5, 6), 'FEPSI', 'LABO EPSILON', 412.80, 'B000009001', 'LABO EPSILON 920555001', jc='AC', jl='ACHATS GED')
@@ -95,7 +97,11 @@ inv(day(7, 9), 'FEPSI', 'LABO EPSILON', 55.55, 'B000009101', 'LABO EPSILON 92077
 inv(day(7, 10), 'FEPSI', 'LABO EPSILON', 55.55, 'B000009102', 'LABO EPSILON 920777245', jc='AC', jl='ACHATS GED')  # deux n° de facture différents : pas un doublon
 # Copie rattachée à un règlement : facture recopiée (même n°) pour un second paiement du même montant, chacune lettrée
 inv(day(1, 20), 'FOMEGA', 'OMEGA SERVICES', 1171.84, 'OM2026-01', 'OMEGA SERVICES OM2026-01', let='A'); pay(day(2, 5), 'FOMEGA', 'OMEGA SERVICES', 1171.84, 'VIR OMEGA', let='A')
-inv(day(3, 1), 'FOMEGA', 'OMEGA SERVICES', 1171.84, 'OM2026-01', 'OMEGA SERVICES OM2026-01', let='B'); pay(day(3, 25), 'FOMEGA', 'OMEGA SERVICES', 1171.84, 'VIR OMEGA', let='B')
+inv(day(2, 5), 'FOMEGA', 'OMEGA SERVICES', 1171.84, 'OM2026-01', 'OMEGA SERVICES OM2026-01', let='B'); pay(day(3, 25), 'FOMEGA', 'OMEGA SERVICES', 1171.84, 'VIR OMEGA', let='B')
+# Même n°, même montant, mais 4 mois d'écart (01/01 et 01/05) : pas comparées (plus de 3 semaines)
+inv(day(1, 1), 'FMU', 'MU SERVICES', 480.00, 'MU-77001', 'MU SERVICES'); inv(day(5, 1), 'FMU', 'MU SERVICES', 480.00, 'MU-77001', 'MU SERVICES')
+# Dates dans le libellé (2026.04.15 et 2026.05.15) : pas des n° de facture
+inv(day(4, 28), 'FPRESTA', 'PRESTA CONSEIL', 300.00, '', 'PRESTA CONSEIL 2026.04.15'); inv(day(5, 5), 'FPRESTA', 'PRESTA CONSEIL', 300.00, '', 'PRESTA CONSEIL 2026.05.15')
 
 rows.insert(0, ['AN', 'A NOUVEAUX', '0', '20260101', '401000', 'FOURNISSEURS', 'FGRNORD', 'GROSSISTE NORD', 'AN', '20260101', 'A NOUVEAU', '0,00', '5000,00', '', '', '20260101', '', ''])
 rows.insert(1, ['AN', 'A NOUVEAUX', '0', '20260101', '890000', 'BILAN OUVERTURE', '', '', 'AN', '20260101', 'A NOUVEAU', '5000,00', '0,00', '', '', '20260101', '', ''])
