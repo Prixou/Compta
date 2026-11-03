@@ -117,7 +117,7 @@ function chkAchats(r, ref, prev, terme) {
   // Factures en double : détail dans l'onglet « Doublons » (40-fec-doublons.js)
   const dv = doublonsView(r);
   const nDup = a.doublons ? a.doublons.n : a.invoices;
-  if (dv && dv.fort.length + dv.verif.length) out.add(dv.fort.length ? 'warn' : 'info', 'Factures fournisseurs en double', `${dv.fort.length} doublon(s) très probable(s) et ${dv.verif.length} à vérifier sur ${nDup.toLocaleString('fr-FR')} factures et avoirs contrôlés (date, n° de facture, montant, libellé et compte fournisseur) : détail dans l'onglet « Doublons ».`, dv.fort.concat(dv.verif).map(dupExample), { full: true });
+  if (dv && dv.fort.length + dv.verif.length) out.add(dv.fort.length ? 'warn' : 'info', 'Factures fournisseurs en double', `${dv.fort.length} doublon(s) très probable(s) et ${dv.verif.length} probable(s) sur ${nDup.toLocaleString('fr-FR')} factures et avoirs contrôlés (date, n° de facture, montant, libellé et compte fournisseur) : détail dans l'onglet « Doublons ».`, dv.fort.concat(dv.verif).map(dupExample), { full: true });
   else if (a.invoices) out.add('ok', 'Aucune facture fournisseur en double', `${nDup.toLocaleString('fr-FR')} factures et avoirs contrôlés (date, n° de facture, montant, libellé et compte fournisseur)${dv && dv.d.copies.length ? ` ; ${dv.d.copies.length} copie(s) rattachée(s) à un règlement` : ''}.`);
   const od = overdue(r, '401', ref, terme);
   if (od.b91[1] > 0) out.add('warn', 'Dettes fournisseurs échues depuis plus de 90 jours', `${eur(od.b91[1], 0)} € (${od.b91[0]} facture(s)) : litige, avoir attendu, ou facture déjà réglée par un autre moyen ?`, od.tiers.filter((t) => t.b91 > 0).slice(0, 10).map((t) => `${t.lib} : ${eur(t.b91)} € (${oldestTxt(t)})`));

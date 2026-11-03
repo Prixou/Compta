@@ -1280,9 +1280,10 @@ function anOrigDate(lib) {
 // ---------- Factures fournisseurs en double ----------
 // Triangulation sur cinq critères : date (3 jours d'écart au plus, date de pièce sinon d'écriture), n° de facture (lu dans le
 // n° de pièce et le libellé) ou même n° de pièce interne (même document saisi deux fois), montant (TTC au centime), libellé
-// (mots peu fréquents du compte) et compte fournisseur. Doublon : 3 critères sur 5 dont le montant ou le n°. Exceptions :
-// facture mensuelle d'un même montant (sauf deux fois le même mois), deux n° de facture différents, facture et avoir,
-// doublon déjà annulé par un avoir, copie rattachée à un règlement (chaque exemplaire lettré avec son propre paiement).
+// (mots peu fréquents du compte) et compte fournisseur. Doublon : 3 critères sur 5 dont le montant ou le n° ; jamais très
+// probable si les deux pièces portent des n° différents. Exceptions : facture mensuelle d'un même montant (sauf deux fois
+// le même mois), facture et avoir, doublon déjà annulé par un avoir, copie rattachée à un règlement (chaque exemplaire
+// lettré avec son propre paiement).
 const DUP_DAYS = 3, DUP_SIM = 0.75;
 const DUP_DATE = /\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g;
 const DUP_STOP = new Set(('fact facture factures fa fac fct avoir av ref n no num du de des la le les sur cde commande bl liv livraison '
@@ -1310,6 +1311,8 @@ function dupTokens(...texts) {
   }));
   return out;
 }
+// N° de pièce comparable : lettres et chiffres seuls, zéros de tête du nombre ôtés (FA-000123 et FA123 se répondent).
+const dupPiece = (p) => { const [, pre, rest] = /^([A-Z]*)(.*)$/.exec(String(p).replace(/[^A-Za-z0-9]/g, '').toUpperCase()); return pre + rest.replace(/^0+/, ''); };
 // Montants (centimes) qui ressemblent à une faute de frappe : chiffres inversés, un chiffre différent, virgule décalée.
 function dupTypo(a, b) {
   a = Math.abs(a); b = Math.abs(b);
@@ -1393,7 +1396,10 @@ function findDoublons(list, entries, aux) {
     // Même n° de facture, ou même pièce interne ; même n° mais montants sans rapport : n° de relevé ou de commande commun
     const same = Array.from(a.toks).some((t) => b.toks.has(t)) || (!!a.pint && a.pint === b.pint);
     const N = same && (M || dupTypo(a.cents, b.cents));
-    const conflict = a.toks.size > 0 && b.toks.size > 0 && !same; // deux n° de facture différents : deux factures
+    // N° présents des deux côtés et différents (n° de facture, ou n° de pièce de même nature : deux n° internes, ou deux
+    // n° de fournisseur) : facteur principal, le doublon reste possible (faute de saisie) mais n'est jamais très probable
+    const pieceDiff = !!a.piece && !!b.piece && !!a.pint === !!b.pint && dupPiece(a.piece) !== dupPiece(b.piece);
+    const numDiff = !same && ((a.toks.size > 0 && b.toks.size > 0) || pieceDiff);
     const C = a.sup === b.sup;
     const D = Math.abs(daysBetween(a.dd, b.dd)) <= DUP_DAYS;
     let L;
@@ -1405,7 +1411,8 @@ function findDoublons(list, entries, aux) {
       L = Math.max(dupSim(la, nb2), dupSim(lb, na)) >= DUP_SIM;
     }
     const score = M + N + C + D + L;
-    if (score < 3 || !(M || N) || conflict) return;
+    // N° différents et pièces toutes deux lettrées (payées, ensemble ou chacune) : deux factures réglées, rien à signaler
+    if (score < 3 || !(M || N) || (numDiff && a.let && b.let)) return;
     let note = '';
     if (M && C && !N && months.get(a.sup + '|' + a.cents).size >= 3) {
       if (a.ym !== b.ym) return; // facture mensuelle habituelle
@@ -1413,8 +1420,9 @@ function findDoublons(list, entries, aux) {
     }
     // Copie volontaire : chaque exemplaire lettré avec son propre règlement (lettrages différents, ou même lettrage avec
     // autant de règlements de ce montant que de factures de ce montant)
+    // (copie : même n°, ou pas de n° ; n° différents : deux factures, chacune payée, rien à signaler)
     if (paid(a) && paid(b) && (a.let !== b.let || (payAmt.get(`${a.sup}|${a.let}|${a.cents}`) || 0) >= invAmt.get(`${a.sup}|${a.let}|${a.cents}`))) {
-      copies.add(a.i); copies.add(b.i);
+      if (!numDiff) { copies.add(a.i); copies.add(b.i); }
       return;
     }
     // Déjà annulé : avoir du même montant sur l'un des comptes, daté au plus tôt de la première facture
@@ -1422,7 +1430,8 @@ function findDoublons(list, entries, aux) {
     if (recs.some((x) => (x.sup === a.sup || x.sup === b.sup) && x.cents === -a.cents && x.dd >= first)) { fixed++; return; }
     // Original lettré avec son règlement et copie non lettrée, même jour et même montant : très probable
     const unpaidCopy = D && M && C && ((paid(a) && !b.let) || (paid(b) && !a.let));
-    found.push({ a, b, score, note, crit: [D, N, M, L, C].map((v) => (v ? 1 : 0)).join(''), fort: score >= 4 || (M && N) || unpaidCopy });
+    found.push({ a, b, score, note: [note, numDiff ? 'n° de pièce ou de facture différents' : ''].filter(Boolean).join(' · '), crit: [D, N, M, L, C].map((v) => (v ? 1 : 0)).join(''),
+      fort: !numDiff && (score >= 4 || (M && N) || unpaidCopy) });
   });
   // Groupes (doublons en plusieurs exemplaires) ; pièce à garder : la lettrée, sinon la première saisie
   const parent = new Map();

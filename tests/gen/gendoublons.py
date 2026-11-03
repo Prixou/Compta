@@ -3,8 +3,9 @@
 # contrat), journal « AC » à n° de pièce interne (B000…) et n° de facture dans le libellé.
 # Doublons à trouver (très probables) : facture saisie deux fois le même jour, ressaisie le mois suivant, saisie sur un
 # autre compte (fournisseurs divers), même pièce interne saisie deux fois, copie non lettrée d'une facture payée.
-# À vérifier : faute de frappe sur le montant, même facture sans n°, loyer saisi deux fois en juin.
-# Pas des doublons : même montant à 6 mois d'écart, facture et avoir, date dans le libellé, deux n° de facture différents,
+# Probables : faute de frappe sur le montant, même facture sans n°, loyer saisi deux fois en juin, et deux pièces aux n°
+# différents (même jour, même montant, même fournisseur), jamais très probables.
+# Pas des doublons : même montant à 6 mois d'écart, facture et avoir, date dans le libellé,
 # loyer et énergie mensuels, doublon déjà annulé par un avoir, copie rattachée à un règlement (lettrée avec son paiement).
 #   python3 gendoublons.py [dossier de sortie]   → 777777777FEC20261231.txt
 import sys, os, random
@@ -71,6 +72,9 @@ inv(day(9, 14), 'FZETA', 'ZETA MEDICAL', 210.00, f'B{9500:09d}', 'ZETA MEDICAL 1
 inv(day(5, 15), 'FGAMMA', 'GAMMA SANTE', 1162.22, 'CO-445566', 'GAMMA SANTE'); inv(day(5, 15), 'FGAMMA', 'GAMMA SANTE', 1126.22, 'CO-445566', 'GAMMA SANTE')
 inv(day(6, 16), 'FDELTA', 'DELTA DERMO', 127.14, '', 'DELTA DERMO'); inv(day(6, 17), 'FDELTA', 'DELTA DERMO', 127.14, '', 'DELTA DERMO')
 inv(day(6, 3), 'FSCI', 'SCI EXEMPLE', 1650.00, 'BAIL2024', 'LOYER SCI EXEMPLE')
+# Même jour, même montant, même fournisseur, n° de pièce différents (l'une payée) : probable, jamais très probable
+inv(day(10, 6), 'FKAPPA', 'KAPPA SANTE', 345.60, '145', 'KAPPA SANTE', let='D'); pay(day(10, 20), 'FKAPPA', 'KAPPA SANTE', 345.60, 'VIR KAPPA', let='D')
+inv(day(10, 6), 'FKAPPA', 'KAPPA SANTE', 345.60, '146', 'KAPPA SANTE')
 # --- Pas des doublons ---
 inv(day(4, 4), *GRS, 899.00, 'OC77812', 'REPARTITEUR'); inv(day(4, 6), *GRS, 899.00, 'OC77812', 'REPARTITEUR')
 inv(day(4, 30), *GRS, -899.00, 'OC77812', 'ANNULATION DOUBLON OC77812')                                   # déjà annulé
@@ -78,7 +82,7 @@ inv(day(3, 20), *GRN, 432.10, 'FA2690001', 'GROSSISTE'); inv(day(9, 14), *GRN, 4
 inv(day(7, 8), 'FGAMMA', 'GAMMA SANTE', 250.00, 'CO-9001', 'GAMMA SANTE'); inv(day(7, 20), 'FGAMMA', 'GAMMA SANTE', -250.00, 'CO-9001', 'AVOIR GAMMA')  # facture et avoir
 inv(day(2, 15), *GRN, 811.40, 'FA2691001', 'GROSSISTE 15.02.2026'); inv(day(2, 15), *GRN, 377.25, 'FA2691002', 'GROSSISTE 15.02.2026')  # date dans le libellé
 inv(day(7, 9), 'FEPSI', 'LABO EPSILON', 55.55, 'B000009101', 'LABO EPSILON 920777100', jc='AC', jl='ACHATS GED')
-inv(day(7, 10), 'FEPSI', 'LABO EPSILON', 55.55, 'B000009102', 'LABO EPSILON 920777245', jc='AC', jl='ACHATS GED')  # deux n° différents
+inv(day(7, 10), 'FEPSI', 'LABO EPSILON', 55.55, 'B000009102', 'LABO EPSILON 920777245', jc='AC', jl='ACHATS GED')  # deux n° différents : probable
 # Copie rattachée à un règlement : facture recopiée (même n°) pour un second paiement du même montant, chacune lettrée
 inv(day(1, 20), 'FOMEGA', 'OMEGA SERVICES', 1171.84, 'OM2026-01', 'OMEGA SERVICES OM2026-01', let='A'); pay(day(2, 5), 'FOMEGA', 'OMEGA SERVICES', 1171.84, 'VIR OMEGA', let='A')
 inv(day(3, 1), 'FOMEGA', 'OMEGA SERVICES', 1171.84, 'OM2026-01', 'OMEGA SERVICES OM2026-01', let='B'); pay(day(3, 25), 'FOMEGA', 'OMEGA SERVICES', 1171.84, 'VIR OMEGA', let='B')

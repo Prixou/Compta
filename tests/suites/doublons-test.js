@@ -34,8 +34,8 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   console.log('=== DOUBLONS\n' + G.map((g) => `${g.head}\n   ${g.rows.join('\n   ')}`).join('\n'));
   const live = G.filter((g) => !g.head.includes('Rétablir'));
   const find = (re) => live.find((g) => g.rows.some((t) => re.test(t)));
-  expect(await tabTxt() === 'Doublons (8)', 'onglet « Doublons » de Révision A–K, avec le nombre de groupes', await tabTxt());
-  expect(live.filter((g) => g.fort).length === 5 && live.filter((g) => !g.fort).length === 3, '5 doublons très probables, 3 à vérifier');
+  expect(await tabTxt() === 'Doublons (10)', 'onglet « Doublons » de Révision A–K, avec le nombre de groupes', await tabTxt());
+  expect(live.filter((g) => g.fort).length === 5 && live.filter((g) => !g.fort).length === 5, '5 doublons très probables, 5 probables');
   const ex = find(/GROSSISTE NORD.*1 234,56/);
   expect(ex && ex.fort && /4\/5/.test(ex.head) && ex.rows.some((t) => /^à garder/.test(t)) && ex.rows.some((t) => /^à annuler \?/.test(t)), 'facture saisie deux fois le même jour : très probable, une à garder, une à annuler');
   expect(find(/LABORATOIRES ALPHA.*638,94/) && find(/LABORATOIRES ALPHA.*638,94/).fort, 'facture ressaisie le mois suivant (même n°, même montant) : très probable');
@@ -45,11 +45,14 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   const zeta = find(/ZETA MEDICAL/);
   expect(zeta && zeta.fort && zeta.rows.some((t) => /^à garder.*210,00C$/.test(t)) && zeta.rows.some((t) => /^à annuler \?.*B000009500/.test(t)), 'copie non lettrée d\'une facture payée : très probable, l\'original lettré à garder');
   const loyer = find(/LOYER SCI EXEMPLE/);
-  expect(loyer && !loyer.fort && /facture mensuelle saisie deux fois le même mois/.test(loyer.head) && loyer.rows.length === 2, 'loyer mensuel saisi deux fois en juin : à vérifier (les autres mois ne sont pas des doublons)');
-  expect(find(/1 126,22/) && !find(/1 126,22/).fort, 'même n°, faute de frappe sur le montant : à vérifier');
-  expect(find(/DELTA DERMO/) && !find(/DELTA DERMO/).fort, 'même facture sans n°, même montant à un jour d\'écart : à vérifier');
+  expect(loyer && !loyer.fort && /^\d+\. Probable/.test(loyer.head) && /facture mensuelle saisie deux fois le même mois/.test(loyer.head) && loyer.rows.length === 2, 'loyer mensuel saisi deux fois en juin : probable (les autres mois ne sont pas des doublons)');
+  expect(find(/1 126,22/) && !find(/1 126,22/).fort, 'même n°, faute de frappe sur le montant : probable');
+  expect(find(/DELTA DERMO/) && !find(/DELTA DERMO/).fort, 'même facture sans n°, même montant à un jour d\'écart : probable');
+  const kappa = find(/KAPPA SANTE/), eps = find(/55,55/);
+  expect(kappa && !kappa.fort && /n° de pièce ou de facture différents/.test(kappa.head) && eps && !eps.fort && /n° de pièce ou de facture différents/.test(eps.head),
+    'même date, même montant, même compte mais n° de pièce ou de facture différents : probable, jamais très probable (même si l\'une est payée)', kappa && kappa.head);
   const all = live.flatMap((g) => g.rows).join('\n');
-  expect(!/432,10|377,25|811,40|55,55|ENERGIE|AVOIR GAMMA|REPARTITEUR SUD/.test(all), 'pièges écartés : même montant à 6 mois d\'écart, date dans le libellé, deux n° différents, énergie mensuelle, facture et avoir, doublon déjà annulé');
+  expect(!/432,10|377,25|811,40|ENERGIE|AVOIR GAMMA|REPARTITEUR SUD/.test(all), 'pièges écartés : même montant à 6 mois d\'écart, date dans le libellé, énergie mensuelle, facture et avoir, doublon déjà annulé');
   const card = await p.textContent('main');
   expect(/1 doublon\(s\) déjà annulé\(s\)/.test(card) && /2 copie\(s\) rattachée\(s\) à un règlement/.test(card), 'résumé : doublon déjà annulé et copies rattachées à un règlement comptés à part');
   const copies = await p.$$eval('.pieces-ecartes:has(summary:text("Copies rattachées")) tbody tr', (l) => l.map((tr) => tr.textContent));
@@ -58,10 +61,10 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   // 2. « Pas un doublon » : conservé dans le dossier, rétabli
   await p.click('.dup-group:has(td:text("DELTA DERMO")) button[data-action=doublon-ecarte]'); await p.waitForTimeout(150);
   const saved = await p.evaluate(() => Object.keys(clientById(ui.fec.clientId).doublonsEcartes || {}).length);
-  expect(await tabTxt() === 'Doublons (7)' && saved === 1, '« Pas un doublon » : groupe écarté, choix conservé dans le dossier', `${await tabTxt()} ${saved}`);
+  expect(await tabTxt() === 'Doublons (9)' && saved === 1, '« Pas un doublon » : groupe écarté, choix conservé dans le dossier', `${await tabTxt()} ${saved}`);
   await p.click('.pieces-ecartes:has(summary:text("Écartés")) summary');
   await p.click('button[data-action=doublon-retablir]'); await p.waitForTimeout(150);
-  expect(await tabTxt() === 'Doublons (8)' && await p.evaluate(() => !Object.keys(clientById(ui.fec.clientId).doublonsEcartes).length), 'groupe rétabli');
+  expect(await tabTxt() === 'Doublons (10)' && await p.evaluate(() => !Object.keys(clientById(ui.fec.clientId).doublonsEcartes).length), 'groupe rétabli');
 
   // 3. Liste Excel : doublons et copies
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('button[data-action=doublons-xlsx]')]);
@@ -74,7 +77,7 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   // 4. Cycle C, écritures d'annulation, contrôle du mois
   await fecTab(p, 'achats', 200);
   const c = await p.textContent('.fec-check:has(strong:text("Factures fournisseurs en double"))');
-  expect(/5 doublon\(s\) très probable\(s\) et 3 à vérifier/.test(c) && /onglet « Doublons »/.test(c), 'cycle C : contrôle « Factures fournisseurs en double » repris de l\'onglet', c.replace(/\s+/g, ' ').slice(0, 160));
+  expect(/5 doublon\(s\) très probable\(s\) et 5 probable\(s\)/.test(c) && /onglet « Doublons »/.test(c), 'cycle C : contrôle « Factures fournisseurs en double » repris de l\'onglet', c.replace(/\s+/g, ' ').slice(0, 160));
   expect(!(await p.$('.fec-check:has(strong:text("même montant à quelques jours"))')), 'ancien contrôle « même montant à quelques jours d\'intervalle » remplacé');
   await fecTab(p, 'ecritures', 200);
   const ecr = await p.$$eval('input[data-ecr-sel^="dup:"]', (l) => l.length);
