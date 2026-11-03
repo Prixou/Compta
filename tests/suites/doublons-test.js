@@ -40,7 +40,7 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   expect(chq && chq.fort && /Libellé ✔/.test(chq.head), 'libellés identiques à l\'espace et au tiret près (« FOURNISSEUR- CHQ 928992 ») : même libellé', chq && chq.head);
   expect(!find(/MU SERVICES/), 'même n° et même montant à 4 mois d\'écart : pas comparées (plus de 3 semaines)');
   expect(!find(/PRESTA CONSEIL/), 'dates dans le libellé (2026.04.15, 2026.05.15) : pas des n° de facture');
-  expect(find(/IOTA PHARMA/) && !find(/IOTA PHARMA/).fort && /n° saisi en partie/.test(find(/IOTA PHARMA/).head), 'n° de facture saisi en partie (début ou fin du n°, une seule facture) : probable, jamais très probable');
+  expect(find(/IOTA PHARMA/) && !find(/IOTA PHARMA/).fort && /n° saisi en partie/.test(find(/IOTA PHARMA/).head), 'n° de facture saisi en partie (fin du n°, une seule facture) : probable, jamais très probable');
   expect(find(/REPARATION FRIGO/) && !find(/REPARATION FRIGO/).fort, 'n° différents, toutes deux lettrées, même jour, même montant, même libellé (mots propres aux deux factures) : probable');
   expect(!find(/LAMBDA SANTE/), 'même cas mais libellés réduits au nom du fournisseur : le nom ne fait pas un même libellé, rien à signaler');
   const ex = find(/GROSSISTE NORD.*1 234,56/);

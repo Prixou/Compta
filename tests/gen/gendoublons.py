@@ -85,8 +85,8 @@ inv(day(10, 9), 'FTHETA', 'THETA LAB', 88.88, 'TL-20261009', 'THETA LAB REPARATI
 inv(day(8, 4), 'FLAMBDA', 'LAMBDA SANTE', 70.10, 'LS-20260804', 'LAMBDA SANTE')
 inv(day(10, 13), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'LS-20261013', 'LAMBDA SANTE', let='G'); pay(day(10, 23), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'VIR LAMBDA', let='G')
 inv(day(10, 13), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'LS-20261014', 'LAMBDA SANTE', let='H'); pay(day(10, 24), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'VIR LAMBDA', let='H')
-# N° saisi en partie (début du n°, une seule facture du fournisseur) : probable
-inv(day(10, 10), 'FIOTA', 'IOTA PHARMA', 150.00, '7121777368', 'IOTA PHARMA'); inv(day(10, 12), 'FIOTA', 'IOTA PHARMA', 150.00, '71217', 'IOTA PHARMA')
+# N° saisi en partie (fin du n°, une seule facture du fournisseur) : probable
+inv(day(10, 10), 'FIOTA', 'IOTA PHARMA', 150.00, '7121777368', 'IOTA PHARMA'); inv(day(10, 12), 'FIOTA', 'IOTA PHARMA', 150.00, '77368', 'IOTA PHARMA')
 # --- Pas des doublons ---
 inv(day(4, 4), *GRS, 899.00, 'OC77812', 'REPARTITEUR'); inv(day(4, 6), *GRS, 899.00, 'OC77812', 'REPARTITEUR')
 inv(day(4, 30), *GRS, -899.00, 'OC77812', 'ANNULATION DOUBLON OC77812')                                   # déjà annulé

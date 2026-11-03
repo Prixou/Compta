@@ -1303,16 +1303,17 @@ function dupSim(a, b) {
   x.forEach((v) => { if (y.has(v)) n++; });
   return (2 * n) / (x.size + y.size);
 }
-// N° de facture candidats (sans les dates) : jeton alphanumérique, zéros de tête ôtés (B000007361 → B7361), et chiffres
-// seuls d'un numéro long (FA2601234 et 2601234 se répondent).
+// N° de facture candidats (sans les dates) : jeton alphanumérique, zéros de tête ôtés (B000007361 → B7361), et numéro long
+// sans ses lettres de tête (FA2601234 et 2601234 se répondent).
 function dupTokens(...texts) {
   const out = new Set();
   texts.forEach((t) => (dupNoDates(t).match(/[A-Za-z]*\d[\w/-]*/g) || []).forEach((m) => {
     const [, pre, rest] = /^([A-Z]*)(.*)$/.exec(m.replace(/[^A-Za-z0-9]/g, '').toUpperCase());
-    const core = rest.replace(/\D/g, '').replace(/^0+/, '');
-    if (core.length < 4 || (!pre && core.length === 4 && dupYear(core))) return; // année seule
+    const core = rest.replace(/^0+/, ''); // lettres du milieu conservées : 863C808815 et 863D808815 diffèrent
+    const nd = core.replace(/\D/g, '').length;
+    if (nd < 4 || (!pre && core.length === 4 && dupYear(core))) return; // année seule
     out.add(pre + core);
-    if (core.length >= 6) out.add(core);
+    if (nd >= 6) out.add(core);
   }));
   return out;
 }
@@ -1365,7 +1366,7 @@ function findDoublons(list, entries, aux) {
   // commun d'une série, « FA202610 » pour toutes les factures d'octobre)
   const supDigs = new Map();
   recs.forEach((x) => x.digs.forEach((g) => (supDigs.get(x.sup) || supDigs.set(x.sup, new Set()).get(x.sup)).add(g)));
-  const uniq = (sup, short) => Array.from(supDigs.get(sup) || []).filter((g) => g !== short && (g.startsWith(short) || g.endsWith(short))).length === 1;
+  const uniq = (sup, short) => Array.from(supDigs.get(sup) || []).filter((g) => g !== short && g.endsWith(short)).length === 1;
   // Factures mensuelles d'un même montant dans le compte (3 mois ou plus)
   const months = new Map();
   recs.forEach((x) => { const k = x.sup + '|' + x.cents; (months.get(k) || months.set(k, new Set()).get(k)).add(x.ym); });
@@ -1410,9 +1411,9 @@ function findDoublons(list, entries, aux) {
     if (Math.abs(daysBetween(a.dd, b.dd)) > DUP_GAP) return; // plus de 3 semaines d'écart : pas comparées
     const M = a.cents === b.cents;
     // Même n° de facture, ou même pièce interne ; même n° mais montants sans rapport : n° de relevé ou de commande commun
-    // (n° saisi en partie : le plus court est le début ou la fin du plus long, chiffres à la suite, 5 au moins, et ne désigne
-    // qu'une facture du fournisseur ; jamais très probable)
-    const part = (x, y, sup) => y.length > x.length && (y.startsWith(x) || y.endsWith(x)) && uniq(sup, x);
+    // (n° saisi en partie : le plus court est la fin du plus long, chiffres à la suite, 5 au moins, et ne désigne qu'une
+    // facture du fournisseur ; jamais très probable ; le début seul d'un n° ne suffit pas)
+    const part = (x, y, sup) => y.length > x.length && y.endsWith(x) && uniq(sup, x);
     const full = Array.from(a.toks).some((t) => b.toks.has(t)) || (!!a.pint && a.pint === b.pint);
     const partial = !full && a.digs.some((x) => b.digs.some((y) => part(x, y, b.sup) || part(y, x, a.sup)));
     const same = full || partial;
@@ -1432,13 +1433,17 @@ function findDoublons(list, entries, aux) {
     const says = (x) => /\d{4,}/.test(dupNoDates(x.lib)) || dupWords(x.lib, nameW.get(x.sup)).some((w) => w.length >= 3);
     const fa = flat(a), fb = flat(b);
     const Lsame = fa.length >= 6 && dupSim(fa, fb) >= 0.95 && says(a) && says(b); // « FOURNISSEUR- CHQ 928992 » = « FOURNISSEUR - CHQ 928992 »
+    // Libellés aux n° différents (« CHQ 928992 » et « CHQ 928993 ») : jamais le même libellé
+    const libNums = (x) => new Set((dupNoDates(x.lib).match(/\d{4,}/g) || []).map((v) => v.replace(/^0+/, '')));
+    const ka = libNums(a), kb = libNums(b);
+    const libNumDiff = ka.size > 0 && kb.size > 0 && !Array.from(ka).some((v) => kb.has(v));
     let L;
     if (C) {
       const wa = dupWords(a.lib, nameW.get(a.sup)).filter((w) => w.length >= 3), wb = dupWords(b.lib, nameW.get(b.sup)).filter((w) => w.length >= 3);
-      L = Lsame || (nrec.get(a.sup) >= 5 && wa.some((w) => wb.includes(w)) && dupSim(wa.join(' '), wb.join(' ')) >= DUP_LIB);
+      L = !libNumDiff && (Lsame || (nrec.get(a.sup) >= 5 && wa.some((w) => wb.includes(w)) && dupSim(wa.join(' '), wb.join(' ')) >= DUP_LIB));
     } else {
       const la = dupWords(a.lib).join(' '), lb = dupWords(b.lib).join(' '), na = dupWords(a.name).join(' '), nb2 = dupWords(b.name).join(' ');
-      L = Lsame || Math.max(la.length >= 3 ? dupSim(la, nb2) : 0, lb.length >= 3 ? dupSim(lb, na) : 0) >= DUP_LIB;
+      L = !libNumDiff && (Lsame || Math.max(la.length >= 3 ? dupSim(la, nb2) : 0, lb.length >= 3 ? dupSim(lb, na) : 0) >= DUP_LIB);
     }
     const score = M + N + C + D + L;
     // N° différents et pièces toutes deux lettrées (payées, ensemble ou chacune) : deux factures réglées, sauf même jour (3 jours
