@@ -75,6 +75,11 @@ inv(day(6, 3), 'FSCI', 'SCI EXEMPLE', 1650.00, 'BAIL2024', 'LOYER SCI EXEMPLE')
 # Même jour, même montant, même fournisseur, n° de pièce différents (l'une payée) : probable, jamais très probable
 inv(day(10, 6), 'FKAPPA', 'KAPPA SANTE', 345.60, '145', 'KAPPA SANTE', let='D'); pay(day(10, 20), 'FKAPPA', 'KAPPA SANTE', 345.60, 'VIR KAPPA', let='D')
 inv(day(10, 6), 'FKAPPA', 'KAPPA SANTE', 345.60, '146', 'KAPPA SANTE')
+# N° différents, toutes deux lettrées, même jour, même montant, libellé proche (facture saisie à la main puis reçue) : probable
+inv(day(10, 9), 'FTHETA', 'THETA LAB', 88.88, 'MANUEL', 'THETA LAB', let='E'); pay(day(10, 21), 'FTHETA', 'THETA LAB', 88.88, 'VIR THETA', let='E')
+inv(day(10, 9), 'FTHETA', 'THETA LAB', 88.88, 'TL-20261009', 'THETA LAB', let='F'); pay(day(10, 22), 'FTHETA', 'THETA LAB', 88.88, 'VIR THETA', let='F')
+# N° saisi à moitié : même facture (très probable)
+inv(day(10, 10), 'FIOTA', 'IOTA PHARMA', 150.00, '7121777368', 'IOTA PHARMA'); inv(day(10, 12), 'FIOTA', 'IOTA PHARMA', 150.00, '71217', 'IOTA PHARMA')
 # --- Pas des doublons ---
 inv(day(4, 4), *GRS, 899.00, 'OC77812', 'REPARTITEUR'); inv(day(4, 6), *GRS, 899.00, 'OC77812', 'REPARTITEUR')
 inv(day(4, 30), *GRS, -899.00, 'OC77812', 'ANNULATION DOUBLON OC77812')                                   # déjà annulé

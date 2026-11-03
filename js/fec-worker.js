@@ -1342,6 +1342,8 @@ function findDoublons(list, entries, aux) {
     x.pint = internal.has(x.jc) && internal.get(x.jc)[0] === x.piece.replace(/\d/g, '9') ? x.piece : '';
     x.toks = dupTokens(x.lib, x.pint ? '' : x.piece);
     dupTokens(x.num).forEach((t) => x.toks.delete(t)); // n° interne de l'écriture
+    // Suites de chiffres telles que saisies (zéros compris, sans les dates) : n° saisi à moitié
+    x.digs = (`${x.lib} ${x.pint ? '' : x.piece}`.replace(DUP_DATE, ' ').match(/\d{5,}/g) || []).filter((g) => g !== String(x.num));
   });
   // Références qui reviennent (n° de contrat, code postal, n° de carte…) : pas des n° de facture
   const tokRecs = new Map(), tokMonths = new Map();
@@ -1351,6 +1353,9 @@ function findDoublons(list, entries, aux) {
     (tokMonths.get(k) || tokMonths.set(k, new Set()).get(k)).add(x.ym);
   }));
   recs.forEach((x) => { x.toks = new Set(Array.from(x.toks).filter((t) => tokRecs.get(t) <= 3 && tokMonths.get(x.sup + '|' + t).size < 3)); });
+  const digRecs = new Map();
+  recs.forEach((x) => new Set(x.digs).forEach((g) => digRecs.set(g, (digRecs.get(g) || 0) + 1)));
+  recs.forEach((x) => { x.digs = x.digs.filter((g) => digRecs.get(g) <= 3); });
   // Factures mensuelles d'un même montant dans le compte (3 mois ou plus)
   const months = new Map();
   recs.forEach((x) => { const k = x.sup + '|' + x.cents; (months.get(k) || months.set(k, new Set()).get(k)).add(x.ym); });
@@ -1394,7 +1399,10 @@ function findDoublons(list, entries, aux) {
     if ((a.amt > 0) !== (b.amt > 0)) return; // facture et avoir
     const M = a.cents === b.cents;
     // Même n° de facture, ou même pièce interne ; même n° mais montants sans rapport : n° de relevé ou de commande commun
-    const same = Array.from(a.toks).some((t) => b.toks.has(t)) || (!!a.pint && a.pint === b.pint);
+    // (n° saisi à moitié : le plus court est le début ou la fin du plus long, chiffres à la suite, 5 au moins)
+    const part = (x, y) => y.length > x.length && (y.startsWith(x) || y.endsWith(x));
+    const same = Array.from(a.toks).some((t) => b.toks.has(t)) || (!!a.pint && a.pint === b.pint)
+      || a.digs.some((x) => b.digs.some((y) => part(x, y) || part(y, x)));
     const N = same && (M || dupTypo(a.cents, b.cents));
     // N° présents des deux côtés et différents (n° de facture, ou n° de pièce de même nature : deux n° internes, ou deux
     // n° de fournisseur) : facteur principal, le doublon reste possible (faute de saisie) mais n'est jamais très probable
@@ -1411,8 +1419,10 @@ function findDoublons(list, entries, aux) {
       L = Math.max(dupSim(la, nb2), dupSim(lb, na)) >= DUP_SIM;
     }
     const score = M + N + C + D + L;
-    // N° différents et pièces toutes deux lettrées (payées, ensemble ou chacune) : deux factures réglées, rien à signaler
-    if (score < 3 || !(M || N) || (numDiff && a.let && b.let)) return;
+    // N° différents et pièces toutes deux lettrées (payées, ensemble ou chacune) : deux factures réglées, sauf même jour (3 jours
+    // au plus), même montant et libellé proche (n° mal saisi, facture d'abord saisie à la main puis reçue) : probable
+    const sameLib = dupSim(dupWords(a.lib).join(' '), dupWords(b.lib).join(' ')) >= DUP_SIM;
+    if (score < 3 || !(M || N) || (numDiff && a.let && b.let && !(D && M && sameLib))) return;
     let note = '';
     if (M && C && !N && months.get(a.sup + '|' + a.cents).size >= 3) {
       if (a.ym !== b.ym) return; // facture mensuelle habituelle
@@ -1420,9 +1430,9 @@ function findDoublons(list, entries, aux) {
     }
     // Copie volontaire : chaque exemplaire lettré avec son propre règlement (lettrages différents, ou même lettrage avec
     // autant de règlements de ce montant que de factures de ce montant)
-    // (copie : même n°, ou pas de n° ; n° différents : deux factures, chacune payée, rien à signaler)
-    if (paid(a) && paid(b) && (a.let !== b.let || (payAmt.get(`${a.sup}|${a.let}|${a.cents}`) || 0) >= invAmt.get(`${a.sup}|${a.let}|${a.cents}`))) {
-      if (!numDiff) { copies.add(a.i); copies.add(b.i); }
+    // (copie : même n°, ou pas de n° ; n° différents : voir plus haut)
+    if (!numDiff && paid(a) && paid(b) && (a.let !== b.let || (payAmt.get(`${a.sup}|${a.let}|${a.cents}`) || 0) >= invAmt.get(`${a.sup}|${a.let}|${a.cents}`))) {
+      copies.add(a.i); copies.add(b.i);
       return;
     }
     // Déjà annulé : avoir du même montant sur l'un des comptes, daté au plus tôt de la première facture
