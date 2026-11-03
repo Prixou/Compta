@@ -37,7 +37,8 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   expect(await tabTxt() === 'Doublons (12)', 'onglet « Doublons » de Révision A–K, avec le nombre de groupes', await tabTxt());
   expect(live.filter((g) => g.fort).length === 5 && live.filter((g) => !g.fort).length === 7, '5 doublons très probables, 7 probables');
   expect(find(/IOTA PHARMA/) && !find(/IOTA PHARMA/).fort && /n° saisi en partie/.test(find(/IOTA PHARMA/).head), 'n° de facture saisi en partie (début ou fin du n°, une seule facture) : probable, jamais très probable');
-  expect(find(/THETA LAB/) && !find(/THETA LAB/).fort, 'n° différents, toutes deux lettrées, même jour, même montant, libellé proche : probable');
+  expect(find(/REPARATION FRIGO/) && !find(/REPARATION FRIGO/).fort, 'n° différents, toutes deux lettrées, même jour, même montant, même libellé (mots propres aux deux factures) : probable');
+  expect(!find(/LAMBDA SANTE/), 'même cas mais libellés réduits au nom du fournisseur : le nom ne fait pas un même libellé, rien à signaler');
   const ex = find(/GROSSISTE NORD.*1 234,56/);
   expect(ex && ex.fort && /4\/5/.test(ex.head) && ex.rows.some((t) => /^à garder/.test(t)) && ex.rows.some((t) => /^à annuler \?/.test(t)), 'facture saisie deux fois le même jour : très probable, une à garder, une à annuler');
   expect(find(/LABORATOIRES ALPHA.*638,94/) && find(/LABORATOIRES ALPHA.*638,94/).fort, 'facture ressaisie le mois suivant (même n°, même montant) : très probable');

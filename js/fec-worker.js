@@ -1284,7 +1284,7 @@ function anOrigDate(lib) {
 // probable si les deux pièces portent des n° différents. Exceptions : facture mensuelle d'un même montant (sauf deux fois
 // le même mois), facture et avoir, doublon déjà annulé par un avoir, copie rattachée à un règlement (chaque exemplaire
 // lettré avec son propre paiement).
-const DUP_DAYS = 3, DUP_SIM = 0.75;
+const DUP_DAYS = 3, DUP_LIB = 0.9;
 const DUP_DATE = /\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g;
 const DUP_STOP = new Set(('fact facture factures fa fac fct avoir av ref n no num du de des la le les sur cde commande bl liv livraison '
   + 'sas sarl sa ste eurl selarl snc sel et ets labo laboratoire laboratoires pharma france').split(' '));
@@ -1373,7 +1373,7 @@ function findDoublons(list, entries, aux) {
     const c = cnt.get(x.sup) || cnt.set(x.sup, new Map()).get(x.sup);
     new Set(dupWords(x.lib)).forEach((v) => c.set(v, (c.get(v) || 0) + 1));
   });
-  cnt.forEach((c, sup) => c.forEach((k, v) => { if (k > Math.max(2, nrec.get(sup) * 0.1)) nameW.get(sup).add(v); }));
+  cnt.forEach((c, sup) => c.forEach((k, v) => { if (k > 2) nameW.get(sup).add(v); })); // mot de plus de deux libellés du compte
   // Lettrages comprenant un règlement (banque ou caisse) et nombre de règlements de chaque montant
   const payLet = new Set(), payAmt = new Map();
   aux.forEach((t) => {
@@ -1417,19 +1417,22 @@ function findDoublons(list, entries, aux) {
     const numDiff = !same && ((a.toks.size > 0 && b.toks.size > 0) || pieceDiff);
     const C = a.sup === b.sup;
     const D = Math.abs(daysBetween(a.dd, b.dd)) <= DUP_DAYS;
+    // Libellé : vérification stricte, le nom du fournisseur ne compte jamais. Même compte : mots propres à ces deux factures
+    // (ni dans le nom du compte, ni dans plus de deux libellés d'un compte d'au moins 5 factures, pour reconnaître le nom du
+    // fournisseur), au moins un mot commun de 3 lettres ou plus, et libellés presque identiques. Deux comptes : libellé de l'un presque identique au nom de l'autre (même fournisseur
+    // saisi sur deux comptes).
     let L;
-    if (C) { // même compte : seuls les mots peu fréquents du compte comptent
-      const la = dupWords(a.lib, nameW.get(a.sup)).join(' '), lb = dupWords(b.lib, nameW.get(b.sup)).join(' ');
-      L = nrec.get(a.sup) >= 3 && !!la && !!lb && dupSim(la, lb) >= DUP_SIM;
-    } else { // deux comptes : libellé de l'un proche du nom de l'autre (même fournisseur saisi sur deux comptes)
+    if (C) {
+      const wa = dupWords(a.lib, nameW.get(a.sup)).filter((w) => w.length >= 3), wb = dupWords(b.lib, nameW.get(b.sup)).filter((w) => w.length >= 3);
+      L = nrec.get(a.sup) >= 5 && wa.some((w) => wb.includes(w)) && dupSim(wa.join(' '), wb.join(' ')) >= DUP_LIB;
+    } else {
       const la = dupWords(a.lib).join(' '), lb = dupWords(b.lib).join(' '), na = dupWords(a.name).join(' '), nb2 = dupWords(b.name).join(' ');
-      L = Math.max(dupSim(la, nb2), dupSim(lb, na)) >= DUP_SIM;
+      L = Math.max(la.length >= 3 ? dupSim(la, nb2) : 0, lb.length >= 3 ? dupSim(lb, na) : 0) >= DUP_LIB;
     }
     const score = M + N + C + D + L;
     // N° différents et pièces toutes deux lettrées (payées, ensemble ou chacune) : deux factures réglées, sauf même jour (3 jours
-    // au plus), même montant et libellé proche (n° mal saisi, facture d'abord saisie à la main puis reçue) : probable
-    const sameLib = dupSim(dupWords(a.lib).join(' '), dupWords(b.lib).join(' ')) >= DUP_SIM;
-    if (score < 3 || !(M || N) || (numDiff && a.let && b.let && !(D && M && sameLib))) return;
+    // au plus), même montant et même libellé (n° mal saisi, facture d'abord saisie à la main puis reçue) : probable
+    if (score < 3 || !(M || N) || (numDiff && a.let && b.let && !(D && M && L))) return;
     let note = '';
     if (M && C && !N && months.get(a.sup + '|' + a.cents).size >= 3) {
       if (a.ym !== b.ym) return; // facture mensuelle habituelle

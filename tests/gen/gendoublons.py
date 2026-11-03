@@ -76,8 +76,13 @@ inv(day(6, 3), 'FSCI', 'SCI EXEMPLE', 1650.00, 'BAIL2024', 'LOYER SCI EXEMPLE')
 inv(day(10, 6), 'FKAPPA', 'KAPPA SANTE', 345.60, '145', 'KAPPA SANTE', let='D'); pay(day(10, 20), 'FKAPPA', 'KAPPA SANTE', 345.60, 'VIR KAPPA', let='D')
 inv(day(10, 6), 'FKAPPA', 'KAPPA SANTE', 345.60, '146', 'KAPPA SANTE')
 # N° différents, toutes deux lettrées, même jour, même montant, libellé proche (facture saisie à la main puis reçue) : probable
-inv(day(10, 9), 'FTHETA', 'THETA LAB', 88.88, 'MANUEL', 'THETA LAB', let='E'); pay(day(10, 21), 'FTHETA', 'THETA LAB', 88.88, 'VIR THETA', let='E')
-inv(day(10, 9), 'FTHETA', 'THETA LAB', 88.88, 'TL-20261009', 'THETA LAB', let='F'); pay(day(10, 22), 'FTHETA', 'THETA LAB', 88.88, 'VIR THETA', let='F')
+for j, a in ((3, 64.20), (12, 31.40), (19, 77.05)): inv(day(8, j), 'FTHETA', 'THETA LAB', a, f'TL-202608{j:02d}', 'THETA LAB')
+inv(day(10, 9), 'FTHETA', 'THETA LAB', 88.88, 'MANUEL', 'THETA LAB REPARATION FRIGO', let='E'); pay(day(10, 21), 'FTHETA', 'THETA LAB', 88.88, 'VIR THETA', let='E')
+inv(day(10, 9), 'FTHETA', 'THETA LAB', 88.88, 'TL-20261009', 'THETA LAB REPARATION FRIGO', let='F'); pay(day(10, 22), 'FTHETA', 'THETA LAB', 88.88, 'VIR THETA', let='F')
+# Même chose mais libellés réduits au nom du fournisseur : deux factures réglées, rien à signaler
+inv(day(8, 4), 'FLAMBDA', 'LAMBDA SANTE', 70.10, 'LS-20260804', 'LAMBDA SANTE')
+inv(day(10, 13), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'LS-20261013', 'LAMBDA SANTE', let='G'); pay(day(10, 23), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'VIR LAMBDA', let='G')
+inv(day(10, 13), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'LS-20261014', 'LAMBDA SANTE', let='H'); pay(day(10, 24), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'VIR LAMBDA', let='H')
 # N° saisi en partie (début du n°, une seule facture du fournisseur) : probable
 inv(day(10, 10), 'FIOTA', 'IOTA PHARMA', 150.00, '7121777368', 'IOTA PHARMA'); inv(day(10, 12), 'FIOTA', 'IOTA PHARMA', 150.00, '71217', 'IOTA PHARMA')
 # --- Pas des doublons ---
