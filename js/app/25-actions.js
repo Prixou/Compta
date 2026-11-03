@@ -345,6 +345,7 @@ const actions = {
   'social-sug': (el) => socAction('sug', el),
   'social-add': (el) => socAction('add', el),
   'social-back': (el) => socAction('back', el),
+  'spino-tap': () => spinoTap(),
   'social-from-fec': () => socFromFec(),
   'immo-etat-pick': async () => { const f = await pickFile('.pdf,application/pdf', true); if (f) immoEtatLoad(f); },
   'immo-etat-text': (el) => immoEtatLoad(null, el.closest('.ie').querySelector('[data-ie-text]').value),
@@ -562,6 +563,15 @@ const actions = {
     renderSetup();
   },
 };
+
+// Œuf de Pâques : « spino » tapé hors d'un champ (voir toggleSpino)
+let spinoKeys = '';
+document.addEventListener('keydown', (e) => {
+  if (!data || e.ctrlKey || e.metaKey || e.altKey || !e.key || e.key.length !== 1) return;
+  if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+  spinoKeys = (spinoKeys + e.key.toLowerCase()).slice(-5);
+  if (spinoKeys === 'spino') { spinoKeys = ''; toggleSpino(); }
+});
 
 document.addEventListener('click', (e) => {
   const pop = $('#grille-pop');
