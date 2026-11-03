@@ -747,24 +747,24 @@ function analyse(buffer, fileName, until, docs) {
       // Règlement : écriture hors journaux d'achats et de ventes (banque, caisse, OD, effets…) ; compte lettré : aussi
       // l'à-nouveau détaillé d'un règlement de l'exercice précédent resté non lettré (sens du règlement ; une facture
       // antérieure est dans l'autre sens), sauf s'il vient d'un journal d'achats ou de ventes (avoir), d'après le journal
-      // d'origine cité dans son libellé (« 30/09/2025 -HA- … »)
+      // d'origine cité dans son libellé (« 30/09/2025 -HA- … »). Compte non lettré : l'à-nouveau détaillé (journal d'origine
+      // cité) d'un règlement est aussi retenu, puis rapproché des factures comme les autres règlements.
       const jAn = isAn && /(?:^|\s)-([A-Z0-9]{1,8})-(?:\s|$)/i.exec(lib || '');
       const anFact = jAn && (factJ.has(jAn[1]) || RE_FACT_CODE.test(jAn[1]));
       items.push({ date, amt, lib, an: isAn, mode: isAn ? payMode(lib, null, jAn ? jAn[1] : '') : en ? payMode(lib, en) : '',
-        bank: isAn ? lettered && amt < 0 && !anFact : !!(en && !factJ.has(en.jc)) });
+        bank: isAn ? (lettered || !!jAn) && amt < 0 && !anFact : !!(en && !factJ.has(en.jc)) });
     });
     const pays = items.filter((x) => x.amt < 0 && x.bank).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     if (!pays.length) return;
     // Compte lettré : le lettrage fait foi, chaque règlement non lettré est sans facture (pas de rapprochement avec les
     // factures non lettrées, qui sont des factures à payer)
+    // À-nouveau détaillé (« 30/09/2025 -EFF- CSP ») : date du règlement d'origine (dateOp) et libellé sans date ni journal
+    const anDetail = (u, pm) => {
+      const m = pm.an && /^\s*(\d{2})\/(\d{2})\/(\d{4})\s*-[A-Z0-9]{1,8}-\s*(.*)$/i.exec(pm.lib || '');
+      return m ? Object.assign(u, { dateOp: `${m[3]}-${m[2]}-${m[1]}`, label: m[4].slice(0, 60) || u.label }) : u;
+    };
     if (lettered) {
-      pays.forEach((pm) => {
-        const u = { racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(-pm.amt), brut: round2(-pm.amt), label: String(pm.lib || '').slice(0, 60), mode: pm.mode };
-        // À-nouveau détaillé (« 30/09/2025 -EFF- CSP ») : date du règlement d'origine (dateOp) et libellé sans date ni journal
-        const m = pm.an && /^\s*(\d{2})\/(\d{2})\/(\d{4})\s*-[A-Z0-9]{1,8}-\s*(.*)$/i.exec(pm.lib || '');
-        if (m) Object.assign(u, { dateOp: `${m[3]}-${m[2]}-${m[1]}`, label: m[4].slice(0, 60) || u.label });
-        unmatched.push(u);
-      });
+      pays.forEach((pm) => unmatched.push(anDetail({ racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(-pm.amt), brut: round2(-pm.amt), label: String(pm.lib || '').slice(0, 60), mode: pm.mode }, pm)));
       return;
     }
     const invs = items.filter((x) => x.amt > 0).map((x) => ({ date: x.date, rest: x.amt })).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -796,7 +796,7 @@ function analyse(buffer, fileName, until, docs) {
         a -= take;
       }
       // amt : part non couverte par une facture ; brut : montant du paiement
-      if (a >= 0.01) unmatched.push({ racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(a), brut: round2(-pm.amt), label: String(pm.lib || '').slice(0, 60), mode: pm.mode });
+      if (a >= 0.01) unmatched.push(anDetail({ racine: t.racine, num: t.num, lib: t.lib, date: pm.date, amt: round2(a), brut: round2(-pm.amt), label: String(pm.lib || '').slice(0, 60), mode: pm.mode }, pm));
     });
   });
   trunc.unm = keepRecent(unmatched, 5000);
