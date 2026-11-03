@@ -1414,7 +1414,8 @@ function findDoublons(list, entries, aux) {
     // N° présents des deux côtés et différents (n° de facture, ou n° de pièce de même nature : deux n° internes, ou deux
     // n° de fournisseur) : facteur principal, le doublon reste possible (faute de saisie) mais n'est jamais très probable
     const pieceDiff = !!a.piece && !!b.piece && !!a.pint === !!b.pint && dupPiece(a.piece) !== dupPiece(b.piece);
-    const numDiff = !same && ((a.toks.size > 0 && b.toks.size > 0) || pieceDiff);
+    const tokConflict = !same && a.toks.size > 0 && b.toks.size > 0; // deux n° de facture du fournisseur différents
+    const numDiff = tokConflict || (!same && pieceDiff);
     const C = a.sup === b.sup;
     const D = Math.abs(daysBetween(a.dd, b.dd)) <= DUP_DAYS;
     // Libellé : vérification stricte, le nom du fournisseur ne compte jamais. Même compte : mots propres à ces deux factures
@@ -1432,7 +1433,8 @@ function findDoublons(list, entries, aux) {
     const score = M + N + C + D + L;
     // N° différents et pièces toutes deux lettrées (payées, ensemble ou chacune) : deux factures réglées, sauf même jour (3 jours
     // au plus), même montant et même libellé (n° mal saisi, facture d'abord saisie à la main puis reçue) : probable
-    if (score < 3 || !(M || N) || (numDiff && a.let && b.let && !(D && M && L))) return;
+    // Deux n° de facture du fournisseur différents (ni saisis en partie) : deux factures, pas un doublon
+    if (score < 3 || !(M || N) || tokConflict || (numDiff && a.let && b.let && !(D && M && L))) return;
     let note = '';
     if (M && C && !N && months.get(a.sup + '|' + a.cents).size >= 3) {
       if (a.ym !== b.ym) return; // facture mensuelle habituelle
@@ -1445,6 +1447,8 @@ function findDoublons(list, entries, aux) {
       copies.add(a.i); copies.add(b.i);
       return;
     }
+    // Pièces sans n° commun lettrées ensemble (même lettrage) : rapprochées volontairement au cabinet, pas un doublon
+    if (!same && a.let && a.let === b.let) return;
     // Déjà annulé : avoir du même montant sur l'un des comptes, daté au plus tôt de la première facture
     const first = a.dd < b.dd ? a.dd : b.dd;
     if (recs.some((x) => (x.sup === a.sup || x.sup === b.sup) && x.cents === -a.cents && x.dd >= first)) { fixed++; return; }
