@@ -94,8 +94,11 @@ for pc, lb in (('35733', 'FRANCOIS BABAU- CHQ 9436262'), ('-35734', 'FRANCOIS BA
 # Montants à 5 centimes près (arrondi), même n° : très probable
 inv(day(6, 8), 'FRHO', 'RHO MEDICAL', 512.40, 'RH-5512', 'RHO MEDICAL'); inv(day(6, 9), 'FRHO', 'RHO MEDICAL', 512.45, 'RH-5512', 'RHO MEDICAL')
 # N° de pièce GED différents, même n° de facture dans les libellés, même montant, même jour : liées (très probable)
+# Même n° dans les libellés mais n° de pièce présents et différents : le n° du libellé n'est pas pris, probable
 inv(day(5, 18), 'FEPSI', 'LABO EPSILON', 146.00, 'B000009301', 'LABO EPSILON 2026-22-00319 29.06', jc='AC', jl='ACHATS GED')
 inv(day(5, 18), 'FEPSI', 'LABO EPSILON', 146.00, 'B000009302', 'LABO EPSILON 2026-22-00319 29.06', jc='AC', jl='ACHATS GED')
+# Écriture sans n° de pièce : son n° est lu dans le libellé, le même que le n° de pièce de l'autre : très probable
+inv(day(11, 3), 'FSIGMA', 'SIGMA LAB', 184.30, 'S2609170', 'SIGMA LAB'); inv(day(11, 10), 'FSIGMA', 'SIGMA LAB', 184.30, '', 'SIGMA LAB FACT S2609170')
 # --- Pas des doublons ---
 inv(day(4, 4), *GRS, 899.00, 'OC77812', 'REPARTITEUR'); inv(day(4, 6), *GRS, 899.00, 'OC77812', 'REPARTITEUR')
 inv(day(4, 30), *GRS, -899.00, 'OC77812', 'ANNULATION DOUBLON OC77812')                                   # déjà annulé

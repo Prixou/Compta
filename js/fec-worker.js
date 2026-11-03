@@ -1345,12 +1345,18 @@ function findDoublons(list, entries, aux) {
   });
   recs.forEach((x) => {
     x.pint = internal.has(x.jc) && internal.get(x.jc)[0] === x.piece.replace(/\d/g, '9') ? x.piece : '';
-    x.toks = dupTokens(x.lib, x.pint ? '' : x.piece);
+    // N° de l'écriture : celui du n° de pièce s'il y en a un (le n° interne B000… est comparé à part), celui du libellé
+    // seulement sans n° de pièce (link) ; tous les n° (pièce et libellé) servent à reconnaître deux factures différentes (toks)
+    const own = dupTokens(x.num); // n° interne de l'écriture
+    const drop = (set) => { own.forEach((t) => set.delete(t)); return set; };
+    x.ptoks = drop(x.pint ? new Set() : dupTokens(x.piece));
+    x.ltoks = drop(dupTokens(x.lib));
+    x.toks = new Set([...x.ptoks, ...x.ltoks]);
+    x.nsrc = x.piece ? (x.pint ? '' : x.piece) : x.lib;
     x.orig = new Map();
-    [x.lib, x.pint ? '' : x.piece].forEach((t) => (dupNumText(t).match(/[A-Za-z]*\d[\w./-]*/g) || []).forEach((m) => dupTokens(m).forEach((k) => { if (!x.orig.has(k)) x.orig.set(k, m); })));
-    dupTokens(x.num).forEach((t) => x.toks.delete(t)); // n° interne de l'écriture
+    [x.nsrc].forEach((t) => (dupNumText(t).match(/[A-Za-z]*\d[\w./-]*/g) || []).forEach((m) => dupTokens(m).forEach((k) => { if (!x.orig.has(k)) x.orig.set(k, m); })));
     // Suites de chiffres telles que saisies (zéros compris, sans les dates) : n° saisi à moitié
-    x.digs = (dupNumText(`${x.lib} ${x.pint ? '' : x.piece}`).match(/\d{5,}/g) || []).filter((g) => g !== String(x.num));
+    x.digs = (dupNumText(x.nsrc).match(/\d{5,}/g) || []).filter((g) => g !== String(x.num));
   });
   // Références qui reviennent (n° de contrat, code postal, n° de carte…) : pas des n° de facture
   const tokRecs = new Map(), tokMonths = new Map();
@@ -1359,7 +1365,11 @@ function findDoublons(list, entries, aux) {
     const k = x.sup + '|' + t;
     (tokMonths.get(k) || tokMonths.set(k, new Set()).get(k)).add(x.ym);
   }));
-  recs.forEach((x) => { x.toks = new Set(Array.from(x.toks).filter((t) => tokRecs.get(t) <= 3 && tokMonths.get(x.sup + '|' + t).size < 3)); });
+  recs.forEach((x) => {
+    const keep = (set) => new Set(Array.from(set).filter((t) => tokRecs.get(t) <= 3 && tokMonths.get(x.sup + '|' + t).size < 3));
+    [x.toks, x.ptoks, x.ltoks] = [keep(x.toks), keep(x.ptoks), keep(x.ltoks)];
+    x.link = x.piece ? x.ptoks : x.ltoks;
+  });
   const digRecs = new Map();
   recs.forEach((x) => new Set(x.digs).forEach((g) => digRecs.set(g, (digRecs.get(g) || 0) + 1)));
   recs.forEach((x) => { x.digs = x.digs.filter((g) => digRecs.get(g) <= 3); });
@@ -1418,9 +1428,11 @@ function findDoublons(list, entries, aux) {
     // (n° saisi en partie : le plus court est la fin du plus long, chiffres à la suite, 5 au moins, et ne désigne qu'une
     // facture du fournisseur ; jamais très probable ; le début seul d'un n° ne suffit pas)
     const part = (x, y, sup) => y.length > x.length && y.endsWith(x) && uniq(sup, x);
-    // Le n° de facture prime sur le n° de pièce : même n° de facture (pièce ou libellé), même avec des n° de pièce différents
-    const shared = Array.from(a.toks).find((t) => b.toks.has(t));
+    // Même n° : n° de pièce de chacune, ou n° du libellé pour une écriture sans n° de pièce ; un n° commun quelconque
+    // (libellés compris) écarte seulement l'hypothèse de deux factures différentes
+    const shared = Array.from(a.link).find((t) => b.link.has(t));
     const tokShared = !!shared;
+    const anyShared = Array.from(a.toks).some((t) => b.toks.has(t));
     const full = tokShared || (!!a.pint && a.pint === b.pint);
     const partDig = full ? null : a.digs.find((x) => b.digs.some((y) => part(x, y, b.sup))) || b.digs.find((y) => a.digs.some((x) => part(y, x, a.sup)));
     const partial = !!partDig;
@@ -1431,7 +1443,7 @@ function findDoublons(list, entries, aux) {
     // N° présents des deux côtés et différents (n° de facture, ou n° de pièce de même nature : deux n° internes, ou deux
     // n° de fournisseur) : facteur principal, le doublon reste possible (faute de saisie) mais n'est jamais très probable
     const pieceDiff = !!a.piece && !!b.piece && !!a.pint === !!b.pint && dupPiece(a.piece) !== dupPiece(b.piece);
-    const tokConflict = !same && !tokShared && a.toks.size > 0 && b.toks.size > 0; // deux n° de facture du fournisseur différents
+    const tokConflict = !same && !anyShared && a.toks.size > 0 && b.toks.size > 0; // deux n° de facture du fournisseur différents
     const numDiff = tokConflict || (!same && pieceDiff);
     const C = a.sup === b.sup;
     const D = Math.abs(daysBetween(a.dd, b.dd)) <= DUP_DAYS;
