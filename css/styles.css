@@ -175,6 +175,9 @@ legend { font-weight: 700; font-size: .85rem; padding: 0 .35rem; }
 .nav { display: flex; flex-direction: column; gap: .2rem; }
 .sidebar { overflow-y: auto; }
 .nav a { display: flex; align-items: center; gap: .7rem; padding: .5rem .7rem; border-radius: 10px; color: inherit; text-decoration: none; font-weight: 600; }
+/* Œuf de Pâques de la version 100 : curseur spinosaure (pointe = bout du museau), champs de saisie inchangés */
+.spino, .spino * { cursor: url("../icons/spinosaure.svg") 1 10, auto !important; }
+.spino input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), .spino textarea, .spino [contenteditable] { cursor: text !important; }
 .nav-group { margin: .8rem .7rem .2rem; font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #a3b8d2; }
 .nav a:hover { background: rgba(255, 255, 255, .08); }
 .nav a.active { background: rgba(255, 255, 255, .16); color: #fff; }

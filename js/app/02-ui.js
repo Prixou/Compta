@@ -138,7 +138,7 @@ function renderShell() {
       <aside class="sidebar">
         <div class="brand">
           ${icon('shield')}
-          <div><strong>Suivi Dossiers</strong><small>${esc(data.settings.cabinet || 'Cabinet')} · v${ASSET_VERSION}</small></div>
+          <div><strong>Suivi Dossiers</strong><small>${esc(data.settings.cabinet || 'Cabinet')} · <span data-action="spino-tap">v${ASSET_VERSION}</span></small></div>
         </div>
         <nav class="nav">
           <a href="#/tableau" data-nav="tableau">${icon('home')}<span>Tableau de bord</span></a>
@@ -173,6 +173,24 @@ function renderShell() {
       </header>
       <main id="main" tabindex="-1"></main>
     </div>`;
+}
+
+// Œuf de Pâques de la version 100 : un spinosaure à la place du curseur. Il arrive en tapant « spino » hors d'un champ
+// ou en cliquant cinq fois de suite sur le numéro de version, et repart par le même geste ; le choix est retenu.
+function applySpino() {
+  document.documentElement.classList.toggle('spino', !!(data && data.settings.spino));
+}
+function toggleSpino() {
+  data.settings.spino = !data.settings.spino;
+  persist();
+  applySpino();
+  toast(data.settings.spino ? 'Un spinosaure veille désormais sur vos dossiers. Tapez « spino » pour le renvoyer au Crétacé.' : 'Le spinosaure est reparti au Crétacé.');
+}
+let spinoTaps = [];
+function spinoTap() {
+  const now = Date.now();
+  spinoTaps = spinoTaps.filter((t) => now - t < 2000).concat(now);
+  if (spinoTaps.length >= 5) { spinoTaps = []; toggleSpino(); }
 }
 
 // Volets repliables des pages d'outils (data-keep) : état ouvert ou fermé gardé d'un affichage à l'autre, le temps de la session.
@@ -234,6 +252,7 @@ function route() {
     default: main.innerHTML = viewDashboard();
   }
   applyWidths(main);
+  applySpino();
   if (view === 'dossier' ? clientById(parts[1]) : true) noteRecent(view, parts[1]);
 }
 
