@@ -35,8 +35,8 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   const live = G.filter((g) => !g.head.includes('Rétablir'));
   const find = (re) => live.find((g) => g.rows.some((t) => re.test(t)));
   expect(await tabTxt() === 'Doublons (12)', 'onglet « Doublons » de Révision A–K, avec le nombre de groupes', await tabTxt());
-  expect(live.filter((g) => g.fort).length === 6 && live.filter((g) => !g.fort).length === 6, '6 doublons très probables, 6 probables');
-  expect(find(/IOTA PHARMA/) && find(/IOTA PHARMA/).fort, 'n° de facture saisi à moitié (l\'un contient l\'autre) : même facture, très probable');
+  expect(live.filter((g) => g.fort).length === 5 && live.filter((g) => !g.fort).length === 7, '5 doublons très probables, 7 probables');
+  expect(find(/IOTA PHARMA/) && !find(/IOTA PHARMA/).fort && /n° saisi en partie/.test(find(/IOTA PHARMA/).head), 'n° de facture saisi en partie (début ou fin du n°, une seule facture) : probable, jamais très probable');
   expect(find(/THETA LAB/) && !find(/THETA LAB/).fort, 'n° différents, toutes deux lettrées, même jour, même montant, libellé proche : probable');
   const ex = find(/GROSSISTE NORD.*1 234,56/);
   expect(ex && ex.fort && /4\/5/.test(ex.head) && ex.rows.some((t) => /^à garder/.test(t)) && ex.rows.some((t) => /^à annuler \?/.test(t)), 'facture saisie deux fois le même jour : très probable, une à garder, une à annuler');
@@ -79,11 +79,11 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   // 4. Cycle C, écritures d'annulation, contrôle du mois
   await fecTab(p, 'achats', 200);
   const c = await p.textContent('.fec-check:has(strong:text("Factures fournisseurs en double"))');
-  expect(/6 doublon\(s\) très probable\(s\) et 6 probable\(s\)/.test(c) && /onglet « Doublons »/.test(c), 'cycle C : contrôle « Factures fournisseurs en double » repris de l\'onglet', c.replace(/\s+/g, ' ').slice(0, 160));
+  expect(/5 doublon\(s\) très probable\(s\) et 7 probable\(s\)/.test(c) && /onglet « Doublons »/.test(c), 'cycle C : contrôle « Factures fournisseurs en double » repris de l\'onglet', c.replace(/\s+/g, ' ').slice(0, 160));
   expect(!(await p.$('.fec-check:has(strong:text("même montant à quelques jours"))')), 'ancien contrôle « même montant à quelques jours d\'intervalle » remplacé');
   await fecTab(p, 'ecritures', 200);
   const ecr = await p.$$eval('input[data-ecr-sel^="dup:"]', (l) => l.length);
-  expect(ecr === 6, 'écritures : une annulation par copie d\'un doublon très probable', ecr);
+  expect(ecr === 5, 'écritures : une annulation par copie d\'un doublon très probable', ecr);
   await fecTab(p, 'mois-saisie', 0); await fecMonth(p, '2026-03');
   const m = await p.textContent('.fec-check:has(strong:text("Factures fournisseurs en double"))');
   expect(/^\s*Factures fournisseurs en double\s*2 doublon\(s\) dont une copie est saisie dans le mois \(2 très probable\(s\)\)/.test(m.replace(/\s+/g, ' ')) || /2 doublon\(s\) dont une copie est saisie dans le mois \(2 très probable\(s\)\)/.test(m), 'contrôle de saisie de mars : 2 doublons dont la copie est saisie dans le mois', m.replace(/\s+/g, ' ').slice(0, 160));

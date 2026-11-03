@@ -1356,6 +1356,11 @@ function findDoublons(list, entries, aux) {
   const digRecs = new Map();
   recs.forEach((x) => new Set(x.digs).forEach((g) => digRecs.set(g, (digRecs.get(g) || 0) + 1)));
   recs.forEach((x) => { x.digs = x.digs.filter((g) => digRecs.get(g) <= 3); });
+  // N° de chaque compte : un n° saisi en partie n'est retenu que s'il désigne une seule facture du fournisseur (pas le début
+  // commun d'une série, « FA202610 » pour toutes les factures d'octobre)
+  const supDigs = new Map();
+  recs.forEach((x) => x.digs.forEach((g) => (supDigs.get(x.sup) || supDigs.set(x.sup, new Set()).get(x.sup)).add(g)));
+  const uniq = (sup, short) => Array.from(supDigs.get(sup) || []).filter((g) => g !== short && (g.startsWith(short) || g.endsWith(short))).length === 1;
   // Factures mensuelles d'un même montant dans le compte (3 mois ou plus)
   const months = new Map();
   recs.forEach((x) => { const k = x.sup + '|' + x.cents; (months.get(k) || months.set(k, new Set()).get(k)).add(x.ym); });
@@ -1399,10 +1404,12 @@ function findDoublons(list, entries, aux) {
     if ((a.amt > 0) !== (b.amt > 0)) return; // facture et avoir
     const M = a.cents === b.cents;
     // Même n° de facture, ou même pièce interne ; même n° mais montants sans rapport : n° de relevé ou de commande commun
-    // (n° saisi à moitié : le plus court est le début ou la fin du plus long, chiffres à la suite, 5 au moins)
-    const part = (x, y) => y.length > x.length && (y.startsWith(x) || y.endsWith(x));
-    const same = Array.from(a.toks).some((t) => b.toks.has(t)) || (!!a.pint && a.pint === b.pint)
-      || a.digs.some((x) => b.digs.some((y) => part(x, y) || part(y, x)));
+    // (n° saisi en partie : le plus court est le début ou la fin du plus long, chiffres à la suite, 5 au moins, et ne désigne
+    // qu'une facture du fournisseur ; jamais très probable)
+    const part = (x, y, sup) => y.length > x.length && (y.startsWith(x) || y.endsWith(x)) && uniq(sup, x);
+    const full = Array.from(a.toks).some((t) => b.toks.has(t)) || (!!a.pint && a.pint === b.pint);
+    const partial = !full && a.digs.some((x) => b.digs.some((y) => part(x, y, b.sup) || part(y, x, a.sup)));
+    const same = full || partial;
     const N = same && (M || dupTypo(a.cents, b.cents));
     // N° présents des deux côtés et différents (n° de facture, ou n° de pièce de même nature : deux n° internes, ou deux
     // n° de fournisseur) : facteur principal, le doublon reste possible (faute de saisie) mais n'est jamais très probable
@@ -1440,8 +1447,8 @@ function findDoublons(list, entries, aux) {
     if (recs.some((x) => (x.sup === a.sup || x.sup === b.sup) && x.cents === -a.cents && x.dd >= first)) { fixed++; return; }
     // Original lettré avec son règlement et copie non lettrée, même jour et même montant : très probable
     const unpaidCopy = D && M && C && ((paid(a) && !b.let) || (paid(b) && !a.let));
-    found.push({ a, b, score, note: [note, numDiff ? 'n° de pièce ou de facture différents' : ''].filter(Boolean).join(' · '), crit: [D, N, M, L, C].map((v) => (v ? 1 : 0)).join(''),
-      fort: !numDiff && (score >= 4 || (M && N) || unpaidCopy) });
+    found.push({ a, b, score, note: [note, numDiff ? 'n° de pièce ou de facture différents' : '', partial ? 'n° saisi en partie' : ''].filter(Boolean).join(' · '),
+      crit: [D, N, M, L, C].map((v) => (v ? 1 : 0)).join(''), fort: !numDiff && !partial && (score >= 4 || (M && N) || unpaidCopy) });
   });
   // Groupes (doublons en plusieurs exemplaires) ; pièce à garder : la lettrée, sinon la première saisie
   const parent = new Map();
