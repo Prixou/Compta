@@ -8,7 +8,7 @@
 // Analyse de FEC
 // ---------------------------------------------------------------------------
 
-const ASSET_VERSION = '108';
+const ASSET_VERSION = '109';
 let fecWorker = null;
 
 const eur = (n, dec) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: dec === 0 ? 0 : 2, maximumFractionDigits: dec === 0 ? 0 : 2 });
@@ -137,7 +137,7 @@ function setFecProfile(p) {
 
 // Espace FEC : tout ce qui s'appuie sur le FEC, en onglets (f.space) et sous-onglets (f.section). Les cycles A à K sont
 // des sous-onglets de « Révision A–K » (barre des cycles sous les sous-onglets).
-const FEC_GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', doublons: 'revision', pieces: 'revision', revue: 'revision',
+const FEC_GROUP_OF = { synthese: 'synthese', tp: 'officine', catva: 'officine', cycles: 'revision', ecritures: 'revision', doublons: 'revision', justifs: 'revision', pieces: 'revision', revue: 'revision',
   'mois-pieces': 'mois', 'mois-ventes': 'mois', 'mois-saisie': 'mois', rappro: 'banque', brap: 'banque', lettrage: 'lettrage', lcr: 'lettrage', paie: 'paie', 'immo-etat': 'immos',
   tvarev: 'tva', tva: 'tva', graphes: 'consult', sig: 'consult', balance: 'consult', details: 'consult', conformite: 'consult' };
 const groupOf = (tab) => (CYCLE_DEF[tab] ? 'revision' : FEC_GROUP_OF[tab] || 'synthese');
@@ -162,11 +162,11 @@ const isZip = (file) => /\.zip$/i.test(file.name || '') || /zip/.test(file.type 
 async function fecSource(file) {
   if (!isZip(file)) return { buffer: await file.arrayBuffer(), name: file.name, docs: null };
   const a = await ArchiveReader.read(file);
-  return { buffer: a.fec.buffer, name: a.fec.name, docs: a.docs.map((d) => ({ base: d.base })), archive: file.name };
+  return { buffer: a.fec.buffer, name: a.fec.name, docs: a.docs.map((d) => ({ base: d.base })), archive: file.name, source: a.fec.source };
 }
 
 function runFecWorker(file, st, onDone, until) {
-  fecSource(file).then(({ buffer, name, docs, archive }) => {
+  fecSource(file).then(({ buffer, name, docs, archive, source }) => {
     fecWorker = new Worker('js/fec-worker.js?v=' + ASSET_VERSION);
     fecWorker.onmessage = (e) => {
       const m = e.data;
@@ -182,7 +182,7 @@ function runFecWorker(file, st, onDone, until) {
       }
       fecWorker.terminate();
       fecWorker = null;
-      if (m.type === 'done' && archive) m.result.meta.archive = archive;
+      if (m.type === 'done' && archive) Object.assign(m.result.meta, { archive, archiveSrc: source || '' });
       if (onDone) return onDone(m.type === 'done' ? m.result : null, m.type === 'error' ? m.message : '');
       if (m.type === 'error') Object.assign(st, { status: 'error', message: m.message });
       else {
@@ -366,7 +366,7 @@ function viewFec() {
     ...(pharma ? [['officine', 'Officine', () => [['tp', 'Tiers payant'], ['catva', 'CA & TVA']]]] : []),
     ['revision', cnt('Révision A–K', cc ? Object.keys(CYCLE_DEF).reduce((t, k) => t + wpProgress(k, cc[k]).left, 0) : 0), (a) => [
       ...(cc ? [['cycles', 'Cycles A à K']] : []),
-      ...(r.cycles ? [['ecritures', cnt('Écritures', a ? ecrProposals(r).filter((p) => p.on).length : 0)], ['doublons', cnt('Doublons', a ? doublonsCount(r) : 0)]] : []),
+      ...(r.cycles ? [['ecritures', cnt('Écritures', a ? ecrProposals(r).filter((p) => p.on).length : 0)], ['doublons', cnt('Doublons', a ? doublonsCount(r) : 0)], ['justifs', cnt('Justificatifs des charges', a ? chgCount(r) : 0)]] : []),
       ['pieces', cnt('Pièces à demander', a && r.pieces ? piecesCount(r, piecesState().mode, piecesState().arrete) : 0)], ['revue', 'Revue N / N-1']]],
     ['mois', 'Mois', (a) => {
       const ym = a ? fecMonth() : '';
@@ -451,6 +451,8 @@ function viewFec() {
     body = viewEcritures();
   } else if (f.section === 'doublons') {
     body = viewDoublons(r);
+  } else if (f.section === 'justifs') {
+    body = viewChgDocs(r);
   } else if (inCycle) {
     body = viewCycle(f.section);
   } else if (f.section === 'tva') {

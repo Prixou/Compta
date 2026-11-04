@@ -350,6 +350,7 @@ const actions = {
   'immo-etat-pick': async () => { const f = await pickFile('.pdf,application/pdf', true); if (f) immoEtatLoad(f); },
   'immo-etat-text': (el) => immoEtatLoad(null, el.closest('.ie').querySelector('[data-ie-text]').value),
   'immo-etat-copy': (el) => immoEtatCopy(el.dataset.what),
+  'chg-copy': () => chgCopy(),
   'tns-profil': (el) => tnsProfil(el.dataset.p),
   'tns-print': () => tnsPrint(),
   'tns-clear': () => tnsClear(),
@@ -784,6 +785,17 @@ document.addEventListener('change', (e) => {
   } else if ('piecesSeuil' in t.dataset && ui.fec) {
     // Officine : paiements fournisseurs sous le montant choisi enlevés de la demande mensuelle (choix conservé dans le dossier)
     piecesPrefs().piecesSeuil100 = t.checked;
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
+  } else if (t.dataset.chgAcc && ui.fec) {
+    // Justificatifs des charges : pièce attendue ou non pour ce compte (choix conservé dans le dossier)
+    const o = piecesPrefs();
+    o.chgAcc = Object.assign({}, o.chgAcc, { [t.dataset.chgAcc]: t.checked });
+    if (clientById(ui.fec.clientId)) persist();
+    refresh();
+  } else if ('chgSeuil' in t.dataset && ui.fec) {
+    // Justificatifs des charges : montant sous lequel les écritures ne sont pas listées (choix conservé dans le dossier)
+    piecesPrefs().chgSeuil = Math.max(0, Math.round(Number(t.value) || 0));
     if (clientById(ui.fec.clientId)) persist();
     refresh();
   } else if ('piecesJustif' in t.dataset && ui.fec) {

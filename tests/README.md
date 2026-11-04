@@ -35,6 +35,10 @@ node tests/run.js tva imput    # seulement les suites dont le nom contient « tv
   compte BNC ignoré, fournisseur à échéance M+1, règlement de douze factures, factures non consécutives (combinaison unique,
   ambiguë ou trop espacée), deux factures pour deux règlements, avoirs dans les lots et au compte d'attente) et les résultats attendus, pour la page « Lettrage »
   (`suites/lettrage-test.js`).
+  `genjustifs.py` produit une archive « FEC + pièces jointes » au modèle de l'export Pennylane (`fixtures/justifs/` : FEC
+  officiel, FEC secondaire avec `NomOriginalDeLaPieceJointe` et `NomActuelDeLaPieceJointe`, dossier « Pièces jointes » ;
+  comptabilité de trésorerie d'un libéral) et le FEC seul, résultats attendus en tête du script, pour l'onglet
+  « Justificatifs des charges » (`suites/justifs-test.js`).
   `genbanques.py` produit des relevés inventés aux mises en page des principales banques (`fixtures/banques/` : dix PDF
   lus par les en-têtes ou par les colonnes déduites, CSV de banques en ligne, QIF, MT940, CAMT.052) et les résultats
   attendus, pour `suites/banques-test.js`.
