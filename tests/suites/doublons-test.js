@@ -34,8 +34,8 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   console.log('=== DOUBLONS\n' + G.map((g) => `${g.head}\n   ${g.rows.join('\n   ')}`).join('\n'));
   const live = G.filter((g) => !g.head.includes('Rétablir'));
   const find = (re) => live.find((g) => g.rows.some((t) => re.test(t)));
-  expect(await tabTxt() === 'Doublons (14)', 'onglet « Doublons » de Révision A–K, avec le nombre de groupes', await tabTxt());
-  expect(live.filter((g) => g.fort).length === 8 && live.filter((g) => !g.fort).length === 6, '8 doublons très probables, 6 probables');
+  expect(await tabTxt() === 'Doublons (13)', 'onglet « Doublons » de Révision A–K, avec le nombre de groupes', await tabTxt());
+  expect(live.filter((g) => g.fort).length === 8 && live.filter((g) => !g.fort).length === 5, '8 doublons très probables, 5 probables');
   const chq = find(/CHQ 928992/);
   expect(chq && chq.fort && /Libellé ✔/.test(chq.head), 'libellés identiques à l\'espace et au tiret près (« FOURNISSEUR- CHQ 928992 ») : même libellé', chq && chq.head);
   expect(!find(/DESGARDIN/) && !find(/BABAU/), 'n° de chèque dans le libellé : pas un n° de facture ; n° de pièce 26.05.215 et 26.04.215 (ni des dates) différents : pas des doublons');
@@ -60,7 +60,7 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   expect(loyer && !loyer.fort && /^\d+\. Probable/.test(loyer.head) && /facture mensuelle saisie deux fois le même mois/.test(loyer.head) && loyer.rows.length === 2, 'loyer mensuel saisi deux fois en juin : probable (les autres mois ne sont pas des doublons)');
   expect(!find(/1 126,22/), 'même n° mais montants à plus de 10 centimes d\'écart (1 162,22 et 1 126,22) : pas comparées');
   expect(find(/RHO MEDICAL/) && find(/RHO MEDICAL/).fort, 'même n°, montants à 5 centimes près (512,40 et 512,45) : très probable');
-  expect(find(/DELTA DERMO/) && !find(/DELTA DERMO/).fort, 'même facture sans n°, même montant à un jour d\'écart : probable');
+  expect(!find(/DELTA DERMO/) && !find(/NU MEDICAL/), 'sans n° de facture commun : même date et montant au centime près exigés (un jour d\'écart, ou 5 centimes d\'écart : pas un doublon)');
   const kappa = find(/KAPPA SANTE/), eps = find(/55,55/);
   expect(kappa && !kappa.fort && /n° de pièce ou de facture différents/.test(kappa.head), 'même date, même montant, même compte mais n° de pièce différents : probable, jamais très probable (même si l\'une est payée)', kappa && kappa.head);
   expect(!eps, 'deux n° de facture du fournisseur différents : deux factures, pas un doublon');
@@ -72,12 +72,12 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   expect(copies.length === 2 && copies.every((t) => /OMEGA SERVICES/.test(t)), 'copies (facture recopiée, chaque exemplaire lettré avec son paiement) : listées à part', copies.length);
 
   // 2. « Pas un doublon » : conservé dans le dossier, rétabli
-  await p.click('.dup-group:has(td:text("DELTA DERMO")) button[data-action=doublon-ecarte]'); await p.waitForTimeout(150);
+  await p.click('.dup-group:has(td:text("KAPPA SANTE")) button[data-action=doublon-ecarte]'); await p.waitForTimeout(150);
   const saved = await p.evaluate(() => Object.keys(clientById(ui.fec.clientId).doublonsEcartes || {}).length);
-  expect(await tabTxt() === 'Doublons (13)' && saved === 1, '« Pas un doublon » : groupe écarté, choix conservé dans le dossier', `${await tabTxt()} ${saved}`);
+  expect(await tabTxt() === 'Doublons (12)' && saved === 1, '« Pas un doublon » : groupe écarté, choix conservé dans le dossier', `${await tabTxt()} ${saved}`);
   await p.click('.pieces-ecartes:has(summary:text("Écartés")) summary');
   await p.click('button[data-action=doublon-retablir]'); await p.waitForTimeout(150);
-  expect(await tabTxt() === 'Doublons (14)' && await p.evaluate(() => !Object.keys(clientById(ui.fec.clientId).doublonsEcartes).length), 'groupe rétabli');
+  expect(await tabTxt() === 'Doublons (13)' && await p.evaluate(() => !Object.keys(clientById(ui.fec.clientId).doublonsEcartes).length), 'groupe rétabli');
 
   // 3. Liste Excel : doublons et copies
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('button[data-action=doublons-xlsx]')]);
@@ -90,7 +90,7 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   // 4. Cycle C, écritures d'annulation, contrôle du mois
   await fecTab(p, 'achats', 200);
   const c = await p.textContent('.fec-check:has(strong:text("Factures fournisseurs en double"))');
-  expect(/8 doublon\(s\) très probable\(s\) et 6 probable\(s\)/.test(c) && /onglet « Doublons »/.test(c), 'cycle C : contrôle « Factures fournisseurs en double » repris de l\'onglet', c.replace(/\s+/g, ' ').slice(0, 160));
+  expect(/8 doublon\(s\) très probable\(s\) et 5 probable\(s\)/.test(c) && /onglet « Doublons »/.test(c), 'cycle C : contrôle « Factures fournisseurs en double » repris de l\'onglet', c.replace(/\s+/g, ' ').slice(0, 160));
   expect(!(await p.$('.fec-check:has(strong:text("même montant à quelques jours"))')), 'ancien contrôle « même montant à quelques jours d\'intervalle » remplacé');
   await fecTab(p, 'ecritures', 200);
   const ecr = await p.$$eval('input[data-ecr-sel^="dup:"]', (l) => l.length);

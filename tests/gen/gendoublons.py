@@ -63,8 +63,8 @@ for m in range(1, 11):
 # --- Doublons très probables ---
 inv(day(3, 12), *GRN, 1234.56, 'FA2601234', 'GROSSISTE'); inv(day(3, 12), *GRN, 1234.56, 'FA2601234', 'GROSSISTE')
 inv(day(2, 2), 'FALPHA', 'LABORATOIRES ALPHA', 638.94, 'F260555', 'LABORATOIRES ALPHA'); inv(day(2, 12), 'FALPHA', 'LABORATOIRES ALPHA', 638.94, 'F260555', 'ALPHA')
-# Libellés identiques à l'espace et au tiret près, n° de chèque : même libellé
-inv(day(3, 5), 'FCHQ', 'FOURNISSEUR', 250.00, '', 'FOURNISSEUR- CHQ 928992'); inv(day(3, 7), 'FCHQ', 'FOURNISSEUR', 250.00, '', 'FOURNISSEUR - CHQ 928992')
+# Sans n° de facture, même jour, libellés identiques à l'espace et au tiret près, n° de chèque : même libellé
+inv(day(3, 5), 'FCHQ', 'FOURNISSEUR', 250.00, '', 'FOURNISSEUR- CHQ 928992'); inv(day(3, 5), 'FCHQ', 'FOURNISSEUR', 250.00, '', 'FOURNISSEUR - CHQ 928992')
 inv(day(8, 7), 'FBETA', 'BETA PHARMA', 597.11, 'INV-778899', 'BETA PHARMA'); inv(day(8, 7), 'FDIVERS', 'FOURNISSEURS DIVERS', 597.11, 'INV-778899', 'BETA PHARMA')
 inv(day(4, 22), 'FEPSI', 'LABO EPSILON', 412.80, 'B000009001', 'LABO EPSILON 920555001', jc='AC', jl='ACHATS GED')
 inv(day(5, 6), 'FEPSI', 'LABO EPSILON', 412.80, 'B000009001', 'LABO EPSILON 920555001', jc='AC', jl='ACHATS GED')
@@ -72,8 +72,10 @@ inv(day(9, 14), 'FZETA', 'ZETA MEDICAL', 210.00, 'Z2609', 'ZETA MEDICAL', let='C
 inv(day(9, 14), 'FZETA', 'ZETA MEDICAL', 210.00, f'B{9500:09d}', 'ZETA MEDICAL 14-09-2026', jc='AC', jl='ACHATS GED')
 # --- À vérifier ---
 inv(day(5, 15), 'FGAMMA', 'GAMMA SANTE', 1162.22, 'CO-445566', 'GAMMA SANTE'); inv(day(5, 15), 'FGAMMA', 'GAMMA SANTE', 1126.22, 'CO-445566', 'GAMMA SANTE')
+# Sans n° de facture, même montant, un jour d'écart : pas un doublon (même date exigée)
 inv(day(6, 16), 'FDELTA', 'DELTA DERMO', 127.14, '', 'DELTA DERMO'); inv(day(6, 17), 'FDELTA', 'DELTA DERMO', 127.14, '', 'DELTA DERMO')
-inv(day(6, 3), 'FSCI', 'SCI EXEMPLE', 1650.00, 'BAIL2024', 'LOYER SCI EXEMPLE')
+# Loyer mensuel saisi deux fois le 1er juin (la référence du bail n'est pas un n° de facture) : probable
+inv(day(6, 1), 'FSCI', 'SCI EXEMPLE', 1650.00, 'BAIL2024', 'LOYER SCI EXEMPLE')
 # Même jour, même montant, même fournisseur, n° de pièce différents (l'une payée) : probable, jamais très probable
 inv(day(10, 6), 'FKAPPA', 'KAPPA SANTE', 345.60, '145', 'KAPPA SANTE', let='D'); pay(day(10, 20), 'FKAPPA', 'KAPPA SANTE', 345.60, 'VIR KAPPA', let='D')
 inv(day(10, 6), 'FKAPPA', 'KAPPA SANTE', 345.60, '146', 'KAPPA SANTE')
@@ -93,7 +95,6 @@ for pc, lb in (('35733', 'FRANCOIS BABAU- CHQ 9436262'), ('-35734', 'FRANCOIS BA
     inv(day(2, 24), 'FDIVERS', 'FOURNISSEURS DIVERS', 30.00, pc, lb)
 # Montants à 5 centimes près (arrondi), même n° : très probable
 inv(day(6, 8), 'FRHO', 'RHO MEDICAL', 512.40, 'RH-5512', 'RHO MEDICAL'); inv(day(6, 9), 'FRHO', 'RHO MEDICAL', 512.45, 'RH-5512', 'RHO MEDICAL')
-# N° de pièce GED différents, même n° de facture dans les libellés, même montant, même jour : liées (très probable)
 # Même n° dans les libellés mais n° de pièce présents et différents : le n° du libellé n'est pas pris, probable
 inv(day(5, 18), 'FEPSI', 'LABO EPSILON', 146.00, 'B000009301', 'LABO EPSILON 2026-22-00319 29.06', jc='AC', jl='ACHATS GED')
 inv(day(5, 18), 'FEPSI', 'LABO EPSILON', 146.00, 'B000009302', 'LABO EPSILON 2026-22-00319 29.06', jc='AC', jl='ACHATS GED')
@@ -114,6 +115,8 @@ inv(day(2, 5), 'FOMEGA', 'OMEGA SERVICES', 1171.84, 'OM2026-01', 'OMEGA SERVICES
 inv(day(1, 1), 'FMU', 'MU SERVICES', 480.00, 'MU-77001', 'MU SERVICES'); inv(day(5, 1), 'FMU', 'MU SERVICES', 480.00, 'MU-77001', 'MU SERVICES')
 # Dates dans le libellé (2026.04.15 et 2026.05.15) : pas des n° de facture
 inv(day(4, 28), 'FPRESTA', 'PRESTA CONSEIL', 300.00, '', 'PRESTA CONSEIL 2026.04.15'); inv(day(5, 5), 'FPRESTA', 'PRESTA CONSEIL', 300.00, '', 'PRESTA CONSEIL 2026.05.15')
+# Sans n° de facture, même jour, montants à 5 centimes près : pas un doublon (au centime près exigé)
+inv(day(11, 16), 'FNU', 'NU MEDICAL', 75.40, '', 'NU MEDICAL'); inv(day(11, 16), 'FNU', 'NU MEDICAL', 75.45, '', 'NU MEDICAL')
 
 rows.insert(0, ['AN', 'A NOUVEAUX', '0', '20260101', '401000', 'FOURNISSEURS', 'FGRNORD', 'GROSSISTE NORD', 'AN', '20260101', 'A NOUVEAU', '0,00', '5000,00', '', '', '20260101', '', ''])
 rows.insert(1, ['AN', 'A NOUVEAUX', '0', '20260101', '890000', 'BILAN OUVERTURE', '', '', 'AN', '20260101', 'A NOUVEAU', '5000,00', '0,00', '', '', '20260101', '', ''])

@@ -1437,6 +1437,8 @@ function findDoublons(list, entries, aux) {
     const partDig = full ? null : a.digs.find((x) => b.digs.some((y) => part(x, y, b.sup))) || b.digs.find((y) => a.digs.some((x) => part(y, x, a.sup)));
     const partial = !!partDig;
     const same = full || partial;
+    // Sans le même n° de facture : même date au jour près et même montant au centime près, sinon pas un doublon
+    if (!same && (a.cents !== b.cents || daysBetween(a.dd, b.dd) !== 0)) return;
     // N° commun affiché (tel qu'écrit dans la pièce ou le libellé)
     const numTxt = tokShared ? a.orig.get(shared) || b.orig.get(shared) || shared : full ? a.piece : partial ? partDig : '';
     const N = same;
