@@ -64,7 +64,7 @@ for m in range(1, 11):
 inv(day(3, 12), *GRN, 1234.56, 'FA2601234', 'GROSSISTE'); inv(day(3, 12), *GRN, 1234.56, 'FA2601234', 'GROSSISTE')
 inv(day(2, 2), 'FALPHA', 'LABORATOIRES ALPHA', 638.94, 'F260555', 'LABORATOIRES ALPHA'); inv(day(2, 12), 'FALPHA', 'LABORATOIRES ALPHA', 638.94, 'F260555', 'ALPHA')
 # Sans n° de facture, même jour, libellés identiques à l'espace et au tiret près, n° de chèque : même libellé
-inv(day(3, 5), 'FCHQ', 'FOURNISSEUR', 250.00, '', 'FOURNISSEUR- CHQ 928992'); inv(day(3, 5), 'FCHQ', 'FOURNISSEUR', 250.00, '', 'FOURNISSEUR - CHQ 928992')
+inv(day(3, 5), 'FCHQ', 'FOURNISSEUR', 250.00, '', 'FOURNISSEUR- CHQ 555123'); inv(day(3, 5), 'FCHQ', 'FOURNISSEUR', 250.00, '', 'FOURNISSEUR - CHQ 555123')
 inv(day(8, 7), 'FBETA', 'BETA PHARMA', 597.11, 'INV-778899', 'BETA PHARMA'); inv(day(8, 7), 'FDIVERS', 'FOURNISSEURS DIVERS', 597.11, 'INV-778899', 'BETA PHARMA')
 inv(day(4, 22), 'FEPSI', 'LABO EPSILON', 412.80, 'B000009001', 'LABO EPSILON 920555001', jc='AC', jl='ACHATS GED')
 inv(day(5, 6), 'FEPSI', 'LABO EPSILON', 412.80, 'B000009001', 'LABO EPSILON 920555001', jc='AC', jl='ACHATS GED')
@@ -88,10 +88,10 @@ inv(day(8, 4), 'FLAMBDA', 'LAMBDA SANTE', 70.10, 'LS-20260804', 'LAMBDA SANTE')
 inv(day(10, 13), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'LS-20261013', 'LAMBDA SANTE', let='G'); pay(day(10, 23), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'VIR LAMBDA', let='G')
 inv(day(10, 13), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'LS-20261014', 'LAMBDA SANTE', let='H'); pay(day(10, 24), 'FLAMBDA', 'LAMBDA SANTE', 99.99, 'VIR LAMBDA', let='H')
 # N° saisi en partie (fin du n°, une seule facture du fournisseur) : probable
-inv(day(10, 10), 'FIOTA', 'IOTA PHARMA', 150.00, '7121777368', 'IOTA PHARMA'); inv(day(10, 12), 'FIOTA', 'IOTA PHARMA', 150.00, '77368', 'IOTA PHARMA')
+inv(day(10, 10), 'FIOTA', 'IOTA PHARMA', 150.00, '6020455891', 'IOTA PHARMA'); inv(day(10, 12), 'FIOTA', 'IOTA PHARMA', 150.00, '55891', 'IOTA PHARMA')
 # N° de chèque dans le libellé (référence du règlement), n° de pièce différents avec des points : pas des doublons
-inv(day(5, 30), 'FDESG', 'DESGARDIN', 274.80, '26.05.215', 'DESGARDIN CHQ 9436281'); inv(day(5, 30), 'FDESG', 'DESGARDIN', 274.80, '26.04.215', 'DESGARDIN 04.2026 CH 9436281')
-for pc, lb in (('35733', 'FRANCOIS BABAU- CHQ 9436262'), ('-35734', 'FRANCOIS BABAU -CHQ 9436262'), ('-35735', 'FRANCOIS BABAU - CHQ 9436262')):
+inv(day(5, 30), 'FATEL', 'ATELIER EXEMPLE', 274.80, '26.05.118', 'ATELIER EXEMPLE CHQ 5550281'); inv(day(5, 30), 'FATEL', 'ATELIER EXEMPLE', 274.80, '26.04.118', 'ATELIER EXEMPLE 04.2026 CH 5550281')
+for pc, lb in (('61733', 'JEAN EXEMPLE- CHQ 5550262'), ('-61734', 'JEAN EXEMPLE -CHQ 5550262'), ('-61735', 'JEAN EXEMPLE - CHQ 5550262')):
     inv(day(2, 24), 'FDIVERS', 'FOURNISSEURS DIVERS', 30.00, pc, lb)
 # Exactement le même n°, montants à 5 centimes d'écart (512,40 et 512,45) : à vérifier (probable)
 inv(day(6, 8), 'FRHO', 'RHO MEDICAL', 512.40, 'RH-5512', 'RHO MEDICAL'); inv(day(6, 9), 'FRHO', 'RHO MEDICAL', 512.45, 'RH-5512', 'RHO MEDICAL')

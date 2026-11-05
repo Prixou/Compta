@@ -32,7 +32,7 @@
 // sont retenus.
 
 const lettState = () => (ui.lett = ui.lett || { src: '', fileName: '', text: '', fec: null, accs: [], lcAccs: [], ignored: 0, hyp: [], dup: [], lcr: [], miss: [], msg: '', hide: true, q: '', tiers: 'frs', status: 'idle', runId: 0, mail: null, closed: new Set(), vis: new Set(), mx: null, mxEdit: {} });
-const LETT_DEF = { ja: 'AC, AH, HA, ACH, VT, VE', jr: 'OD, BQ, LCR, CA, CE, 51', md: '45', nc: '', m1: '', lc: 'LCR', ex: '', ign: 'BNC' };
+const LETT_DEF = { ja: 'AC, AH, HA, ACH, VT, VE', jr: 'OD, BQ, LCR, CA, CE, 51', md: '45', ech: '5', nc: '', m1: '', lc: 'LCR', ex: '', ign: 'BNC' };
 function lettSettings() {
   const s = data.settings.lettrage || {};
   const out = {};
@@ -174,13 +174,30 @@ function lettSubset(items, target, maxLen = 6) {
   return best;
 }
 
-// Facture (ou avoir) qu'un règlement peut solder : jamais postérieure au règlement ; pour un fournisseur à échéance
-// M+1, du mois qui précède celui du règlement.
-const lettMonth = (d) => +d.slice(0, 4) * 12 + +d.slice(5, 7);
-const lettPays = (x, p, m1) => x.d <= p.d && (!m1 || lettMonth(p.d) === lettMonth(x.d) + 1);
+// Échéance écrite dans le libellé d'une facture (officines : « B000000101 LABORATOIRE 03-07-2026 ») : une seule date
+// complète dans le libellé, postérieure à la date de l'écriture et à moins de six mois (une date antérieure ou égale est
+// celle de la facture ; deux dates, une période). À-nouveaux exclus. Renvoie le jour (nombre de jours depuis 1970) ou null.
+const LETT_DATE = /(?:^|[^\d])(\d{2})[-/.](\d{2})[-/.](\d{4})(?!\d)/g;
+const lettDay = (x) => (x.n !== undefined ? x.n : Date.parse(x.d) / 864e5);
+function lettEchOf(x) {
+  if (x.an || x.type === 'reglement') return null;
+  const m = [...String(x.label).matchAll(LETT_DATE)];
+  if (m.length !== 1) return null;
+  const [, dd, mm, yy] = m[0];
+  if (+mm < 1 || +mm > 12 || +dd < 1 || +dd > 31) return null;
+  const n = Date.parse(`${yy}-${mm}-${dd}`) / 864e5, n0 = lettDay(x);
+  return Number.isFinite(n) && n > n0 && n - n0 <= 183 ? n : null;
+}
 
-// Lettrage d'un compte (factures du côté des écritures d'achat ou de vente : crédit d'un fournisseur, débit d'un client)
-function lettRun(a, maxDays, nc) {
+// Facture (ou avoir) qu'un règlement peut solder : jamais postérieure au règlement ; pour un fournisseur à échéance
+// M+1, du mois qui précède celui du règlement ; pour une facture dont le libellé porte l'échéance, réglée à quelques jours
+// de cette échéance au plus (x.ech, x.echTol : voir lettRun).
+const lettMonth = (d) => +d.slice(0, 4) * 12 + +d.slice(5, 7);
+const lettPays = (x, p, m1) => x.d <= p.d && (!m1 || lettMonth(p.d) === lettMonth(x.d) + 1) && (x.ech == null || Math.abs(lettDay(p) - x.ech) <= x.echTol);
+
+// Lettrage d'un compte (factures du côté des écritures d'achat ou de vente : crédit d'un fournisseur, débit d'un client).
+// `ech` : écart maximal en jours entre un règlement et l'échéance écrite dans le libellé de la facture (null : ignorée).
+function lettRun(a, maxDays, nc, ech = null) {
   const m1 = !!a.m1;
   const L = a.lines.filter((x) => x.type !== 'autre');
   L.forEach((x) => { x.n = Date.parse(x.d) / 864e5; x.used = 0; });
@@ -190,6 +207,7 @@ function lettRun(a, maxDays, nc) {
   const C = L.filter((x) => x.side === inv).sort(lettKey);
   const P = L.filter((x) => x.side !== inv && x.type === 'reglement').sort(lettKey);
   const V = L.filter((x) => x.side !== inv && x.type === 'achat').sort(lettKey);
+  C.forEach((x) => { x.ech = ech == null ? null : lettEchOf(x); x.echTol = ech; });
   const found = [];
   const take = (cs, ds, m) => { [...cs, ...ds].forEach((x) => { x.used = 1; }); found.push({ m, lines: [...cs, ...ds] }); return found[found.length - 1]; };
   const sg = (x) => (x.side === inv ? x.a : -x.a);
@@ -365,6 +383,8 @@ function lettRun(a, maxDays, nc) {
   }
   const first = (g) => g.lines.reduce((m, z) => (z.d < m ? z.d : m), g.lines[0].d);
   found.sort((x, y) => (first(x) < first(y) ? -1 : first(x) > first(y) ? 1 : 0));
+  // Factures toutes réglées à leur échéance (lue dans le libellé) : précisé dans le motif
+  found.forEach((g) => { const cs = g.lines.filter((x) => x.side === inv); if (cs.length && cs.every((x) => x.ech != null)) g.m += ' à l\'échéance'; });
   a.groups = found.map((g, n) => Object.assign(g, { l: lettLetter(n) }));
   a.rest = L.filter((x) => !x.used);
   a.bal = L.reduce((s, x) => s + (x.side === 'D' ? x.a : -x.a), 0);
@@ -582,9 +602,10 @@ function lettCompute() {
   const isLC = (a) => !!LT && `${a.code} ${a.name}`.toUpperCase().includes(LT);
   const kept = all.filter((a) => !IGN.some((t) => `${a.code} ${a.name}`.toUpperCase().includes(t)));
   const md = Math.max(0, parseInt(set.md, 10) || 45);
+  const ech = String(set.ech).trim() === '' ? null : Math.max(0, parseInt(set.ech, 10) || 0);
   st.ignored = all.length - kept.length;
   st.lcAccs = kept.filter(isLC);
-  st.accs = kept.filter((a) => !isLC(a)).map((a) => { a.m1 = isM1(a); return lettRun(a, md, isNC(a)); });
+  st.accs = kept.filter((a) => !isLC(a)).map((a) => { a.m1 = isM1(a); return lettRun(a, md, isNC(a), ech); });
   st.hyp = lettHyp(st.accs, md);
   lettApplyVisa(st.hyp, st.vis);
   st.dup = lettDups(st.accs);
@@ -728,9 +749,9 @@ function viewLettrage(embedded) {
   const rowCls = (x, g) => (x.type === 'autre' ? 'muted' : g ? (g.rel ? (g.rel === x ? 'lett-rel lett-rel-r' : 'lett-rel') : '') : 'lett-o');
   const field = (k, label, extra = '') => `<label>${label} <input data-lett="${k}" value="${esc(set[k])}"${extra}></label>`;
   const actions = `${accs.some((a) => a.groups.length) ? '<button class="btn" data-action="lett-copy">Copier les lettrages (tableur)</button><button class="btn" data-action="lett-xlsx">Exporter en Excel</button>' : ''}${st.src ? '<button class="btn" data-action="lett-clear">Effacer</button>' : ''}`;
-  const resume = `journaux ${set.ja || '—'} · règlements ${set.jr || '—'} · écart max ${set.md || '—'} j${set.lc ? ` · attente ${set.lc}` : ''}${set.m1 ? ' · échéances M+1' : ''}${set.nc ? ' · non consécutives' : ''}`;
+  const resume = `journaux ${set.ja || '—'} · règlements ${set.jr || '—'} · écart max ${set.md || '—'} j${String(set.ech).trim() !== '' ? ` · échéance du libellé ± ${set.ech} j` : ''}${set.lc ? ` · attente ${set.lc}` : ''}${set.m1 ? ' · échéances M+1' : ''}${set.nc ? ' · non consécutives' : ''}`;
   return `${toolHead(embedded ? '' : 'Lettrage des comptes de tiers', embedded ? 'Le FEC ouvert est repris : compte par compte, les factures soldées par chaque règlement et le mail des factures manquantes. Un grand livre PDF peut aussi être déposé.' : 'Compte par compte, les factures soldées par chaque règlement, et le mail des factures manquantes : à partir du grand livre non lettré (PDF ou texte) ou d\'un FEC.', actions,
-    '<p>L\'outil propose les écritures à lettrer en réglant d\'abord les factures les plus anciennes. Un règlement n\'est jamais rapproché d\'une facture postérieure, et les factures d\'un même règlement sont peu espacées. Il signale aussi les relevés saisis en plus des factures, les règlements dont la facture est sur un autre compte, les doublons et les montants du compte d\'attente à affecter, et prépare le mail des factures manquantes. Rien n\'est envoyé ni conservé.</p>', 'lett')}
+    '<p>L\'outil propose les écritures à lettrer en réglant d\'abord les factures les plus anciennes. Un règlement n\'est jamais rapproché d\'une facture postérieure, et les factures d\'un même règlement sont peu espacées. Quand le libellé d\'une facture porte son échéance (officines : « B000000101 LABORATOIRE 03-07-2026 »), le règlement doit tomber à quelques jours de cette échéance (5 par défaut, réglable). Il signale aussi les relevés saisis en plus des factures, les règlements dont la facture est sur un autre compte, les doublons et les montants du compte d\'attente à affecter, et prépare le mail des factures manquantes. Rien n\'est envoyé ni conservé.</p>', 'lett')}
     <div class="fec-drop card" data-action="lett-pick" role="button" tabindex="0">
       ${icon('file', 'fec-drop-ico')}
       <p><strong>${st.fileName ? esc(st.fileName) : 'Sélectionnez ou déposez ici le grand livre (PDF, texte) ou un FEC'}</strong></p>
@@ -745,6 +766,7 @@ function viewLettrage(embedded) {
         ${field('ja', 'Journaux d\'achat (ou de vente)')}
         ${field('jr', 'Journaux de règlement')}
         ${field('md', 'Écart max entre factures d\'un même règlement (jours)', ' inputmode="numeric"')}
+        ${field('ech', 'Écart max entre un règlement et l\'échéance du libellé (jours)', ' inputmode="numeric" placeholder="vide : échéance ignorée"')}
         ${field('nc', 'Fournisseurs à factures non consécutives', ' placeholder="noms ou codes, séparés par des virgules"')}
         ${field('m1', 'Fournisseurs à échéance M+1', ' placeholder="noms ou codes, séparés par des virgules"')}
         ${field('lc', 'Compte d\'attente à affecter (code ou nom)')}

@@ -186,6 +186,7 @@ function chkCharges(r, ref, prev, coh) {
   if (ch.weekend.n) out.add('info', 'Frais de réception ou de déplacement le week-end', `${ch.weekend.n} dépense(s), ${eur(ch.weekend.total, 0)} € : caractère professionnel à justifier.`, ch.weekend.ex, { full: ch.weekend.ex.length >= ch.weekend.n });
   if (ch.giftVat.n) out.add('warn', 'TVA déduite sur des cadeaux de plus de 73 €', `${ch.giftVat.n} écriture(s), ${eur(ch.giftVat.total, 0)} € de TVA : non récupérable au-delà de 73 € TTC par bénéficiaire et par an.`, ch.giftVat.ex, { full: ch.giftVat.ex.length >= ch.giftVat.n });
   else if (ch.gifts.n) out.add('info', `Cadeaux de plus de 73 € : ${eur(ch.gifts.total, 0)} €`, 'TVA non récupérable au-delà de 73 € TTC par bénéficiaire et par an ; relevé des frais généraux (2067) si le total dépasse 3 000 €.', ch.gifts.ex, { full: ch.gifts.ex.length >= ch.gifts.n });
+  chgCheck(r, out);
   if (ch.notesFrais.n) out.add('info', "Dépenses avancées par l'associé", `${ch.notesFrais.n} écriture(s), ${eur(ch.notesFrais.total, 0)} € portées au crédit du compte courant : notes de frais et justificatifs à obtenir.`, ch.notesFrais.ex, { full: ch.notesFrais.ex.length >= ch.notesFrais.n });
   cutCheck(out, ch.cut, 'Charges externes');
   // Débits des comptes 61 et 62 (les extournes d'à-nouveaux, au crédit, ne réduisent pas la base)
@@ -322,7 +323,7 @@ function cycleChecks(r) {
   const ref = pharmaRef(r);
   const prev = fecPrev();
   const terme = fecTerme();
-  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', ui.fec.prev ? ui.fec.prev.meta.fileName : '', terme, ui.fec.seuil || '', r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore()), JSON.stringify(wpSoldeStore()), JSON.stringify(silaeStore()), (socSummary() || {}).at || '', (immoEtatSummary() || {}).at || ''].join('|');
+  const key = [ref, ui.fecProfile, prev ? prev.meta.fileName : '', ui.fec.prev ? ui.fec.prev.meta.fileName : '', terme, ui.fec.seuil || '', r.alerts.length, ui.fec.clientId || '', Object.keys(wpMemo()).length, JSON.stringify(ventesSeriesStore()), JSON.stringify(wpSoldeStore()), JSON.stringify(silaeStore()), (socSummary() || {}).at || '', (immoEtatSummary() || {}).at || '', JSON.stringify(chgPrefs())].join('|');
   if (r._cc && r._cc.key === key) return r._cc.val;
   const coh = coherenceChecks(r, prev, clientById(ui.fec.clientId));
   const val = {

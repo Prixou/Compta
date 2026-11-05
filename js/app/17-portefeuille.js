@@ -20,12 +20,12 @@ function withFec(st, profile, fn) {
 
 // Analyse d'un fichier dans son propre Web Worker (indépendant de l'analyse affichée).
 function analyseFile(file) {
-  return fecSource(file).then(({ buffer, name, docs, archive }) => new Promise((resolve) => {
+  return fecSource(file).then(({ buffer, name, docs, archive, source }) => new Promise((resolve) => {
     const w = new Worker('js/fec-worker.js?v=' + ASSET_VERSION);
     w.onmessage = (e) => {
       if (e.data.type === 'progress') return;
       w.terminate();
-      if (e.data.type === 'done' && archive) e.data.result.meta.archive = archive;
+      if (e.data.type === 'done' && archive) Object.assign(e.data.result.meta, { archive, archiveSrc: source || '' });
       resolve(e.data.type === 'done' ? { result: e.data.result } : { error: e.data.message });
     };
     w.onerror = (err) => {

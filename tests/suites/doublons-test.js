@@ -36,9 +36,9 @@ const expect = (ok, label, detail) => { console.log(`${ok ? 'OK' : 'KO'} ${label
   const find = (re) => live.find((g) => g.rows.some((t) => re.test(t)));
   expect(await tabTxt() === 'Doublons (13)', 'onglet « Doublons » de Révision A–K, avec le nombre de groupes', await tabTxt());
   expect(live.filter((g) => g.fort).length === 7 && live.filter((g) => !g.fort).length === 6, '7 doublons très probables, 6 probables');
-  const chq = find(/CHQ 928992/);
-  expect(chq && chq.fort && /Libellé ✔/.test(chq.head), 'libellés identiques à l\'espace et au tiret près (« FOURNISSEUR- CHQ 928992 ») : même libellé', chq && chq.head);
-  expect(!find(/DESGARDIN/) && !find(/BABAU/), 'n° de chèque dans le libellé : pas un n° de facture ; n° de pièce 26.05.215 et 26.04.215 (ni des dates) différents : pas des doublons');
+  const chq = find(/CHQ 555123/);
+  expect(chq && chq.fort && /Libellé ✔/.test(chq.head), 'libellés identiques à l\'espace et au tiret près (« FOURNISSEUR- CHQ 555123 ») : même libellé', chq && chq.head);
+  expect(!find(/ATELIER EXEMPLE/) && !find(/JEAN EXEMPLE/), 'n° de chèque dans le libellé : pas un n° de facture ; n° de pièce 26.05.118 et 26.04.118 (ni des dates) différents : pas des doublons');
   const ged = find(/2026-22-00319/);
   expect(ged && !ged.fort && /N° de facture ✗/.test(ged.head), 'même n° dans les libellés mais n° de pièce présents et différents : n° du libellé non pris, probable', ged && ged.head);
   const sigma = find(/SIGMA LAB/);

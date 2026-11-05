@@ -6,7 +6,8 @@
  * Le fichier est lu par morceaux (File.slice) : une archive de plusieurs centaines de Mo ne
  * remplit pas la mémoire.
  *
- * ArchiveReader.read(file) → { fec: { name, buffer }, docs: [{ name, base }], total }
+ * ArchiveReader.read(file) → { fec: { name, buffer }, docs: [{ name, base }], total, fecs, attCols }
+ * (fecs : nombre de FEC trouvés ; attCols : le FEC retenu porte les colonnes de pièce jointe)
  */
 (function () {
   'use strict';
@@ -91,16 +92,42 @@
   const baseName = (name) => name.split('/').pop();
   const isJunk = (name) => /(^|\/)(__MACOSX|\.DS_Store|Thumbs\.db)/i.test(name) || name.endsWith('/');
 
+  // Première ligne d'un fichier texte extrait (en-tête des colonnes d'un FEC)
+  const firstLine = (buffer) => new TextDecoder('utf-8').decode(new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 8192))).split(/\r?\n/)[0];
+  const isFecHead = (line) => /journalcode/i.test(line) && /comptenum/i.test(line);
+  // Colonnes de pièce jointe (export Pennylane « Inclure les pièces jointes » : NomOriginalDeLaPieceJointe, NomActuelDeLaPieceJointe)
+  const hasAttCols = (line) => /piece_?jointe|pi[eè]ce ?jointe/i.test(line);
+
   async function read(file) {
     const entries = (await directory(file)).filter((e) => !isJunk(e.name));
     // Le FEC : fichier texte dont le nom contient « FEC » (ex. 123456789FEC20251231.txt), sinon le plus gros fichier texte.
+    // Pennylane joint au FEC officiel un FEC secondaire, non officiel, qui ajoute le nom de la pièce jointe de chaque
+    // écriture : c'est lui qui est analysé quand il est présent (mêmes écritures, deux colonnes de plus).
     const texts = entries.filter((e) => /\.(txt|csv|tsv)$/i.test(e.name));
-    const fecEntry = texts.find((e) => /\d{9}FEC\d{8}/i.test(baseName(e.name))) || texts.find((e) => /fec/i.test(baseName(e.name)))
-      || texts.slice().sort((a, b) => b.size - a.size)[0];
-    if (!fecEntry) throw new Error("Aucun FEC (.txt) trouvé dans l'archive.");
-    const buffer = await extract(file, fecEntry);
-    const docs = entries.filter((e) => e !== fecEntry && DOC_RE.test(e.name)).map((e) => ({ name: e.name, base: baseName(e.name) }));
-    return { fec: { name: baseName(fecEntry.name), buffer }, docs, total: entries.length };
+    const depth = (e) => e.name.split('/').length;
+    const top = texts.length ? Math.min(...texts.map(depth)) : 0;
+    const official = (e) => /\d{9}FEC\d{8}/i.test(baseName(e.name));
+    const named = texts.filter((e) => /fec/i.test(baseName(e.name))).sort((x, y) => official(y) - official(x));
+    const cands = named.concat(texts.filter((e) => !named.includes(e) && depth(e) === top)).slice(0, 6);
+    const fecs = [];
+    let fecEntry = null, buffer = null;
+    for (const e of cands) {
+      const buf = await extract(file, e);
+      const line = firstLine(buf);
+      if (!isFecHead(line)) continue;
+      fecs.push(e);
+      if (!fecEntry || (hasAttCols(line) && !hasAttCols(firstLine(buffer)))) { fecEntry = e; buffer = buf; }
+    }
+    if (!fecEntry) {
+      fecEntry = named[0] || texts.slice().sort((a, b) => b.size - a.size)[0];
+      if (!fecEntry) throw new Error("Aucun FEC (.txt) trouvé dans l'archive.");
+      buffer = await extract(file, fecEntry);
+      fecs.push(fecEntry);
+    }
+    const docs = entries.filter((e) => !fecs.includes(e) && DOC_RE.test(e.name)).map((e) => ({ name: e.name, base: baseName(e.name) }));
+    // Nom du FEC officiel (SIREN et date de clôture) même quand le FEC secondaire est analysé
+    const named0 = fecs.find(official) || fecEntry;
+    return { fec: { name: baseName(named0.name), source: baseName(fecEntry.name), buffer }, docs, total: entries.length, fecs: fecs.length, attCols: hasAttCols(firstLine(buffer)) };
   }
 
   window.ArchiveReader = { read };

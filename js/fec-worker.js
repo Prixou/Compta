@@ -183,7 +183,12 @@ function analyse(buffer, fileName, until, docs) {
     throw new Error(`Colonnes indispensables absentes (${missing.join(', ')}) : analyse impossible.`);
   }
   // Colonne supplémentaire qui désigne la pièce jointe (nom de fichier, lien), présente dans certains exports
-  const attIdx = header.findIndex((h) => !expected.includes(h) && !COLS_BNC.includes(h) && /jointe|justif|fichier|document|attach|lien|url/i.test(h));
+  // (export Pennylane « Inclure les pièces jointes » : NomActuelDeLaPieceJointe, nom du fichier dans le dossier « Pièces jointes »
+  // de l'archive, retenu de préférence ; NomOriginalDeLaPieceJointe, nom du fichier déposé, en second)
+  const extraCol = (re) => header.findIndex((h) => !expected.includes(h) && !COLS_BNC.includes(h) && re.test(h));
+  let attIdx = extraCol(/^nomactuel.*jointe$/i);
+  if (attIdx < 0) attIdx = extraCol(/jointe|justif|fichier|document|attach|lien|url/i);
+  const att2Idx = attIdx < 0 ? -1 : header.findIndex((h, i) => i !== attIdx && !expected.includes(h) && !COLS_BNC.includes(h) && /jointe/i.test(h));
   const I = {};
   COLS.concat(['Montant', 'Sens']).forEach((c) => { I[c] = col(c); });
 
@@ -366,6 +371,7 @@ function analyse(buffer, fileName, until, docs) {
       oe.c += c;
     }
     if (attIdx >= 0 && !oe.att && f[attIdx] && f[attIdx].trim()) oe.att = f[attIdx].trim();
+    if (att2Idx >= 0 && !oe.att2 && f[att2Idx] && f[att2Idx].trim()) oe.att2 = f[att2Idx].trim();
     if (/^5[13]/.test(compte)) oe.has5 = true;
     if (/^4[01]/.test(compte)) oe.has4 = true;
     if (/^[67]/.test(compte)) oe.has67 = true;
@@ -1295,8 +1301,8 @@ const dupNoDates = (s) => String(s || '').replace(DUP_DATE, (m, d1, m1, y1, y2, 
   || (d5 && +d5 >= 1 && +d5 <= 31 && +m5 >= 1 && +m5 <= 12) ? ' ' : m)); // jj.mm sans année (« 29.06 ») compris
 const DUP_STOP = new Set(('fact facture factures fa fac fct avoir av ref n no num du de des la le les sur cde commande bl liv livraison '
   + 'sas sarl sa ste eurl selarl snc sel et ets labo laboratoire laboratoires pharma france').split(' '));
-// Texte où chercher un n° de facture : sans les dates, les n° de chèque (référence du règlement : « CHQ 9436281 »,
-// « CH 9436281 ») ni les montants (1.234,56)
+// Texte où chercher un n° de facture : sans les dates, les n° de chèque (référence du règlement : « CHQ 5550281 »,
+// « CH 5550281 ») ni les montants (1.234,56)
 const DUP_CHQ = /\b(?:CHQ|CHQE|CHEQUE|CHÈQUE|CH|CQ)\b\.?\s*(?:N°|NO|N)?\s*\d+/gi;
 const DUP_AMT = /\b\d{1,3}(?:[ .\u00a0]\d{3})*,\d{2}\b/g;
 const dupNumText = (s) => dupNoDates(s).replace(DUP_CHQ, ' ').replace(DUP_AMT, ' ');
@@ -1460,8 +1466,8 @@ function findDoublons(list, entries, aux) {
     const flat = (x) => normTxt(dupNoDates(x.lib)).replace(/[^a-z0-9]+/g, '');
     const says = (x) => /\d{4,}/.test(dupNoDates(x.lib)) || dupWords(x.lib, nameW.get(x.sup)).some((w) => w.length >= 3);
     const fa = flat(a), fb = flat(b);
-    const Lsame = fa.length >= 6 && dupSim(fa, fb) >= 0.95 && says(a) && says(b); // « FOURNISSEUR- CHQ 928992 » = « FOURNISSEUR - CHQ 928992 »
-    // Libellés aux n° différents (« CHQ 928992 » et « CHQ 928993 ») : jamais le même libellé
+    const Lsame = fa.length >= 6 && dupSim(fa, fb) >= 0.95 && says(a) && says(b); // « FOURNISSEUR- CHQ 555123 » = « FOURNISSEUR - CHQ 555123 »
+    // Libellés aux n° différents (« CHQ 555123 » et « CHQ 555124 ») : jamais le même libellé
     const libNums = (x) => new Set((dupNoDates(x.lib).match(/\d{4,}/g) || []).map((v) => v.replace(/^0+/, '')));
     const ka = libNums(a), kb = libNums(b);
     const libNumDiff = ka.size > 0 && kb.size > 0 && !Array.from(ka).some((v) => kb.has(v));
@@ -1537,6 +1543,12 @@ function buildCycles(x) {
   const cash = bucket(), notesFrais = bucket(), giftVat = bucket();
   const directSales = [];
   const need = []; // pièces dont un justificatif est attendu (factures d'achat et de vente, dépenses payées directement)
+  // Revue des comptes de charge (archive FEC + pièces jointes) : par compte, écritures avec et sans pièce jointe. Écritures de
+  // paie (64, 421) et de régularisation (charges à payer, constatées d'avance, TVA) écartées ; dotations, impôt sur les
+  // bénéfices, variation des stocks et valeur des immobilisations cédées sans pièce par nature.
+  const tester = docTester(x.docs, x.attCol);
+  const chgAcc = new Map(), chgNo = [], chgSkip = { paie: 0, regul: 0 }, chgAbsent = [];
+  let chgAbsentN = 0;
   const dupRecs = []; // factures et avoirs fournisseurs, pour la recherche des doublons
   const dupRec = (en, ek, sup, name, amt, ht, tva, compte) => {
     const sl = supLines.get(ek + '|' + sup) || [];
@@ -1590,7 +1602,7 @@ function buildCycles(x) {
       if (date > a.last) a.last = date;
       purchases.push([supKey, date, ttc, en.piece || '', ref, ht, round2(tv6), main]);
       dupRec(en, ek, supKey, a.lib, ttc, ht, tv6, main);
-      need.push({ kind: 'achat', date, piece: en.piece || '', amt: ttc, lib: en.lib || '', num: supKey, tlib: a.lib, att: en.att || '' });
+      need.push({ kind: 'achat', date, piece: en.piece || '', amt: ttc, lib: en.lib || '', num: supKey, tlib: a.lib, att: en.att || en.att2 || '' });
       if (ht >= 150 && tv6 < 0.01 && tv52 < 0.01 && !/^(616|627)/.test(main)) {
         let g = noVatP.get(main);
         if (!g) noVatP.set(main, (g = { compte: main, lib: libOf(main), ...bucket() }));
@@ -1601,7 +1613,7 @@ function buildCycles(x) {
         { date, sup: a.lib, piece: en.piece || '', amt: round2(tv52 - tv6), compte: main });
     } else if (supNet > 0.005 && ht < -0.005 && !hasTr) {
       const a = agg(sups, supKey);
-      need.push({ kind: 'achat', date, piece: en.piece || '', amt: -round2(supNet), lib: en.lib || '', num: supKey, tlib: a.lib, att: en.att || '', avoir: true });
+      need.push({ kind: 'achat', date, piece: en.piece || '', amt: -round2(supNet), lib: en.lib || '', num: supKey, tlib: a.lib, att: en.att || en.att2 || '', avoir: true });
       dupRec(en, ek, supKey, a.lib, -supNet, ht, tv6, main);
       a.av++; a.avAmt += supNet; avoirsP += supNet;
     } else if (supNet > 0.005 && tr < -0.005) {
@@ -1616,7 +1628,7 @@ function buildCycles(x) {
       if (!a.first || date < a.first) a.first = date;
       if (date > a.last) a.last = date;
       sales.push([cliKey, date, round2(cliNet), en.piece || '', ref, ek]);
-      need.push({ kind: 'vente', date, piece: en.piece || '', amt: round2(cliNet), lib: en.lib || '', num: cliKey, tlib: a.lib, att: en.att || '' });
+      need.push({ kind: 'vente', date, piece: en.piece || '', amt: round2(cliNet), lib: en.lib || '', num: cliKey, tlib: a.lib, att: en.att || en.att2 || '' });
       const cm = (a.months = a.months || {});
       cm[date.slice(0, 7)] = round2((cm[date.slice(0, 7)] || 0) + cliNet);
       if (ven >= 150 && tv7 < 0.01) addEx(noVatS, ven, `${ref} · ${a.lib} · ${fmt(round2(ven))} € HT`);
@@ -1633,7 +1645,40 @@ function buildCycles(x) {
 
     // Dépense payée directement (banque ou caisse → charge, sans compte fournisseur) : justificatif attendu
     if (hasTr && Math.abs(supNet) < 0.005 && Math.abs(cliNet) < 0.005 && chg > 0.005 && main && !/^(627|6[3-9])/.test(main)) {
-      need.push({ kind: 'direct', date, piece: en.piece || '', amt: round2(chg + Math.max(0, tv6)), lib: en.lib || '', num: '', tlib: '', att: en.att || '', compte: main });
+      need.push({ kind: 'direct', date, piece: en.piece || '', amt: round2(chg + Math.max(0, tv6)), lib: en.lib || '', num: '', tlib: '', att: en.att || en.att2 || '', compte: main });
+    }
+
+    if (tester) {
+      const cl = new Map();
+      let paie = false, regul = false;
+      for (const [compte, , d, c] of L) {
+        if (/^(64|421)/.test(compte)) paie = true;
+        else if (/^(408|409[678]|418|486|487|4[2-6]86|4455|44567)/.test(compte)) regul = true;
+        if (compte[0] === '6' && !/^(603|675|68|69)/.test(compte) && Math.abs(d - c) >= 0.005) cl.set(compte, (cl.get(compte) || 0) + d - c);
+      }
+      if (cl.size && paie) chgSkip.paie++;
+      else if (cl.size && regul) chgSkip.regul++;
+      else if (cl.size) {
+        const doc = { att: en.att || en.att2 || '', piece: en.piece || '' };
+        const h = tester(doc);
+        const lines = [];
+        cl.forEach((amt, compte) => {
+          amt = round2(amt);
+          if (!amt) return;
+          lines.push([compte, amt]);
+          let a = chgAcc.get(compte);
+          if (!a) chgAcc.set(compte, (a = { compte, lib: libOf(compte), n: 0, amt: 0, ok: 0, okAmt: 0, no: 0, noAmt: 0, unk: 0, unkAmt: 0 }));
+          a.n++; a.amt += amt;
+          if (h === null) { a.unk++; a.unkAmt += amt; } else if (h) { a.ok++; a.okAmt += amt; } else { a.no++; a.noAmt += amt; }
+        });
+        if (h === false && lines.length) {
+          const via = hasTr ? 'B' : Math.abs(supNet) >= 0.005 ? 'F' : c455 ? 'A' : 'O';
+          chgNo.push([date, en.jc || '', String(en.num || ''), String(en.piece || '').trim(), (en.lib || '').slice(0, 70), supKey ? auxNames.get(supKey) || supKey : '', via, lines]);
+        } else if (h && tester.absent(doc)) {
+          chgAbsentN++;
+          if (chgAbsent.length < 8) chgAbsent.push(`${ref} : « ${String(doc.att).slice(0, 60)} »`);
+        }
+      }
     }
 
     // Charges externes : paiements directs, honoraires (DAS2), notes de frais, cadeaux
@@ -1848,8 +1893,19 @@ function buildCycles(x) {
   if (closing) sales.forEach(([, date, ttc]) => { if (date <= closing && daysBetween(date, closing) < 7) lastWeek += ttc; });
   const spanDays = start && closing ? daysBetween(start, closing) + 1 : 365;
 
+  chgNo.sort((p, q) => (p[0] < q[0] ? -1 : p[0] > q[0] ? 1 : 0));
+  const CHG_MAX = 8000;
   return {
     justif: matchDocs(need, x.docs, x.attCol),
+    // Revue des comptes de charge : missing = [date, journal, n°, pièce, libellé, fournisseur, contrepartie (B banque ou caisse,
+    // F fournisseur, A associé, O autre), [[compte, montant]…]] ; les 8 000 plus récentes (cut : date de la plus ancienne gardée)
+    chgDocs: tester ? {
+      attCol: x.attCol || '', docs: (x.docs || []).length,
+      accounts: Array.from(chgAcc.values()).map((a) => Object.assign(a, { amt: round2(a.amt), okAmt: round2(a.okAmt), noAmt: round2(a.noAmt), unkAmt: round2(a.unkAmt) }))
+        .sort((p, q) => p.compte.localeCompare(q.compte)),
+      missing: chgNo.slice(-CHG_MAX), missingTotal: chgNo.length, cut: chgNo.length > CHG_MAX ? chgNo[chgNo.length - CHG_MAX][0] : '',
+      skip: chgSkip, absent: { n: chgAbsentN, ex: chgAbsent },
+    } : null,
     achats: {
       invoices: purchases.length, ttc: ttcP, avoirs: round2(avoirsP), suppliers: supF.list, nbSuppliers: supF.count, delay: supF.delay,
       doublons, noVat: Array.from(noVatP.values()).sort((a, b) => b.total - a.total), overVat: overVatP, autoliq, cut: cut.achats,
@@ -1871,21 +1927,32 @@ function buildCycles(x) {
   };
 }
 
-// Rapprochement des écritures et des justificatifs d'une archive : nom de pièce jointe indiqué dans le FEC,
-// sinon n° de pièce retrouvé dans le nom d'un fichier. Les pièces au n° trop court ou générique ne sont pas jugées.
-function matchDocs(need, docs, attCol) {
+// Pièce jointe d'une écriture : true, false ou null (non jugeable). Colonne de pièce jointe du FEC (FEC secondaire de
+// Pennylane) : renseignée = pièce jointe ; sinon n° de pièce retrouvé dans le nom d'un fichier de l'archive. Les pièces au
+// n° trop court ou générique ne sont pas jugées. Sans archive ni colonne : null.
+function docTester(docs, attCol) {
   if ((!docs || !docs.length) && !attCol) return null;
   docs = docs || [];
   const nk = (str) => normTxt(str).replace(/[^a-z0-9]/g, '');
   const strip = (b) => String(b).split(/[\\/]/).pop().replace(/\.[a-z0-9]{1,5}$/i, '');
   const all = '\u0001' + docs.map((d) => nk(strip(d.base))).join('\u0001') + '\u0001';
   const has = (n) => {
-    if (n.att) return !docs.length || all.includes(nk(strip(n.att))) || all.includes('\u0001' + nk(strip(n.att)));
+    if (n.att) return true;
     if (attCol) return false; // la colonne de pièce jointe est vide : pas de justificatif
     const k = nk(n.piece);
     if (k.length < 4 || !/\d/.test(k) || /^0+$/.test(k)) return null;
     return all.includes(k);
   };
+  // Pièce citée par le FEC mais absente de l'archive (nom de fichier introuvable)
+  has.absent = (n) => !!(n.att && docs.length && !String(n.att).split(/\s*[;|]\s*/).some((a) => all.includes('\u0001' + nk(strip(a)) + '\u0001')));
+  return has;
+}
+
+// Rapprochement des écritures et des justificatifs d'une archive (voir docTester).
+function matchDocs(need, docs, attCol) {
+  const has = docTester(docs, attCol);
+  if (!has) return null;
+  docs = docs || [];
   const kinds = { achat: { n: 0, ok: 0, unk: 0 }, vente: { n: 0, ok: 0, unk: 0 }, direct: { n: 0, ok: 0, unk: 0 } };
   const missing = [];
   need.forEach((n) => {
