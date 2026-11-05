@@ -1278,14 +1278,14 @@ function anOrigDate(lib) {
 }
 
 // ---------- Factures fournisseurs en double ----------
-// Triangulation sur cinq critères : date (3 jours d'écart au plus, date de pièce sinon d'écriture), n° de facture (lu dans le
-// n° de pièce et le libellé) ou même n° de pièce interne (même document saisi deux fois), montant (TTC à 10 centimes près,
-// au-delà jamais un doublon), libellé
+// Triangulation sur cinq critères : date (3 jours d'écart au plus, date de pièce sinon d'écriture), n° de facture (n° de
+// pièce, n° du libellé sans n° de pièce) ou même n° de pièce interne (même document saisi deux fois), montant (TTC au
+// centime près, sinon jamais un doublon ; sans n° commun, même jour exigé), libellé
 // (mots peu fréquents du compte) et compte fournisseur. Doublon : 3 critères sur 5 dont le montant ou le n° ; jamais très
 // probable si les deux pièces portent des n° différents. Exceptions : facture mensuelle d'un même montant (sauf deux fois
 // le même mois), facture et avoir, doublon déjà annulé par un avoir, copie rattachée à un règlement (chaque exemplaire
 // lettré avec son propre paiement).
-const DUP_DAYS = 3, DUP_GAP = 21, DUP_LIB = 0.9, DUP_CENTS = 10; // montants à 10 centimes près
+const DUP_DAYS = 3, DUP_GAP = 21, DUP_LIB = 0.9;
 // Dates écrites dans un libellé ou une pièce (jj/mm/aaaa, aaaa.mm.jj, mm/aaaa, aaaa-mm, valeurs vérifiées) : jamais un n°
 const DUP_DATE = /\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b|\b(\d{4})[./-](\d{1,2})[./-](\d{1,2})\b|(?<!\d[./-])\b(\d{1,2})[./-](\d{4})\b(?![./-]\d)|(?<!\d[./-])\b(\d{4})[./-](\d{1,2})\b(?![./-]\d)|(?<![\d./-])\b(\d{1,2})[./](\d{1,2})\b(?![./-]?\d)/g;
 const dupYear = (y) => +y >= 1990 && +y <= 2099;
@@ -1405,25 +1405,23 @@ function findDoublons(list, entries, aux) {
   const invAmt = new Map();
   recs.forEach((x) => { if (x.let) { const k = `${x.sup}|${x.let}|${x.cents}`; invAmt.set(k, (invAmt.get(k) || 0) + 1); } });
   const paid = (x) => !!x.let && payLet.has(x.sup + '|' + x.let);
-  // Paires candidates : montants à 10 centimes près (tranches de 10 centimes, la tranche et la suivante) ; au-delà, deux
-  // pièces ne sont jamais un doublon
+  // Paires candidates : même montant au centime près ; sinon, deux pièces ne sont jamais un doublon
   const buckets = new Map();
-  recs.forEach((x) => { const k = Math.floor(x.cents / DUP_CENTS); (buckets.get(k) || buckets.set(k, []).get(k)).push(x.i); });
+  recs.forEach((x) => (buckets.get(x.cents) || buckets.set(x.cents, []).get(x.cents)).push(x.i));
   const pairs = new Set();
   const add = (i, j) => { if (i !== j) pairs.add(Math.min(i, j) * 1e6 + Math.max(i, j)); };
-  buckets.forEach((ids, k) => {
+  buckets.forEach((ids) => {
     if (ids.length > 400) return;
-    const next = buckets.get(k + 1) || [];
-    ids.forEach((i, n) => { for (let m = n + 1; m < ids.length; m++) add(i, ids[m]); if (next.length <= 400) next.forEach((j) => add(i, j)); });
+    ids.forEach((i, n) => { for (let m = n + 1; m < ids.length; m++) add(i, ids[m]); });
   });
   const found = [], copies = new Set();
   let fixed = 0;
   pairs.forEach((pk) => {
     const a = recs[Math.floor(pk / 1e6)], b = recs[pk % 1e6];
     if ((a.amt > 0) !== (b.amt > 0)) return; // facture et avoir
-    if (Math.abs(a.cents - b.cents) > DUP_CENTS) return; // montants différents de plus de 10 centimes
+    if (a.cents !== b.cents) return; // montants différents (au centime près)
     if (Math.abs(daysBetween(a.dd, b.dd)) > DUP_GAP) return; // plus de 3 semaines d'écart : pas comparées
-    const M = true; // montants à 10 centimes près (voir plus haut)
+    const M = true; // même montant au centime près (voir plus haut)
     // Même n° de facture, ou même pièce interne ; même n° mais montants sans rapport : n° de relevé ou de commande commun
     // (n° saisi en partie : le plus court est la fin du plus long, chiffres à la suite, 5 au moins, et ne désigne qu'une
     // facture du fournisseur ; jamais très probable ; le début seul d'un n° ne suffit pas)
@@ -1437,8 +1435,8 @@ function findDoublons(list, entries, aux) {
     const partDig = full ? null : a.digs.find((x) => b.digs.some((y) => part(x, y, b.sup))) || b.digs.find((y) => a.digs.some((x) => part(y, x, a.sup)));
     const partial = !!partDig;
     const same = full || partial;
-    // Sans le même n° de facture : même date au jour près et même montant au centime près, sinon pas un doublon
-    if (!same && (a.cents !== b.cents || daysBetween(a.dd, b.dd) !== 0)) return;
+    // Sans le même n° de facture : même date au jour près, sinon pas un doublon
+    if (!same && daysBetween(a.dd, b.dd) !== 0) return;
     // N° commun affiché (tel qu'écrit dans la pièce ou le libellé)
     const numTxt = tokShared ? a.orig.get(shared) || b.orig.get(shared) || shared : full ? a.piece : partial ? partDig : '';
     const N = same;
@@ -1490,7 +1488,7 @@ function findDoublons(list, entries, aux) {
     if (!same && a.let && a.let === b.let) return;
     // Déjà annulé : avoir du même montant sur l'un des comptes, daté au plus tôt de la première facture
     const first = a.dd < b.dd ? a.dd : b.dd;
-    if (recs.some((x) => (x.sup === a.sup || x.sup === b.sup) && Math.abs(x.cents + a.cents) <= DUP_CENTS && x.dd >= first)) { fixed++; return; }
+    if (recs.some((x) => (x.sup === a.sup || x.sup === b.sup) && x.cents === -a.cents && x.dd >= first)) { fixed++; return; }
     // Original lettré avec son règlement et copie non lettrée, même jour et même montant : très probable
     const unpaidCopy = D && M && C && ((paid(a) && !b.let) || (paid(b) && !a.let));
     found.push({ a, b, score, note: [note, numDiff ? 'n° de pièce ou de facture différents' : '', partial ? 'n° saisi en partie' : ''].filter(Boolean).join(' · '),

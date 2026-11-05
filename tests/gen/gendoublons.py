@@ -93,7 +93,7 @@ inv(day(10, 10), 'FIOTA', 'IOTA PHARMA', 150.00, '7121777368', 'IOTA PHARMA'); i
 inv(day(5, 30), 'FDESG', 'DESGARDIN', 274.80, '26.05.215', 'DESGARDIN CHQ 9436281'); inv(day(5, 30), 'FDESG', 'DESGARDIN', 274.80, '26.04.215', 'DESGARDIN 04.2026 CH 9436281')
 for pc, lb in (('35733', 'FRANCOIS BABAU- CHQ 9436262'), ('-35734', 'FRANCOIS BABAU -CHQ 9436262'), ('-35735', 'FRANCOIS BABAU - CHQ 9436262')):
     inv(day(2, 24), 'FDIVERS', 'FOURNISSEURS DIVERS', 30.00, pc, lb)
-# Montants à 5 centimes près (arrondi), même n° : très probable
+# Même n°, montants à 5 centimes d'écart (512,40 et 512,45) : pas un doublon (montant au centime près)
 inv(day(6, 8), 'FRHO', 'RHO MEDICAL', 512.40, 'RH-5512', 'RHO MEDICAL'); inv(day(6, 9), 'FRHO', 'RHO MEDICAL', 512.45, 'RH-5512', 'RHO MEDICAL')
 # Même n° dans les libellés mais n° de pièce présents et différents : le n° du libellé n'est pas pris, probable
 inv(day(5, 18), 'FEPSI', 'LABO EPSILON', 146.00, 'B000009301', 'LABO EPSILON 2026-22-00319 29.06', jc='AC', jl='ACHATS GED')
