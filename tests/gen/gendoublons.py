@@ -93,7 +93,7 @@ inv(day(10, 10), 'FIOTA', 'IOTA PHARMA', 150.00, '7121777368', 'IOTA PHARMA'); i
 inv(day(5, 30), 'FDESG', 'DESGARDIN', 274.80, '26.05.215', 'DESGARDIN CHQ 9436281'); inv(day(5, 30), 'FDESG', 'DESGARDIN', 274.80, '26.04.215', 'DESGARDIN 04.2026 CH 9436281')
 for pc, lb in (('35733', 'FRANCOIS BABAU- CHQ 9436262'), ('-35734', 'FRANCOIS BABAU -CHQ 9436262'), ('-35735', 'FRANCOIS BABAU - CHQ 9436262')):
     inv(day(2, 24), 'FDIVERS', 'FOURNISSEURS DIVERS', 30.00, pc, lb)
-# Même n°, montants à 5 centimes d'écart (512,40 et 512,45) : pas un doublon (montant au centime près)
+# Exactement le même n°, montants à 5 centimes d'écart (512,40 et 512,45) : à vérifier (probable)
 inv(day(6, 8), 'FRHO', 'RHO MEDICAL', 512.40, 'RH-5512', 'RHO MEDICAL'); inv(day(6, 9), 'FRHO', 'RHO MEDICAL', 512.45, 'RH-5512', 'RHO MEDICAL')
 # Même n° dans les libellés mais n° de pièce présents et différents : le n° du libellé n'est pas pris, probable
 inv(day(5, 18), 'FEPSI', 'LABO EPSILON', 146.00, 'B000009301', 'LABO EPSILON 2026-22-00319 29.06', jc='AC', jl='ACHATS GED')
@@ -117,6 +117,8 @@ inv(day(1, 1), 'FMU', 'MU SERVICES', 480.00, 'MU-77001', 'MU SERVICES'); inv(day
 inv(day(4, 28), 'FPRESTA', 'PRESTA CONSEIL', 300.00, '', 'PRESTA CONSEIL 2026.04.15'); inv(day(5, 5), 'FPRESTA', 'PRESTA CONSEIL', 300.00, '', 'PRESTA CONSEIL 2026.05.15')
 # Sans n° de facture, même jour, montants à 5 centimes près : pas un doublon (au centime près exigé)
 inv(day(11, 16), 'FNU', 'NU MEDICAL', 75.40, '', 'NU MEDICAL'); inv(day(11, 16), 'FNU', 'NU MEDICAL', 75.45, '', 'NU MEDICAL')
+# N° saisi en partie (pas exactement le même n°), 5 centimes d'écart : pas un doublon
+inv(day(11, 20), 'FKSI', 'KSI PHARMA', 99.40, '8812345678', 'KSI PHARMA'); inv(day(11, 21), 'FKSI', 'KSI PHARMA', 99.45, '45678', 'KSI PHARMA')
 
 rows.insert(0, ['AN', 'A NOUVEAUX', '0', '20260101', '401000', 'FOURNISSEURS', 'FGRNORD', 'GROSSISTE NORD', 'AN', '20260101', 'A NOUVEAU', '0,00', '5000,00', '', '', '20260101', '', ''])
 rows.insert(1, ['AN', 'A NOUVEAUX', '0', '20260101', '890000', 'BILAN OUVERTURE', '', '', 'AN', '20260101', 'A NOUVEAU', '5000,00', '0,00', '', '', '20260101', '', ''])
