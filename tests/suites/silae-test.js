@@ -32,6 +32,7 @@ const { fecTab } = require('./lib');
   const z3 = await p.evaluate(() => ui.social.files.map((x) => x.info).join(' '));
   ko(/FEC de l'analyse : \d+ lignes retenues/.test(z3) && (await p.textContent('.fec-groups button.on')) === 'Paie' && !(await p.$('.soc-drop[data-zone=gl]'))
     && await p.evaluate(() => ui.social.link.clientId === clientBySiren('456456456').id && ui.social.link.closing === '2025-12-31'), `onglet Paie, FEC de l'analyse repris, dossier rattaché : ${z3.trim()}`);
+  ko(/FEC de l'analyse : 13 écriture\(s\) de paie repérée\(s\) \(journal OD, PA\)/.test(await p.textContent('.soc-fec')), 'onglet Paie : écritures de paie repérées dans le FEC de l’analyse');
   const drop = async (zone, file) => {
     [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click(`.soc-drop[data-zone=${zone}]`)]);
     await ch.setFiles(D + 'silae/' + file); await p.waitForTimeout(300);
@@ -122,6 +123,16 @@ const { fecTab } = require('./lib');
   await p.waitForTimeout(200);
   const c3 = await checks();
   ko(c3.some((x) => /À vérifier Rémunération du personnel : écart avec le journal de paie Silae/.test(x)) && /ancienne version/.test(await p.textContent('.card:has([data-action=social-from-fec])')), 'ancien rapprochement repris dans les contrôles');
+  // 9. FEC présenté comme ACD, puis comme Pennylane : logiciel reconnu dans le FEC et cité dans le cadrage
+  for (const [file, soft] of [['acd-900000010FEC20251231.txt', 'ACD'], ['pennylane-900000010FEC20251231.txt', 'Pennylane']]) {
+    await p.goto(BASE + '#/fec'); await p.waitForSelector('.fec-drop, .fec-meta');
+    [ch] = await Promise.all([p.waitForEvent('filechooser'), p.click('[data-action=fec-pick]')]);
+    await ch.setFiles(D + 'compare/' + file); await p.waitForTimeout(300); await p.waitForSelector('.fec-meta');
+    await p.click('.fec-groups button[data-group="paie"]'); await p.waitForSelector('.soc-fec'); await p.waitForTimeout(200);
+    const info = await p.textContent('.soc-fec');
+    ko(new RegExp(`FEC de l'analyse \\(${soft}\\) : \\d+ écriture\\(s\\) de paie repérée\\(s\\) \\(journal OD\\)`).test(info) && await p.evaluate(() => socSoft()) === soft
+      && await p.inputValue('[data-social=soft]') === soft, `FEC ${soft} : logiciel reconnu, écritures de paie repérées (${info.trim()})`);
+  }
   console.log('erreurs', errors);
   await b.close();
 })();

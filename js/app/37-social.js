@@ -47,7 +47,20 @@ function socState() {
   ui.social = ui.social || { files: [], parsed: { recap: null, cot: null, gl: [], repos: null }, pdf: {}, MAP: {}, MAN: {}, RM: {}, SAL: {}, RECL: [], dClo: '', last: null, err: '', inputs: {}, link: null, fecOf: null };
   return ui.social;
 }
-const socSoft = () => data.settings.socialSoft || 'Pennylane';
+// Logiciel comptable cité dans les notes : saisi pour cette session, sinon reconnu dans le FEC, sinon le dernier saisi
+const socSoft = () => { const st = ui.social; return (st && (st.softMan || st.softFec)) || data.settings.socialSoft || 'Pennylane'; };
+// Logiciel d'origine d'un FEC : ACD (n° de pièce de la GED « B000005133 », comptes à 8 chiffres) ou Pennylane (journaux
+// BQ1, BQ2…, HA et VT, devise EUR sur chaque ligne) ; '' si rien ne le dit.
+function socFecSoft(n) {
+  if (!n.all) return '';
+  if (n.gedB / n.all >= 0.3) return 'ACD';
+  if (n.bqN || (n.J.has('HA') && n.J.has('VT'))) return 'Pennylane';
+  if (n.acc8 / n.all >= 0.8) return 'ACD';
+  if (n.eur / n.all >= 0.8) return 'Pennylane';
+  return '';
+}
+// Écritures de paie d'un FEC : toute écriture qui mouvemente un 645 ou crédite le 421, hors banque et à-nouveaux
+const socPaieEntries = (G) => new Set(G.filter((r) => r.ecr && (/^645/.test(r.acc) || (/^421/.test(r.acc) && r.c > 0)) && !/^R?AN$|^BQ|^BAN/.test(r.jnl)).map((r) => r.ecr));
 
 // ---------- Lecture des fichiers ----------
 async function socReadRows(file) {
@@ -266,7 +279,9 @@ function socParseGl(rows) {
   return out;
 }
 
-// FEC (texte) : seules les lignes des classes 42, 43, 44, 63 et 64 sont retenues, avec leur écriture (journal + numéro)
+// FEC (texte) : seules les lignes des classes 42, 43, 44, 63 et 64 sont retenues, avec leur écriture : journal, numéro et
+// date (une numérotation qui repart chaque mois ne mêle pas deux écritures), ou journal, date et pièce sans numéro.
+// out.soft : logiciel d'origine reconnu (voir socFecSoft).
 function socParseFec(text) {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
   if (!lines.length) throw new Error('fichier vide');
@@ -276,19 +291,30 @@ function socParseFec(text) {
   const H = h0.split(sep).map((x) => clean(x).toLowerCase());
   const ix = (n) => H.indexOf(n);
   const iJ = ix('journalcode'), iN = ix('ecriturenum'), iD = ix('ecrituredate'), iC = ix('comptenum'), iCL = ix('comptelib'), iDe = ix('debit'), iCr = ix('credit'), iL = ix('ecriturelet'), iM = ix('montant'), iS = ix('sens');
+  const iP = ix('pieceref'), iV = ix('idevise');
   if (iC < 0 || iJ < 0) throw new Error('en-têtes FEC introuvables (JournalCode, CompteNum)');
   const out = [];
+  const n = { all: 0, gedB: 0, acc8: 0, eur: 0, bqN: 0, J: new Set() };
   for (let k = 1; k < lines.length; k++) {
     const c = lines[k].split(sep).map(clean);
     const acc = (c[iC] || '').replace(/\s/g, '');
+    const piece = iP >= 0 ? c[iP] || '' : '';
+    n.all++;
+    if (/^B\d{9}$/.test(piece)) n.gedB++;
+    if (/^\d{8}$/.test(acc)) n.acc8++;
+    if (iV >= 0 && /^EUR$/i.test(c[iV] || '')) n.eur++;
+    const j0 = (c[iJ] || '').toUpperCase();
+    if (!n.J.has(j0)) { n.J.add(j0); if (/^BQ\d+$/.test(j0)) n.bqN++; }
     if (!/^(4[234]|6[34])/.test(acc)) continue;
     let d = iDe >= 0 ? socNum(c[iDe]) : 0, cr = iCr >= 0 ? socNum(c[iCr]) : 0;
     if (iDe < 0 && iM >= 0) { const m = socNum(c[iM]); if (/^(c|-)/i.test(c[iS] || '')) { cr = m; d = 0; } else { d = m; cr = 0; } }
     const ds = (c[iD] || '').replace(/\D/g, '');
     const dt = ds.length === 8 ? new Date(Date.UTC(+ds.slice(0, 4), +ds.slice(4, 6) - 1, +ds.slice(6, 8), 12)) : socDate(c[iD]);
     const jnl = (c[iJ] || '').toUpperCase();
-    out.push({ acc, lib: iCL >= 0 ? c[iCL] || '' : '', date: dt, mk: socMk(dt), jnl, ecr: `${jnl}|${c[iN] || k}`, let: iL >= 0 ? c[iL] || '' : '', d, c: cr });
+    const num = c[iN] || '';
+    out.push({ acc, lib: iCL >= 0 ? c[iCL] || '' : '', date: dt, mk: socMk(dt), jnl, ecr: num ? `${jnl}|${num}|${ds}` : `${jnl}|${ds}|${piece || k}`, let: iL >= 0 ? c[iL] || '' : '', d, c: cr });
   }
+  out.soft = socFecSoft(n);
   return out;
 }
 
@@ -324,10 +350,11 @@ async function socLoad(list, zone) {
           const gl = socParseFec(t);
           st.parsed.gl = gl;
           st.glFec = true;
+          st.softFec = gl.soft;
           st.files = st.files.filter((x) => x.zone !== 'gl');
           st.fecOf = null;
           st.link = null;
-          st.files.push({ name: file.name, zone, info: `FEC : ${gl.length} lignes retenues (classes 42, 43, 44, 63, 64) – comptes : ${[...new Set(gl.map((x) => socShort(x.acc)))].sort().join(', ')}` });
+          st.files.push({ name: file.name, zone, info: `FEC${gl.soft ? ` ${gl.soft}` : ''} : ${gl.length} lignes retenues (classes 42, 43, 44, 63, 64) – comptes : ${[...new Set(gl.map((x) => socShort(x.acc)))].sort().join(', ')}` });
           socLinkFile(st, file.name);
           continue;
         }
@@ -346,7 +373,7 @@ async function socLoad(list, zone) {
       } else {
         const gl = socParseGl(rows);
         // Grands livres : ils s'ajoutent entre eux, mais remplacent un FEC
-        if (st.glFec) { st.parsed.gl = []; st.files = st.files.filter((x) => x.zone !== 'gl'); st.glFec = false; st.fecOf = null; st.link = null; }
+        if (st.glFec) { st.parsed.gl = []; st.files = st.files.filter((x) => x.zone !== 'gl'); st.glFec = false; st.softFec = ''; st.fecOf = null; st.link = null; }
         st.parsed.gl.push(...gl);
         info = `${gl.length} lignes lues – comptes : ${[...new Set(gl.map((x) => socShort(x.acc)))].sort().join(', ') || 'aucun'}`;
       }
@@ -432,7 +459,8 @@ async function socBindFec() {
         const gl = socParseFec(socDecode(new Uint8Array(src.buffer)));
         st.parsed.gl = gl;
         st.glFec = true;
-        st.files.push({ name: src.name, zone: 'gl', info: `FEC de l'analyse : ${gl.length} lignes retenues (classes 42, 43, 44, 63, 64)` });
+        st.softFec = gl.soft;
+        st.files.push({ name: src.name, zone: 'gl', info: `FEC de l'analyse${gl.soft ? ` (${gl.soft})` : ''} : ${gl.length} lignes retenues (classes 42, 43, 44, 63, 64)` });
       } catch (e) {
         st.files.push({ name: f.fileName || r.meta.fileName, zone: 'gl', err: e.message || String(e) });
       }
@@ -529,7 +557,7 @@ function socCompute(st) {
   const A = socAggregate(G), PJ = socPaieJournal(G), PJS = socPaieJournals(G, PJ), per = R.periods;
   // Écritures de paie : dans un FEC, toute écriture qui mouvemente un 645 ou crédite le 421 (quel que soit le journal) ;
   // dans un grand livre, les journaux de paie
-  const PE = new Set(G.filter((r) => r.ecr && (/^645/.test(r.acc) || (/^421/.test(r.acc) && r.c > 0)) && !/^R?AN$|^BQ|^BAN/.test(r.jnl)).map((r) => r.ecr));
+  const PE = socPaieEntries(G);
   const isP = (r) => (r.ecr ? PE.has(r.ecr) : PJS.has(r.jnl));
   const cards = [], orgByKey = {};
   O.forEach((o) => { orgByKey[o.key] = o; });
@@ -880,9 +908,19 @@ function viewSocial(embedded) {
       <div class="fec-drop soc-drop" data-action="social-pick" data-zone="${z.k}" role="button" tabindex="0"><p><strong>${z.drop}</strong></p><p class="muted small">${z.hint}</p></div>
       ${fs.length ? `<ul class="soc-files">${fs.map((x) => `<li><span>${esc(x.name)}</span><em class="${x.err ? 'late' : 'muted'}">${esc(x.err || x.info || 'Chargé')}</em></li>`).join('')}</ul>` : ''}</section>`;
   };
+  // Onglet de l'Espace FEC : ce que le FEC de l'analyse contient pour la paie (sa case n'est pas affichée)
+  const fecInfo = () => {
+    if (!inFec) return '';
+    const G = st.parsed.gl, pe = socPaieEntries(G);
+    const jn = [...new Set(G.filter((r) => pe.has(r.ecr)).map((r) => r.jnl))].sort();
+    const soft = st.softFec ? ` (${esc(st.softFec)})` : '';
+    return pe.size
+      ? `<p class="muted small soc-fec">FEC de l'analyse${soft} : ${pe.size} écriture(s) de paie repérée(s) (journal ${esc(jn.join(', '))}), ${G.length} ligne(s) des comptes 42, 43, 44, 63 et 64 reprises.</p>`
+      : `<div class="banner warn soc-fec"><span><strong>Aucune écriture de paie repérée dans le FEC${soft}</strong> : aucune écriture ne mouvemente un compte 645 ni ne crédite le 421 (hors banque et à-nouveaux) ; ${G.length} ligne(s) des comptes 42, 43, 44, 63 et 64 lues. Vérifiez les comptes de paie du dossier.</span></div>`;
+  };
   const actions = `<div class="head-actions">${st.last ? '<button class="btn" data-action="social-copy-all">Copier toutes les notes</button>' : ''}${st.files.some((x) => x.zone !== 'gl' || !inFec) ? '<button class="btn" data-action="social-clear">Retirer les fichiers</button>' : ''}</div>`;
   let h = embedded
-    ? `<div class="page-head"><p class="muted">Cadrage de la paie (641, 645, 63, 42 et 43, congés payés) avec les éditions SILAE : déposez-les dans leur case, le FEC ouvert est repris. Chaque compte est rapproché de la paie et reçoit sa note ; le cadrage est enregistré dans le dossier et repris par le cycle H.</p>${actions}</div>`
+    ? `<div class="page-head"><p class="muted">Cadrage de la paie (641, 645, 63, 42 et 43, congés payés) avec les éditions SILAE : déposez-les dans leur case, le FEC ouvert est repris. Chaque compte est rapproché de la paie et reçoit sa note ; le cadrage est enregistré dans le dossier et repris par le cycle H.</p>${actions}</div>${fecInfo()}`
     : `<div class="page-head"><div><h1>Cycle social</h1><p class="muted small">Cadrage paie : 641, 645, 63, 42 et 43, congés payés</p></div>${actions}</div>
     <p class="muted">Déposez les exports SILAE et le FEC dans leur case en suivant les étapes. Chaque compte est ensuite rapproché de la paie et reçoit sa note. Les fichiers sont lus sur l'appareil : rien n'est envoyé ni conservé.</p>
     ${socLinkInfo(st)}`;
@@ -890,7 +928,7 @@ function viewSocial(embedded) {
     <div class="soc-zones">${SOC_ZONES.filter((z) => !(inFec && z.k === 'gl')).map(zone).join('')}</div>
     <section class="card"><div class="lett-opts">
       <label>Date de clôture <input type="date" data-social="dClo" value="${esc(st.dClo)}"></label>
-      <label>Nom du logiciel comptable <input data-social="soft" value="${esc(socSoft())}"></label>
+      <label>Nom du logiciel comptable <input data-social="soft" value="${esc(socSoft())}"${st.softFec && !st.softMan ? ' title="Reconnu dans le FEC"' : ''}></label>${st.softFec && !st.softMan ? `<span class="muted small">Logiciel reconnu dans le FEC : ${esc(st.softFec)}</span>` : ''}
     </div>${st.err ? `<p class="late small" role="status">${esc(st.err)}</p>` : ''}</section>`;
   if (!st.last) return h;
   const { cards } = st.last;
@@ -959,7 +997,7 @@ function onSocialChange(t) {
   const st = socState();
   const k = t.dataset.social;
   if (k === 'dClo') st.dClo = t.value;
-  else if (k === 'soft') { data.settings.socialSoft = t.value.trim() || 'Pennylane'; persist(); }
+  else if (k === 'soft') { st.softMan = t.value.trim(); data.settings.socialSoft = st.softMan || 'Pennylane'; persist(); }
   else if (k === 'sal') { st.SAL[t.dataset.acc] = t.checked; socRun(); }
   else if (k === 'unrec') { st.RECL.splice(+t.dataset.i, 1); socRun(); }
   else if (k === 'line') {
